@@ -4,3 +4,4 @@
 # If no REQUIRE file is present, it means there are no requirements.
 # See README.md for more details.
 julia 1.1
+FFTW
