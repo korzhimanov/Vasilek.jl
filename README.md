@@ -2,7 +2,7 @@
 
 An ongoing project on developing of a parallel 2D2P Maxwell — Vlasov — Boltzmann solver on adaptive meshes.
 
-As for now, the following funcionality has been impemented:
+As for now, the following funcionality has been implemented:
 * PFC scheme on 1D non-uniform grid
 * Strang splitting for 1D1V simulations
 * 1D Poisson Fourier solver
