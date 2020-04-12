@@ -1,9 +1,8 @@
 module PoissonFourier1D
-export make_solve_poisson
 
 using FFTW, LinearAlgebra
 
-function generate_solve(ρ₀, Δx)
+function generate_solver(ρ₀, Δx)
     PF = FFTW.plan_rfft(ρ₀)
     F = FFTW.rfft(ρ₀)
     ω = collect(LinRange(0.0, π/Δx, length(F)))
