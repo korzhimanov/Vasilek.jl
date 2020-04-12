@@ -1,7 +1,7 @@
 include(joinpath("..","..","src","MaxwellSolver","PoissonFourier1D.jl"))
 import .PoissonFourier1D
 
-begin
+@testset "Test 1D Poisson solvers" begin
     Δx = 0.01
     ρ = [sin(2π*i*Δx) for i = 0:1000]
     e = similar(ρ)

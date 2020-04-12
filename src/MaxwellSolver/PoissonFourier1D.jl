@@ -18,7 +18,7 @@ function generate_solver(ρ₀, Δx)
         end
         mul!(φ, Pφ, F)
         e[1] = 0.5*(φ[2]-φ[end])/Δx
-        for i = 2:length(e)-1
+        for i = 2:length(φ)-1
             e[i] = 0.5*(φ[i+1] - φ[i-1])/Δx
         end
         e[end] = 0.5*(φ[1]-φ[end-1])/Δx
