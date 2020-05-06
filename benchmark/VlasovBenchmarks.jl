@@ -14,6 +14,11 @@ import .Upwind
 SUITE["Upwind"] = BenchmarkGroup()
 SUITE["Upwind с"] = BenchmarkGroup()
 
+include(joinpath(dirname(@__FILE__),"..","src","VlasovSolver","Godunov.jl"))
+import .Godunov
+SUITE["Godunov constant"] = BenchmarkGroup()
+SUITE["Godunov linear"] = BenchmarkGroup()
+
 Δx = Dict()
 Δt = Dict()
 v = Dict()
@@ -40,6 +45,12 @@ for N in [100, 1000, 10000]
 
     advect![N][:Upwind_с] = Upwind.generate_solver(f₀[N], f[N])
     SUITE["Upwind с"]["advect $N"] = @benchmarkable advect![$N][:Upwind_с]($(v[N]*Δt[N]/Δx[N]))
+
+    advect![N][:Godunov_constant] = Godunov.generate_solver(f₀[N], f[N], :Riemann_constant)
+    SUITE["Godunov constant"]["advect $N"] = @benchmarkable advect![$N][:Godunov_constant]($(v[N]*Δt[N]/Δx[N]))
+
+    advect![N][:Godunov_linear] = Godunov.generate_solver(f₀[N], f[N], :Riemann_linear)
+    SUITE["Godunov linear"]["advect $N"] = @benchmarkable advect![$N][:Godunov_linear]($(v[N]*Δt[N]/Δx[N]))
 end
 
 end # module

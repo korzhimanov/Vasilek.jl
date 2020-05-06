@@ -4,6 +4,9 @@ import .LaxWendroff
 include(joinpath(dirname(@__FILE__), "..","..","src","VlasovSolver","Upwind.jl"))
 import .Upwind
 
+include(joinpath(dirname(@__FILE__), "..","..","src","VlasovSolver","Godunov.jl"))
+import .Godunov
+
 @testset "Test 1D advection solvers" begin
     Δx = 0.01
     Δt = 0.8*Δx
@@ -14,13 +17,6 @@ import .Upwind
     plot!(f₁, label = "expected")
 
     f = similar(f₀)
-
-    advect! = LaxWendroff.generate_solver(f₀, f)
-    advect!(v*Δt/Δx)
-    plot!(f, label = "Lax-Wendroff")
-
-    println(Δx*norm(f - f₁))
-    @test Δx*norm(f - f₁) ≈ 0 atol=1e-5
 
     advect! = Upwind.generate_solver(f₀, f, v*Δt/Δx)
     advect!()
@@ -46,6 +42,41 @@ import .Upwind
     advect! = Upwind.generate_solver(f₁, f)
     advect!(-v*Δt/Δx)
     plot!(f, label = "upwind⁻ c")
+
+    println(Δx*norm(f - f₀))
+    @test Δx*norm(f - f₀) ≈ 0 atol=1e-5
+
+    advect! = LaxWendroff.generate_solver(f₀, f)
+    advect!(v*Δt/Δx)
+    plot!(f, label = "Lax-Wendroff")
+
+    println(Δx*norm(f - f₁))
+    @test Δx*norm(f - f₁) ≈ 0 atol=1e-5
+
+    advect! = Godunov.generate_solver(f₀, f, :Riemann_constant)
+    advect!(v*Δt/Δx)
+    plot!(f, label = "Godunov constant +")
+
+    println(Δx*norm(f - f₁))
+    @test Δx*norm(f - f₁) ≈ 0 atol=1e-5
+
+    advect! = Godunov.generate_solver(f₁, f, :Riemann_constant)
+    advect!(-v*Δt/Δx)
+    plot!(f, label = "Godunov constant -")
+
+    println(Δx*norm(f - f₀))
+    @test Δx*norm(f - f₀) ≈ 0 atol=1e-5
+
+    advect! = Godunov.generate_solver(f₀, f, :Riemann_linear)
+    advect!(v*Δt/Δx)
+    plot!(f, label = "Godunov linear +")
+
+    println(Δx*norm(f - f₁))
+    @test Δx*norm(f - f₁) ≈ 0 atol=1e-5
+    
+    advect! = Godunov.generate_solver(f₁, f, :Riemann_linear)
+    advect!(-v*Δt/Δx)
+    plot!(f, label = "Godunov linear -")
 
     println(Δx*norm(f - f₀))
     @test Δx*norm(f - f₀) ≈ 0 atol=1e-5
