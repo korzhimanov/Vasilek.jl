@@ -68,4 +68,39 @@ function generate_solver(f₀, f, Riemann_solver_type)
     return solve!
 end
 
+function generate_solver(f₀, f, c, Riemann_solver_type)
+    Φ⁺ = generate_Φ⁺(Riemann_solver_type)
+    Φ⁻ = generate_Φ⁻(Riemann_solver_type)
+
+    function godunov⁺!(g, f, i, i⁻, i⁺)
+        g[i] = f[i] + Φ⁺(f, i, i⁻, c) - Φ⁺(f, i⁺, i, c)
+    end
+
+    function godunov⁻!(g, f, i, i⁻, i⁺)
+        g[i] = f[i] + Φ⁻(f, i, i⁻, c) - Φ⁻(f, i⁺, i, c)
+    end
+
+    function solve⁺!()
+        godunov⁺!(f, f₀, 1, length(f), 2)
+        @inbounds @fastmath @simd for i = 2:length(f)-1
+            godunov⁺!(f, f₀, i, i-1, i+1)
+        end
+        godunov⁺!(f, f₀, length(f), length(f)-1, 1)
+    end
+
+    function solve⁻!()
+        godunov⁻!(f, f₀, 1, length(f), 2)
+        @inbounds @fastmath @simd for i = 2:length(f)-1
+            godunov⁻!(f, f₀, i, i-1, i+1)
+        end
+        godunov⁻!(f, f₀, length(f), length(f)-1, 1)
+    end
+
+    if c > 0
+        return solve⁺!
+    else
+        return solve⁻!
+    end
+end
+
 end # module

@@ -1,86 +1,62 @@
-include(joinpath(dirname(@__FILE__), "..","..","src","VlasovSolver","LaxWendroff.jl"))
-import .LaxWendroff
+const MODULES = (:LaxWendroff,
+                 :Upwind,
+                 :Godunov)
 
-include(joinpath(dirname(@__FILE__), "..","..","src","VlasovSolver","Upwind.jl"))
-import .Upwind
+for mod_name in MODULES
+    include(joinpath(dirname(@__FILE__),"..","..","src","VlasovSolver","$mod_name.jl"))
+end
 
-include(joinpath(dirname(@__FILE__), "..","..","src","VlasovSolver","Godunov.jl"))
-import .Godunov
+args_var = Dict(
+    :Godunov => (:Riemann_constant, :Riemann_linear)
+)
+
+function test_1d_advection_step(mod_name, Δx, Δt, v, f₀, f₁, exp_norm_dev, args...; plot_needed=false)
+    if plot_needed
+        plt = plot(f₀, label = "initial")
+        plot!(f₁, label = "expected")
+    end
+
+    f = similar(f₀)
+
+    advect! = eval(:($mod_name)).generate_solver(f₀, f, v*Δt/Δx, args...)
+    advect!()
+
+    if plot_needed
+        plot!(f, label = "$mod_name $args (constant velocity)")
+    end
+
+    println("$mod_name $args (constant velocity): $(Δx*norm(f - f₁))")
+    @test Δx*norm(f - f₁) ≈ 0 atol=exp_norm_dev
+
+    advect! = eval(:($mod_name)).generate_solver(f₀, f, args...)
+    advect!(v*Δt/Δx)
+
+    if plot_needed
+        plot!(f, label = "$mod_name $args")
+    end
+
+    println("$mod_name $args: $(Δx*norm(f - f₁))")
+    @test Δx*norm(f - f₁) ≈ 0 atol=exp_norm_dev
+
+    if plot_needed
+        display(plt)
+    end
+end
 
 @testset "Test 1D advection solvers" begin
     Δx = 0.01
     Δt = 0.8*Δx
     v = 1.0
-    f₀ = [1.0 + 0.01*sin(2π*i*Δx) for i = 0:1000]
-    plt = plot(f₀, label = "initial")
-    f₁ = [1.0 + 0.01*sin(2π*(i*Δx - v*Δt)) for i = 0:1000]
-    plot!(f₁, label = "expected")
+    f₀ = [1.0 + 0.01*sin(2π*i*Δx) for i = 0:100]
+    f₁ = [1.0 + 0.01*sin(2π*(i*Δx - v*Δt)) for i = 0:100]
 
-    f = similar(f₀)
+    for mod_name in (:LaxWendroff, :Upwind)
+        test_1d_advection_step(mod_name, Δx, Δt,  v, f₀, f₁, 1e-5)
+        test_1d_advection_step(mod_name, Δx, Δt, -v, f₁, f₀, 1e-5)
+    end
 
-    advect! = Upwind.generate_solver(f₀, f, v*Δt/Δx)
-    advect!()
-    plot!(f, label = "upwind⁺")
-
-    println(Δx*norm(f - f₁))
-    @test Δx*norm(f - f₁) ≈ 0 atol=1e-5
-
-    advect! = Upwind.generate_solver(f₁, f, -v*Δt/Δx)
-    advect!()
-    plot!(f, label = "upwind⁻")
-
-    println(Δx*norm(f - f₀))
-    @test Δx*norm(f - f₀) ≈ 0 atol=1e-5
-
-    advect! = Upwind.generate_solver(f₀, f)
-    advect!(v*Δt/Δx)
-    plot!(f, label = "upwind⁺ c")
-
-    println(Δx*norm(f - f₁))
-    @test Δx*norm(f - f₁) ≈ 0 atol=1e-5
-
-    advect! = Upwind.generate_solver(f₁, f)
-    advect!(-v*Δt/Δx)
-    plot!(f, label = "upwind⁻ c")
-
-    println(Δx*norm(f - f₀))
-    @test Δx*norm(f - f₀) ≈ 0 atol=1e-5
-
-    advect! = LaxWendroff.generate_solver(f₀, f)
-    advect!(v*Δt/Δx)
-    plot!(f, label = "Lax-Wendroff")
-
-    println(Δx*norm(f - f₁))
-    @test Δx*norm(f - f₁) ≈ 0 atol=1e-5
-
-    advect! = Godunov.generate_solver(f₀, f, :Riemann_constant)
-    advect!(v*Δt/Δx)
-    plot!(f, label = "Godunov constant +")
-
-    println(Δx*norm(f - f₁))
-    @test Δx*norm(f - f₁) ≈ 0 atol=1e-5
-
-    advect! = Godunov.generate_solver(f₁, f, :Riemann_constant)
-    advect!(-v*Δt/Δx)
-    plot!(f, label = "Godunov constant -")
-
-    println(Δx*norm(f - f₀))
-    @test Δx*norm(f - f₀) ≈ 0 atol=1e-5
-
-    advect! = Godunov.generate_solver(f₀, f, :Riemann_linear)
-    advect!(v*Δt/Δx)
-    plot!(f, label = "Godunov linear +")
-
-    println(Δx*norm(f - f₁))
-    @test Δx*norm(f - f₁) ≈ 0 atol=1e-5
-    
-    advect! = Godunov.generate_solver(f₁, f, :Riemann_linear)
-    advect!(-v*Δt/Δx)
-    plot!(f, label = "Godunov linear -")
-
-    println(Δx*norm(f - f₀))
-    @test Δx*norm(f - f₀) ≈ 0 atol=1e-5
-
-    xlims!(90, 110)
-    display(plt)
+    for riemann_solver in (:Riemann_constant, :Riemann_linear)
+        test_1d_advection_step(:Godunov, Δx, Δt,  v, f₀, f₁, 1e-5, riemann_solver)
+        test_1d_advection_step(:Godunov, Δx, Δt, -v, f₁, f₀, 1e-5, riemann_solver)
+    end
 end
