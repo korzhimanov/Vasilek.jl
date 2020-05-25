@@ -1,5 +1,8 @@
+using Plots
 using Test
-include(joinpath("MaxwellSolver", "Maxwell1D.jl"))
-using .Maxwell1D
+using LinearAlgebra
 
-@test advance_fields!() == ""
+@testset "Test everything" begin
+    include("test_maxwell_sovers.jl")
+    include("test_vlasov_solvers.jl")
+end
