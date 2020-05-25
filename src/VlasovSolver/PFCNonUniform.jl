@@ -4,7 +4,6 @@ export make_advect_1D!
 function make_advect_1D!(Δx_::Vector{Float64})
     ξ = 2.0
     Δx = copy(Δx_)
-    Nx = length(Δx_)
 
     min_Δx = minimum(Δx)/maximum(Δx)
     ξ = (1.0 + min_Δx)*(1.0 + 2*min_Δx)/(3.0 + (min_Δx - 1.0/min_Δx)^2)
@@ -41,7 +40,7 @@ function make_advect_1D!(Δx_::Vector{Float64})
             Φ = Φ⁺(α, [f[end],f[1],f[2]], [Δx[end],Δx[1],Δx[2]])
             f_tmp[1] = f_tmp[1] - Φ/Δx[1]
             f_tmp[2] = f_tmp[2] + Φ/Δx[2]
-            for i in 2:Nx-1
+            for i in 2:length(Δx)-1
                 Φ = Φ⁺(α, f[i-1:i+1], Δx[i-1:i+1])
                 f_tmp[i] = f_tmp[i] - Φ/Δx[i]
                 f_tmp[i+1] = f_tmp[i+1] + Φ/Δx[i+1]
@@ -53,7 +52,7 @@ function make_advect_1D!(Δx_::Vector{Float64})
             Φ = Φ⁻(α, [f[end],f[1],f[2]], [Δx[end],Δx[1],Δx[2]])
             f_tmp[1] = f_tmp[1] + Φ/Δx[1]
             f_tmp[end] = f_tmp[end] - Φ/Δx[end]
-            for i in 2:Nx-1
+            for i in 2:length(Δx)-1
                 Φ = Φ⁻(α, f[i-1:i+1], Δx[i-1:i+1])
                 f_tmp[i] = f_tmp[i] + Φ/Δx[i]
                 f_tmp[i-1] = f_tmp[i-1] - Φ/Δx[i-1]
