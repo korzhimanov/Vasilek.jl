@@ -18,6 +18,7 @@ include(joinpath(dirname(@__FILE__),"..","src","VlasovSolver","Godunov.jl"))
 import .Godunov
 SUITE["Godunov constant"] = BenchmarkGroup()
 SUITE["Godunov linear"] = BenchmarkGroup()
+SUITE["Godunov linear VanLeer"] = BenchmarkGroup()
 
 Δx = Dict()
 Δt = Dict()
@@ -51,6 +52,9 @@ for N in [100, 1000, 10000]
 
     advect![N][:Godunov_linear] = Godunov.generate_solver(f₀[N], f[N], :Riemann_linear)
     SUITE["Godunov linear"]["advect $N"] = @benchmarkable advect![$N][:Godunov_linear]($(v[N]*Δt[N]/Δx[N]))
+
+    advect![N][:Godunov_linear_VanLeer] = Godunov.generate_solver(f₀[N], f[N], :Riemann_linear; flux_limiter = :VanLeer)
+    SUITE["Godunov linear VanLeer"]["advect $N"] = @benchmarkable advect![$N][:Godunov_linear_VanLeer]($(v[N]*Δt[N]/Δx[N]))
 end
 
 end # module
