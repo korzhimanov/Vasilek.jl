@@ -20,6 +20,12 @@ SUITE["Godunov constant"] = BenchmarkGroup()
 SUITE["Godunov linear"] = BenchmarkGroup()
 SUITE["Godunov linear VanLeer"] = BenchmarkGroup()
 
+include(joinpath(dirname(@__FILE__),"..","src","VlasovSolver","SemiLagrangian.jl"))
+import .SemiLagrangian
+SUITE["SemiLagrangian linear"] = BenchmarkGroup()
+SUITE["SemiLagrangian quadratic"] = BenchmarkGroup()
+SUITE["SemiLagrangian cubic"] = BenchmarkGroup()
+
 Δx = Dict()
 Δt = Dict()
 v = Dict()
@@ -55,6 +61,15 @@ for N in [100, 1000, 10000]
 
     advect![N][:Godunov_linear_VanLeer] = Godunov.generate_solver(f₀[N], f[N], :Riemann_linear; flux_limiter = :VanLeer)
     SUITE["Godunov linear VanLeer"]["advect $N"] = @benchmarkable advect![$N][:Godunov_linear_VanLeer]($(v[N]*Δt[N]/Δx[N]))
+
+    advect![N][:SemiLagrangian_linear] = SemiLagrangian.generate_solver(f₀[N], f[N]; interpolation_order = :Linear)
+    SUITE["SemiLagrangian linear"]["advect $N"] = @benchmarkable advect![$N][:SemiLagrangian_linear]($(v[N]*Δt[N]/Δx[N]))
+
+    advect![N][:SemiLagrangian_quadratic] = SemiLagrangian.generate_solver(f₀[N], f[N]; interpolation_order = :Quadratic)
+    SUITE["SemiLagrangian quadratic"]["advect $N"] = @benchmarkable advect![$N][:SemiLagrangian_quadratic]($(v[N]*Δt[N]/Δx[N]))
+
+    advect![N][:SemiLagrangian_cubic] = SemiLagrangian.generate_solver(f₀[N], f[N]; interpolation_order = :Cubic)
+    SUITE["SemiLagrangian cubic"]["advect $N"] = @benchmarkable advect![$N][:SemiLagrangian_cubic]($(v[N]*Δt[N]/Δx[N]))
 end
 
 end # module
