@@ -15,15 +15,15 @@ function test_1d_advection_step(mod_name, Δx, Δt, v, f₀, f₁, exp_norm_dev,
 
     f = similar(f₀)
 
-    # advect! = eval(:($mod_name)).generate_solver(f₀, f, v*Δt/Δx, args...; kwargs...)
-    # advect!()
-    #
-    # if plot_needed
-    #     plot!(f, label = "$mod_name $args (constant velocity)")
-    # end
-    #
-    # println("$mod_name $args $(values(values(kwargs))) (constant velocity): $(Δx*norm(f - f₁))")
-    # @test Δx*norm(f - f₁) ≈ 0 atol=exp_norm_dev
+    advect! = eval(:($mod_name)).generate_solver(f₀, f, v*Δt/Δx, args...; kwargs...)
+    advect!()
+
+    if plot_needed
+        plot!(f, label = "$mod_name $args (constant velocity)")
+    end
+
+    println("$mod_name $args $(values(values(kwargs))) (constant velocity): $(Δx*norm(f - f₁))")
+    @test Δx*norm(f - f₁) ≈ 0 atol=exp_norm_dev
 
     advect! = eval(:($mod_name)).generate_solver(f₀, f, args...; kwargs...)
     advect!(v*Δt/Δx)
