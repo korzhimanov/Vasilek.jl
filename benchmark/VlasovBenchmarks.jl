@@ -26,6 +26,10 @@ SUITE["SemiLagrangian linear"] = BenchmarkGroup()
 SUITE["SemiLagrangian quadratic"] = BenchmarkGroup()
 SUITE["SemiLagrangian cubic"] = BenchmarkGroup()
 
+include(joinpath(dirname(@__FILE__),"..","src","VlasovSolver","PFC.jl"))
+import .PFC
+SUITE["PFC"] = BenchmarkGroup()
+
 Δx = Dict()
 Δt = Dict()
 v = Dict()
@@ -70,6 +74,9 @@ for N in [100, 1000, 10000]
 
     advect![N][:SemiLagrangian_cubic] = SemiLagrangian.generate_solver(f₀[N], f[N]; interpolation_order = :Cubic)
     SUITE["SemiLagrangian cubic"]["advect $N"] = @benchmarkable advect![$N][:SemiLagrangian_cubic]($(v[N]*Δt[N]/Δx[N]))
+
+    advect![N][:PFC] = PFC.generate_solver(f₀[N], f[N])
+    SUITE["PFC"]["advect $N"] = @benchmarkable advect![$N][:PFC]($(v[N]*Δt[N]/Δx[N]))
 end
 
 end # module
