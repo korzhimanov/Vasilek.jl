@@ -42,5 +42,5 @@ end
     f₀ = @. exp(-v^2)*(1.0 + a*v^2)
     f₁ = @. n/sqrt(2π*T)*exp(-v^2/(2T))
 
-    test_1v_damping_step(:BGK, Δt, 1e-1, f₀, f₁, v, 1e-5; plot_needed = true)
+    test_1v_damping_step(:BGK, Δt, 1e-1, f₀, f₁, v, 1e-5)
 end
