@@ -1,8 +1,8 @@
-const MODULES = (:LaxWendroff,
-                 :Upwind,
-                 :Godunov,
-                 :SemiLagrangian,
-                 :PFC)
+MODULES  = (:LaxWendroff,
+            :Upwind,
+            :Godunov,
+            :SemiLagrangian,
+            :PFC)
 
 for mod_name in MODULES
     include(joinpath(dirname(@__FILE__),"..","..","src","VlasovSolver","$mod_name.jl"))
