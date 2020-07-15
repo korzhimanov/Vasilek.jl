@@ -2,7 +2,8 @@ module BGK
 
 using NumericalIntegration
 
-function generate_solver(f, v_, νΔt)
+function generate_solver(f, v_, Δt, τ)
+    e = exp(-Δt/τ)
     v = copy(v_)
 
     function solve!()
@@ -12,7 +13,7 @@ function generate_solver(f, v_, νΔt)
 
         M = @. n/sqrt(2π*T)*exp(-(v-u)^2/(2T))
 
-        f[:] = f*(1 - νΔt) + νΔt*M
+        f[:] = f*e + (1.0 - e)*M
     end
 
     return solve!
