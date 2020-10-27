@@ -13,6 +13,14 @@ function generate_solver(f₀, f, c)
         lax_wendroff!(f, f₀, length(f), length(f)-1, 1)
     end
 
+    function solve!(h, h₀)
+        lax_wendroff!(h, h₀, 1, length(f), 2)
+        @inbounds @fastmath @simd for i = 2:length(f)-1
+            lax_wendroff!(h, h₀, i, i-1, i+1)
+        end
+        lax_wendroff!(h, h₀, length(f), length(f)-1, 1)
+    end
+
     return solve!
 end
 
@@ -27,6 +35,14 @@ function generate_solver(f₀, f)
             lax_wendroff!(f, f₀, i, i-1, i+1, c)
         end
         lax_wendroff!(f, f₀, length(f), length(f)-1, 1, c)
+    end
+
+    function solve!(h, h₀, c)
+        lax_wendroff!(h, h₀, 1, length(f), 2, c)
+        @inbounds @fastmath @simd for i = 2:length(f)-1
+            lax_wendroff!(h, h₀, i, i-1, i+1, c)
+        end
+        lax_wendroff!(h, h₀, length(f), length(f)-1, 1, c)
     end
 
     return solve!

@@ -55,6 +55,34 @@ function generate_solver(f₀, f)
         end
     end
 
+    function solve!(h, h₀, c)
+        if c > 0
+            Φ = Φ⁺(h₀, 1, length(f), 2, c)
+            h[1] = h₀[1] - Φ
+            h[2] = h₀[2] + Φ
+            for i in 2:length(f)-1
+                Φ = Φ⁺(h₀, i, i-1, i+1, c)
+                h[i] = h[i] - Φ
+                h[i+1] = h₀[i+1] + Φ
+            end
+            Φ = Φ⁺(h₀, length(f), length(f)-1, 1, c)
+            h[end] = h[end] - Φ
+            h[1] = h[1] + Φ
+        else
+            Φ = Φ⁻(h₀, 1, length(f), 2, c)
+            h[1] = h₀[1] + Φ
+            h[end] = h₀[end] - Φ
+            for i in 2:length(f)-1
+                Φ = Φ⁻(h₀, i, i-1, i+1, c)
+                h[i] = h₀[i] + Φ
+                h[i-1] = h[i-1] - Φ
+            end
+            Φ = Φ⁻(h₀, length(f), length(f)-1, 1, c)
+            h[end] = h[end] + Φ
+            h[end-1] = h[end-1] - Φ
+        end
+    end
+
     return solve!
 end
 
