@@ -1,11 +1,9 @@
 module PFC
 
-function generate_solver(f₀, f)
-    fₘₐₓ = maximum(f₀)
-
+function generate_solver(f₀, f; fₘᵢₙ = 0, fₘₐₓ = 1)
     function ϵ⁺(f, g)
         if f < g
-            return min(g - f, 2.0*f)
+            return min(g - f, 2.0*(f - fₘᵢₙ))
         else
             return max(g - f, -2.0*(fₘₐₓ - f))
         end
@@ -13,7 +11,7 @@ function generate_solver(f₀, f)
 
     function ϵ⁻(f, g)
         if f < g
-            return max(f - g, -2.0*f)
+            return max(f - g, -2.0*(f - fₘᵢₙ))
         else
             return min(f - g, 2.0*(fₘₐₓ - f))
         end
