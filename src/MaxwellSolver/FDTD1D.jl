@@ -12,34 +12,34 @@ function make_advance_fields(Nx, half_cfl, pulse_shape, Δt, Δx, x_min)
     end
 
     function update_ey!(ey, hz)
-        for i = 2:Nx-1
+        for i = 2:Nx
             ey[i] -= half_cfl*(hz[i] - hz[i-1])
         end
     end
     
     function update_ez!(ez, hy)
-        for i = 2:Nx-1
+        for i = 2:Nx
             ez[i] += half_cfl*(hy[i] - hy[i-1])
         end
     end
     
     function update_hy!(hy, ez)
         for i = 1:Nx
-            hy[i] += half_cfl*(ez[i] - ez[i-1])
+            hy[i] += half_cfl*(ez[i+1] - ez[i])
         end
     end
     
     function update_hz!(hz, ey)
         for i = 1:Nx
-            hz[i] += half_cfl*(ey[i] - ey[i-1])
+            hz[i] -= half_cfl*(ey[i+1] - ey[i])
         end
     end
 
     function make_step!(f, j)
-        update_ex!(f["ey"], f["hz"])
-        update_ey!(f["ez"], f["hy"])
+        update_ey!(f["ey"], f["hz"])
+        update_ez!(f["ez"], f["hy"])
         
-        update_hx!(f["hz"], f["ey"])
+        update_hz!(f["hz"], f["ey"])
         update_hy!(f["hy"], f["ez"])
     end
     
