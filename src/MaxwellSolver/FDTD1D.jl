@@ -1,51 +1,63 @@
 module FDTD1D
-export make_advance_fields
+export make_advance_fields, YeeMesh1D
 
-function make_advance_fields(Nx, half_cfl, pulse_shape, Δt, Δx, x_min)
-    
-    function generate_fields_x_min!(f, t)
-        f["ey"][2] -= pulse_shape["y"].(t, x_min + Δx)
-        f["ez"][2] -= pulse_shape["z"].(t, x_min + Δx)
+struct YeeMesh1D{T<:AbstractFloat, S<:Integer}
+    ey::Vector{T}
+    ez::Vector{T}
+    hy::Vector{T}
+    hz::Vector{T}
+    N::S
+    function YeeMesh1D{T}(N::S) where {T, S}
+        new{T,S}(zeros(T, N+1), zeros(T, N+1), zeros(T, N), zeros(T, N), N)
+    end
+end
+
+function make_advance_fields(f::YeeMesh1D{T,S}, cfl, pulse_shape, Δt, Δx, x_min) where {T,S}
+    Nx = f.N
+
+    function generate_fields_x_min!(t)
+        f.ey[2] -= pulse_shape["y"].(t, x_min + Δx)
+        f.ez[2] -= pulse_shape["z"].(t, x_min + Δx)
         
-        f["hz"][2] -= pulse_shape["y"].(t + 0.5*Δt, x_min + 1.5*Δx)
-        f["hy"][2] -= pulse_shape["z"].(t + 0.5*Δt, x_min + 1.5*Δx)
+        f.hz[2] -= pulse_shape["y"].(t + 0.5*Δt, x_min + 1.5*Δx)
+        f.hy[2] -= pulse_shape["z"].(t + 0.5*Δt, x_min + 1.5*Δx)
     end
 
-    function update_ey!(ey, hz)
+    function update_ey!()
         for i = 2:Nx
-            ey[i] -= half_cfl*(hz[i] - hz[i-1])
+            f.ey[i] -= cfl*(f.hz[i] - f.hz[i-1])
         end
     end
     
-    function update_ez!(ez, hy)
+    function update_ez!()
         for i = 2:Nx
-            ez[i] += half_cfl*(hy[i] - hy[i-1])
+            f.ez[i] += cfl*(f.hy[i] - f.hy[i-1])
         end
     end
     
-    function update_hy!(hy, ez)
+    function update_hy!()
         for i = 1:Nx
-            hy[i] += half_cfl*(ez[i+1] - ez[i])
+            f.hy[i] += cfl*(f.ez[i+1] - f.ez[i])
         end
     end
     
-    function update_hz!(hz, ey)
+    function update_hz!()
         for i = 1:Nx
-            hz[i] -= half_cfl*(ey[i+1] - ey[i])
+            f.hz[i] -= cfl*(f.ey[i+1] - f.ey[i])
         end
     end
 
-    function make_step!(f, j)
-        update_ey!(f["ey"], f["hz"])
-        update_ez!(f["ez"], f["hy"])
+    function make_step!(j)
+        update_ey!()
+        update_ez!()
         
-        update_hz!(f["hz"], f["ey"])
-        update_hy!(f["hy"], f["ez"])
+        update_hz!()
+        update_hy!()
     end
     
-    function advance_fields!(f, t, j)
-        generate_fields_x_min!(f, t)
-        make_step!(f, j)
+    function advance_fields!(t, j)
+        generate_fields_x_min!(t)
+        make_step!(j)
     end
     
     return advance_fields!
