@@ -16,11 +16,11 @@ function make_advance_fields(f::YeeMesh1D{T,S}, cfl, pulse_shape, Δt, Δx, x_mi
     Nx = f.N
 
     function generate_fields_x_min!(t)
-        f.ey[2] -= pulse_shape["y"].(t, x_min + Δx)
-        f.ez[2] -= pulse_shape["z"].(t, x_min + Δx)
+        f.ey[2] -= cfl*pulse_shape["y"].(t, x_min + Δx)
+        f.ez[2] -= cfl*pulse_shape["z"].(t, x_min + Δx)
         
-        f.hz[2] -= pulse_shape["y"].(t + 0.5*Δt, x_min + 1.5*Δx)
-        f.hy[2] -= pulse_shape["z"].(t + 0.5*Δt, x_min + 1.5*Δx)
+        f.hz[2] -= cfl*pulse_shape["y"].(t + 0.5*Δt, x_min + 1.5*Δx)
+        f.hy[2] -= cfl*pulse_shape["z"].(t + 0.5*Δt, x_min + 1.5*Δx)
     end
 
     function update_ey!()
