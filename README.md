@@ -8,5 +8,5 @@ As for now, the following functionality has been implemented:
 * 1D Poisson Fourier solver
 
 The program has been verified on the following tests:
-* [Long-lasting plasma oscillations](verification/plasma-oscillations-1d1v.ipynb)
-* [Landau damping](verification/landau-damping-1d1v.ipynb)
+* [Long-lasting plasma oscillations](verification/plasma-oscillations-1d1v.html)
+* [Landau damping](verification/landau-damping-1d1v.html)
