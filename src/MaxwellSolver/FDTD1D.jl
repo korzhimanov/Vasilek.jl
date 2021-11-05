@@ -36,7 +36,7 @@ function make_advance_fields(f::YeeMesh1D{T,S}, cfl, pulse_shape, Δt, Δx, x_mi
         f.hy[pml.N+2] -= cfl*pulse_shape["z"].(t + 0.5*Δt, x_min + 1.5*Δx)
     end
 
-    function update_ey!()
+    function update_ey!(jy)
         for i = 2:pml.N+1
             f.ey[i] = pml.r₁[1+2*(pml.N-i+1)]*f.ey[i] - pml.r₂[1+2*(pml.N-i+1)]*(f.hz[i] - f.hz[i-1])
         end
@@ -46,17 +46,35 @@ function make_advance_fields(f::YeeMesh1D{T,S}, cfl, pulse_shape, Δt, Δx, x_mi
         for i = Nx-pml.N+1:Nx
             f.ey[i] = pml.r₁[1+2*(i-Nx+pml.N-1)]*f.ey[i] - pml.r₂[1+2*(i-Nx+pml.N-1)]*(f.hz[i] - f.hz[i-1])
         end
+        for i = 1:Nx
+            f.ey[i] += jy[i]
+        end
     end
     
-    function update_ez!()
+    function update_ez!(jz)
+        for i = 2:pml.N+1
+            f.ez[i] = pml.r₁[1+2*(pml.N-i+1)]*f.ez[i] + pml.r₂[1+2*(pml.N-i+1)]*(f.hy[i] - f.hy[i-1])
+        end
         for i = pml.N+2:Nx-pml.N
-            f.ez[i] += cfl*(f.hy[i] - f.hy[i-1])
+            f.ez[i] += cfl*(f.hy[i] - f.hz[i-1])
+        end
+        for i = Nx-pml.N+1:Nx
+            f.ez[i] = pml.r₁[1+2*(i-Nx+pml.N-1)]*f.ez[i] + pml.r₂[1+2*(i-Nx+pml.N-1)]*(f.hy[i] - f.hy[i-1])
+        end
+        for i = 1:Nx
+            f.ez[i] += jz[i]
         end
     end
     
     function update_hy!()
+        for i = 1:pml.N
+            f.hy[i] = pml.r₁[2*(pml.N-i+1)]*f.hy[i] + pml.r₂[2*(pml.N-i+1)]*(f.ez[i+1] - f.ez[i])
+        end
         for i = pml.N+1:Nx-pml.N
             f.hy[i] += cfl*(f.ez[i+1] - f.ez[i])
+        end
+        for i = Nx-pml.N+1:Nx
+            f.hy[i] = pml.r₁[2*(i-Nx+pml.N)]*f.hy[i] + pml.r₂[2*(i-Nx+pml.N)]*(f.ez[i+1] - f.ez[i])
         end
     end
     
@@ -73,8 +91,8 @@ function make_advance_fields(f::YeeMesh1D{T,S}, cfl, pulse_shape, Δt, Δx, x_mi
     end
 
     function make_step!(j)
-        update_ey!()
-        update_ez!()
+        update_ey!(j.y)
+        update_ez!(j.z)
         
         update_hz!()
         update_hy!()

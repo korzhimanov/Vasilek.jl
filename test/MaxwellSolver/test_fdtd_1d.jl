@@ -18,8 +18,13 @@ function test_fdtd_1d_propagation(Δx, Δt, cfl, f₀, f₁, exp_norm_dev, args.
 
     advance_fields! = FDTD1D.make_advance_fields(f, cfl, pulse_shape, Δt, Δx, 0, FDTD1D.PML(0,1.0,Δx,Δt))
     
+    j = (
+        y = zeros(length(f.ey)),
+        z = zeros(length(f.ey))
+    )
+
     for t in 1:10
-        advance_fields!(0, :Nothing)
+        advance_fields!(t*Δt, j)
     end
 
     if plot_needed
@@ -45,8 +50,13 @@ function test_fdtd_1d_generation(Δx, Δt, cfl, f₀, f₁, pulse_shape, exp_nor
 
     advance_fields! = FDTD1D.make_advance_fields(f, cfl, pulse_shape, Δt, Δx, 0, FDTD1D.PML(0,1.0,Δx,Δt))
     
+    j = (
+        y = zeros(length(f.ey)),
+        z = zeros(length(f.ey))
+    )
+
     for t in 1:100
-        advance_fields!(t*Δt, :Nothing)
+        advance_fields!(t*Δt, j)
     end
 
     if plot_needed
@@ -78,8 +88,13 @@ function test_fdtd_1d_pml(Δx, Δt, cfl, f₀, f₁, exp_norm_dev, args...; plot
 
     advance_fields! = FDTD1D.make_advance_fields(f, cfl, pulse_shape, Δt, Δx, 0, FDTD1D.PML(10,1e3,Δx,Δt))
     
+    j = (
+        y = zeros(length(f.ey)),
+        z = zeros(length(f.ey))
+    )
+
     for t in 1:200
-        advance_fields!(0, :Nothing)
+        advance_fields!(0, j)
     end
 
     if plot_needed
@@ -128,5 +143,4 @@ end
     )
 
     test_fdtd_1d_generation(Δx, Δt, Δt/Δx, f₀, f₁, pulse_shape, 0.02)
-    # plot!(f.ey, label = "calculated")
 # end
