@@ -9,9 +9,9 @@ function test_fdtd_1d_propagation(Δx, Δt, cfl, f₀, f₁, exp_norm_dev, args.
 
     shape(t,x) = 0.0
 
-    pulse_shape = Dict(
-        "y"=>shape,
-        "z"=>shape
+    pulse_shape = (
+        y = shape,
+        z = shape
     )
 
     f = deepcopy(f₀)
@@ -79,9 +79,9 @@ function test_fdtd_1d_pml(Δx, Δt, cfl, f₀, f₁, exp_norm_dev, args...; plot
 
     shape(t,x) = 0.0
 
-    pulse_shape = Dict(
-        "y"=>shape,
-        "z"=>shape
+    pulse_shape = (
+        y = shape,
+        z = shape
     )
 
     f = deepcopy(f₀)
@@ -134,12 +134,9 @@ end
     f₁.ey[3:81] = [-sin(2π*(i*Δx-100*Δt)) for i = 1:79]
     f₁.hz[3:81] = [-sin(2π*((i+0.5)*Δx-100.5*Δt)) for i = 1:79]
     
-    shape_y(t,x) = sin(2π*(x-t))
-    shape_z(t,x) = 0.0
-
-    pulse_shape = Dict(
-        "y"=>shape_y,
-        "z"=>shape_z
+    pulse_shape = (
+        y = (t,x) -> sin(2π*(x-t)),
+        z = (t,x) -> 0.0
     )
 
     test_fdtd_1d_generation(Δx, Δt, Δt/Δx, f₀, f₁, pulse_shape, 0.02)
