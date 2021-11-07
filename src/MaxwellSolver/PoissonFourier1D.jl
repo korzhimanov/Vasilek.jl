@@ -5,7 +5,7 @@ using FFTW, LinearAlgebra
 function generate_solver(ρ₀, Δx)
     PF = FFTW.plan_rfft(ρ₀)
     F = FFTW.rfft(ρ₀)
-    ω = collect(LinRange(0.0, π/Δx, length(F)))
+    ω = collect(2π*rfftfreq(length(ρ₀)))
     ω[1] = ω[2]
     ω⁻² = -1.0./(ω.^2)
     Pφ = FFTW.plan_irfft(F, length(ρ₀))
