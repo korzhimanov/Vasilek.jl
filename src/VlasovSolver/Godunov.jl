@@ -1,6 +1,6 @@
 module Godunov
 
-include(joinpath(dirname(@__FILE__),"Limiters.jl"))
+using ..Limiters
 
 function calc_limiter(limiter_func, f, i, i⁻, i⁺)
     if f[i] - f[i⁻] ≈ 0.0

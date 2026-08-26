@@ -1,33 +1,24 @@
 module VlasovBenchmarks
 
 using BenchmarkTools
+using Vasilek: LaxWendroff, Upwind, Godunov, SemiLagrangian, PFC
 
 const SUITE = BenchmarkGroup()
 
-include(joinpath(dirname(@__FILE__),"..","src","VlasovSolver","LaxWendroff.jl"))
-import .LaxWendroff
 SUITE["LaxWendroff"] = BenchmarkGroup()
 SUITE["LaxWendroff c"] = BenchmarkGroup()
 
-include(joinpath(dirname(@__FILE__),"..","src","VlasovSolver","Upwind.jl"))
-import .Upwind
 SUITE["Upwind"] = BenchmarkGroup()
 SUITE["Upwind с"] = BenchmarkGroup()
 
-include(joinpath(dirname(@__FILE__),"..","src","VlasovSolver","Godunov.jl"))
-import .Godunov
 SUITE["Godunov constant"] = BenchmarkGroup()
 SUITE["Godunov linear"] = BenchmarkGroup()
 SUITE["Godunov linear VanLeer"] = BenchmarkGroup()
 
-include(joinpath(dirname(@__FILE__),"..","src","VlasovSolver","SemiLagrangian.jl"))
-import .SemiLagrangian
 SUITE["SemiLagrangian linear"] = BenchmarkGroup()
 SUITE["SemiLagrangian quadratic"] = BenchmarkGroup()
 SUITE["SemiLagrangian cubic"] = BenchmarkGroup()
 
-include(joinpath(dirname(@__FILE__),"..","src","VlasovSolver","PFC.jl"))
-import .PFC
 SUITE["PFC"] = BenchmarkGroup()
 
 Δx = Dict()

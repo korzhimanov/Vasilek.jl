@@ -1,9 +1,10 @@
-using Plots
+using Vasilek
 using Test
 using LinearAlgebra
 
 @testset "Test everything" begin
-    include("test_maxwell_sovers.jl")
+    include("test_aqua.jl")
+    include("test_maxwell_solvers.jl")
     include("test_vlasov_solvers.jl")
     include("test_boltzmann_solvers.jl")
 end

@@ -1,5 +1,4 @@
-include(joinpath("..","..","src","MaxwellSolver","PoissonFourier1D.jl"))
-import .PoissonFourier1D
+using Vasilek.PoissonFourier1D
 
 @testset "Test 1D Poisson solvers" begin
     Δx = 0.01
