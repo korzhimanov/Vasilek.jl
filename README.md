@@ -1,4 +1,4 @@
-# Vasilek — Vlasov Adaptive SImulator of pLasma Electrodynamics and Kinetics
+# Vasilek — Vlasov Adaptive Simulator of pLasma Electrodynamics and Kinetics
 
 An ongoing project on developing a parallel 2D2P Maxwell — Vlasov — Boltzmann solver on adaptive meshes.
 
