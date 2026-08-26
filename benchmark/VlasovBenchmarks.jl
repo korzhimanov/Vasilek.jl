@@ -75,7 +75,7 @@ for N in [100, 1000, 10000]
     advect![N][:SemiLagrangian_cubic] = SemiLagrangian.generate_solver(f₀[N], f[N]; interpolation_order = :Cubic)
     SUITE["SemiLagrangian cubic"]["advect $N"] = @benchmarkable advect![$N][:SemiLagrangian_cubic]($(v[N]*Δt[N]/Δx[N]))
 
-    advect![N][:PFC] = PFC.generate_solver(f₀[N], f[N])
+    advect![N][:PFC] = PFC.generate_solver(f₀[N], f[N]; fₘᵢₙ=0.0, fₘₐₓ=maximum(f₀[N]))
     SUITE["PFC"]["advect $N"] = @benchmarkable advect![$N][:PFC]($(v[N]*Δt[N]/Δx[N]))
 end
 

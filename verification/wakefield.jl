@@ -38,8 +38,8 @@ Ne = integrate(x, n0)
 
 g = copy(f)
 
-advect_x! = PFC.generate_solver(g[1,:], f[1,:]; fₘₐₓ = maximum(f))
-advect_p! = PFC.generate_solver(f[:,1], g[:,1]; fₘₐₓ = maximum(f))
+advect_x! = PFC.generate_solver(g[1,:], f[1,:]; fₘᵢₙ = 0.0, fₘₐₓ = maximum(f))
+advect_p! = PFC.generate_solver(f[:,1], g[:,1]; fₘᵢₙ = 0.0, fₘₐₓ = maximum(f))
 
 em = FDTD1D.YeeMesh1D{Float64}(length(x)-1)
 

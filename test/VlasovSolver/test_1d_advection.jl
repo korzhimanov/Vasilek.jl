@@ -75,8 +75,8 @@ end
     test_1d_advection_step(:SemiLagrangian, Δx, Δt,  v, f₀, f₁, 2e-11; interpolation_order = :Cubic)
     test_1d_advection_step(:SemiLagrangian, Δx, Δt, -v, f₁, f₀, 2e-11; interpolation_order = :Cubic)
 
-    test_1d_advection_step(:PFC, Δx, Δt,  v, f₀, f₁, 3e-8)
-    test_1d_advection_step(:PFC, Δx, Δt, -v, f₁, f₀, 3e-8)
+    test_1d_advection_step(:PFC, Δx, Δt,  v, f₀, f₁, 3e-8; fₘᵢₙ=0.0, fₘₐₓ=maximum(f₀))
+    test_1d_advection_step(:PFC, Δx, Δt, -v, f₁, f₀, 3e-8; fₘᵢₙ=0.0, fₘₐₓ=maximum(f₁))
 
     f₀ = [exp(-((i*Δx - 0.5)/0.15)^2) for i = 0:100]
     f₁ = [exp(-((i*Δx - v*Δt - 0.5)/0.15)^2) for i = 0:100]
@@ -105,8 +105,8 @@ end
     test_1d_advection_step(:SemiLagrangian, Δx, Δt,  v, f₀, f₁, 4e-8; interpolation_order = :Cubic)
     test_1d_advection_step(:SemiLagrangian, Δx, Δt, -v, f₁, f₀, 4e-8; interpolation_order = :Cubic)
 
-    test_1d_advection_step(:PFC, Δx, Δt,  v, f₀, f₁, 5e-6)
-    test_1d_advection_step(:PFC, Δx, Δt, -v, f₁, f₀, 5e-6)
+    test_1d_advection_step(:PFC, Δx, Δt,  v, f₀, f₁, 5e-6; fₘᵢₙ=0.0, fₘₐₓ=maximum(f₀))
+    test_1d_advection_step(:PFC, Δx, Δt, -v, f₁, f₀, 5e-6; fₘᵢₙ=0.0, fₘₐₓ=maximum(f₁))
 
     f₀ = zeros(Float64, 100)
     for i = 40:50
@@ -149,6 +149,6 @@ end
     test_1d_advection_step(:SemiLagrangian, Δx, Δt,  v, f₀, f₁, 2e-3; interpolation_order = :Cubic)
     test_1d_advection_step(:SemiLagrangian, Δx, Δt, -v, f₀, f₂, 2e-3; interpolation_order = :Cubic)
 
-    test_1d_advection_step(:PFC, Δx, Δt,  v, f₀, f₁, 1e-18)
-    test_1d_advection_step(:PFC, Δx, Δt, -v, f₀, f₂, 1e-18)
+    test_1d_advection_step(:PFC, Δx, Δt,  v, f₀, f₁, 1e-18; fₘᵢₙ=0.0, fₘₐₓ=maximum(f₀))
+    test_1d_advection_step(:PFC, Δx, Δt, -v, f₀, f₂, 1e-18; fₘᵢₙ=0.0, fₘₐₓ=maximum(f₀))
 end
