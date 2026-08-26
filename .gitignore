@@ -6,3 +6,10 @@
 
 # Backup-files
 *~
+
+# Julia environments
+/Manifest.toml
+/benchmark/Manifest.toml
+/verification/Manifest.toml
+/docs/Manifest.toml
+/docs/build/

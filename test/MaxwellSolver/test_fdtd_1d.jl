@@ -1,153 +1,59 @@
-include(joinpath("..","..","src","MaxwellSolver","FDTD1D.jl"))
-import .FDTD1D
+using Vasilek.FDTD1D
 
-function test_fdtd_1d_propagation(Δx, Δt, cfl, f₀, f₁, exp_norm_dev, args...; plot_needed=false, kwargs...)
-    if plot_needed
-        plt = plot(f₀.ey, label = "initial")
-        plot!(f₁.ey, label = "expected")
-    end
+const NO_PULSE = (y = (t,x) -> 0.0, z = (t,x) -> 0.0)
+no_pml(Δx, Δt) = FDTD1D.PML(0, 1.0, Δx, Δt)
 
-    shape(t,x) = 0.0
+zero_current(n) = (y = zeros(n), z = zeros(n))
 
-    pulse_shape = (
-        y = shape,
-        z = shape
-    )
-
+function run_fdtd(f₀, cfl, pulse_shape, Δt, Δx, pml, nsteps, j)
     f = deepcopy(f₀)
-
-    advance_fields! = FDTD1D.make_advance_fields(f, cfl, pulse_shape, Δt, Δx, 0, FDTD1D.PML(0,1.0,Δx,Δt))
-    
-    j = (
-        y = zeros(length(f.ey)),
-        z = zeros(length(f.ey))
-    )
-
-    for t in 1:10
-        advance_fields!(t*Δt, j)
+    advance_fields! = FDTD1D.make_advance_fields(f, cfl, pulse_shape, Δt, Δx, 0, pml)
+    for t in 1:nsteps
+        advance_fields!(t*Δt, j(t*Δt, f))
     end
-
-    if plot_needed
-        plot!(f.ey, label = "calculated")
-    end
-
-    s = sum(@. (f.ey[10:end-1] - f₁.ey[10:end-1])^2)
-    println("FDTD1D propagation $args $(values(values(kwargs))): $(s)")
-    @test s ≈ 0 atol=exp_norm_dev
-
-    if plot_needed
-        display(plt)
-    end
+    return f
 end
 
-function test_fdtd_1d_pml(Δx, Δt, cfl, f₀, f₁, exp_norm_dev, args...; plot_needed=false, kwargs...)
-    if plot_needed
-        plt = plot(f₁.ey, label = "expected")
-    end
+function test_fdtd_1d_propagation(Δx, Δt, cfl, f₀, f₁, exp_norm_dev)
+    f = run_fdtd(f₀, cfl, NO_PULSE, Δt, Δx, no_pml(Δx, Δt), 10,
+                 (t, f) -> zero_current(length(f.ey)))
+    s = sum(@. (f.ey[10:end-1] - f₁.ey[10:end-1])^2)
+    println("FDTD1D propagation: $s")
+    @test s ≈ 0 atol=exp_norm_dev
+end
 
-    shape(t,x) = 0.0
-
-    pulse_shape = (
-        y = shape,
-        z = shape
-    )
-
+function test_fdtd_1d_pml(Δx, Δt, cfl, f₀, f₁, exp_norm_dev)
     f = deepcopy(f₀)
-
-    advance_fields! = FDTD1D.make_advance_fields(f, cfl, pulse_shape, Δt, Δx, 0, FDTD1D.PML(10,1e3,Δx,Δt))
-    
-    j = (
-        y = zeros(length(f.ey)),
-        z = zeros(length(f.ey))
-    )
-
-    for t in 1:200
+    advance_fields! = FDTD1D.make_advance_fields(f, cfl, NO_PULSE, Δt, Δx, 0,
+                                                 FDTD1D.PML(10, 1e3, Δx, Δt))
+    j = zero_current(length(f.ey))
+    for _ in 1:200
         advance_fields!(0, j)
     end
-
-    if plot_needed
-        plot!(f.ey, label = "calculated")
-    end
-
     s = sum(@. (f.ey - f₁.ey)^2)
-    println("FDTD1D PML $args $(values(values(kwargs))): $(s)")
+    println("FDTD1D PML: $s")
     @test s ≈ 0 atol=exp_norm_dev
-
-    if plot_needed
-        display(plt)
-    end
 end
 
-function test_fdtd_1d_generation(Δx, Δt, cfl, f₀, f₁, pulse_shape, exp_norm_dev, args...; plot_needed=false, kwargs...)
-    if plot_needed
-        plt = plot(f₀.ey, label = "initial")
-        plot!(f₁.ey, label = "expected")
-    end
-
-    f = deepcopy(f₀)
-
-    advance_fields! = FDTD1D.make_advance_fields(f, cfl, pulse_shape, Δt, Δx, 0, FDTD1D.PML(0,1.0,Δx,Δt))
-    
-    j = (
-        y = zeros(length(f.ey)),
-        z = zeros(length(f.ey))
-    )
-
-    for t in 1:100
-        advance_fields!(t*Δt, j)
-    end
-
-    if plot_needed
-        plot!(f.ey, label = "calculated")
-    end
-
+function test_fdtd_1d_generation(Δx, Δt, cfl, f₀, f₁, pulse_shape, exp_norm_dev)
+    f = run_fdtd(f₀, cfl, pulse_shape, Δt, Δx, no_pml(Δx, Δt), 100,
+                 (t, f) -> zero_current(length(f.ey)))
     s = sum(@. (f.ey - f₁.ey)^2)
-    println("FDTD1D generation $args $(values(values(kwargs))): $(s)")
+    println("FDTD1D generation: $s")
     @test s ≈ 0 atol=exp_norm_dev
-
-    if plot_needed
-        display(plt)
-    end
 end
 
-function test_fdtd_1d_current(Δx, Δt, cfl, f₀, f₁, j, exp_norm_dev, args...; plot_needed=false, kwargs...)
-    if plot_needed
-        plt = plot(f₀.ey, label = "initial")
-        plot!(f₁.ey, label = "expected")
-    end
-    
-    shape(t,x) = 0.0
-
-    pulse_shape = (
-        y = shape,
-        z = shape
-    )
-
-    f = deepcopy(f₀)
-
-    advance_fields! = FDTD1D.make_advance_fields(f, cfl, pulse_shape, Δt, Δx, 0, FDTD1D.PML(0,1.0,Δx,Δt))
-    
-    for t in 1:100
-        advance_fields!(t*Δt, j(t*Δt))
-    end
-
-    if plot_needed
-        plot!(f.ey, label = "calculated")
-    end
-
+function test_fdtd_1d_current(Δx, Δt, cfl, f₀, f₁, j, exp_norm_dev)
+    f = run_fdtd(f₀, cfl, NO_PULSE, Δt, Δx, no_pml(Δx, Δt), 100, (t, f) -> j(t))
     s = sum(@. (f.ey - f₁.ey)^2)
-    println("FDTD1D current $args $(values(values(kwargs))): $(s)")
-    # @test s ≈ 0 atol=exp_norm_dev
-
-    if plot_needed
-        display(plt)
-    end
+    println("FDTD1D current: $s")
+    return s
 end
 
 @testset "Test 1D FDTD solvers" begin
     Δx = 0.01
     Δt = 0.8*Δx
-    
+
     f₀ = FDTD1D.YeeMesh1D{Float64}(110)
     f₀.ey[2:102] = [sin(2π*i*Δx) for i = 0:100]
     f₀.hz[2:101] = [sin(2π*((i+0.5)*Δx-0.5*Δt)) for i = 0:99]
@@ -159,37 +65,31 @@ end
     test_fdtd_1d_propagation(Δx, Δt, Δt/Δx, f₀, f₁, 1e-3)
 
     f₁ = FDTD1D.YeeMesh1D{Float64}(110)
-    
     test_fdtd_1d_pml(Δx, Δt, Δt/Δx, f₀, f₁, 1e-5)
 
     f₀ = FDTD1D.YeeMesh1D{Float64}(100)
-    
     f₁ = FDTD1D.YeeMesh1D{Float64}(100)
     f₁.ey[3:81] = [-sin(2π*(i*Δx-100*Δt)) for i = 1:79]
     f₁.hz[3:81] = [-sin(2π*((i+0.5)*Δx-100.5*Δt)) for i = 1:79]
-    
-    pulse_shape = (
-        y = (t,x) -> sin(2π*(x-t)),
-        z = (t,x) -> 0.0
-    )
 
+    pulse_shape = (y = (t,x) -> sin(2π*(x-t)), z = (t,x) -> 0.0)
     test_fdtd_1d_generation(Δx, Δt, Δt/Δx, f₀, f₁, pulse_shape, 0.02)
 
     f₀ = FDTD1D.YeeMesh1D{Float64}(200)
-    
     f₁ = FDTD1D.YeeMesh1D{Float64}(200)
     f₁.ey[100:178] = [-sin(2π*(i*Δx-100*Δt)) for i = 0:78]
     f₁.ey[22:100] = [-sin(2π*(i*Δx-100*Δt)) for i = 78:-1:0]
     f₁.hz[3:81] = [-sin(2π*((i+0.5)*Δx-100.5*Δt)) for i = 1:79]
-    
+
     function j(t)
         jy = zeros(length(f₀.ey))
         jy[end÷2] = π/2*sin(2π*t)
-        return (
-            y = jy,
-            z = zeros(length(f₀.ey))
-        )
+        return (y = jy, z = zeros(length(f₀.ey)))
     end
 
-    test_fdtd_1d_current(Δx, Δt, Δt/Δx, f₀, f₁, j, 0.1)
+    # The assertion here was commented out when this test was written, so the
+    # function only ever printed. It passes -- a working check had been left
+    # disabled.
+    s = test_fdtd_1d_current(Δx, Δt, Δt/Δx, f₀, f₁, j, 0.1)
+    @test s ≈ 0 atol=0.1
 end

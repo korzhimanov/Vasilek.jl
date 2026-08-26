@@ -1,11 +1,10 @@
 module MaxwellBenchmarks
 
 using BenchmarkTools
+using Vasilek: PoissonFourier1D
 
 const SUITE = BenchmarkGroup()
 
-include(joinpath(dirname(@__FILE__),"..","src","MaxwellSolver","PoissonFourier1D.jl"))
-import .PoissonFourier1D
 
 Δx = Dict()
 ρ = Dict()

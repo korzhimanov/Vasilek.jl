@@ -1,6 +1,6 @@
-const LIMITERS = (:VanLeer,)
+using Vasilek.Limiters
 
-include(joinpath(dirname(@__FILE__),"..","..","src","VlasovSolver","Limiters.jl"))
+const LIMITERS = (:VanLeer,)
 
 function test_limiter(limiter_name)
     limiter = Limiters.generate_limiter(limiter_name)
