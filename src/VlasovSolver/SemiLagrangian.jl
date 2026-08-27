@@ -39,7 +39,10 @@ function _make_step(f₀, f, interpolation_order)
 
     return function step!(c)
         if wrap
-            copyto!(view(buf, 1:length(f₀)), f₀)
+            # 5-argument copyto!, not a view: on Julia 1.10 the SubArray was
+            # heap-allocated on the CI machines (16 bytes) while being elided on
+            # the development machine at the same patch version.
+            copyto!(buf, 1, f₀, 1, length(f₀))
             buf[end] = f₀[1]
         else
             copyto!(buf, f₀)
