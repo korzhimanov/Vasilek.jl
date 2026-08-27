@@ -1,9 +1,8 @@
 using Plots
 using NumericalIntegration
 
-include(joinpath("..", "src","VlasovSolver","PFC.jl"))
-include(joinpath("..", "src","MaxwellSolver","FDTD1D.jl"))
-include(joinpath("..", "src","MaxwellSolver","PoissonFourier1D.jl"))
+using Vasilek
+using Vasilek: FDTD1D, PoissonFourier1D
 
 Δx = 0.1*2π
 Δt = 0.05*Δx
@@ -38,8 +37,8 @@ Ne = integrate(x, n0)
 
 g = copy(f)
 
-advect_x! = PFC.generate_solver(g[1,:], f[1,:]; fₘᵢₙ = 0.0, fₘₐₓ = maximum(f))
-advect_p! = PFC.generate_solver(f[:,1], g[:,1]; fₘᵢₙ = 0.0, fₘₐₓ = maximum(f))
+# PFC needs no workspace, so one value serves every line of the sweep.
+advection = PFC(fmin = 0.0, fmax = maximum(f))
 
 em = FDTD1D.YeeMesh1D{Float64}(length(x)-1)
 
@@ -71,7 +70,7 @@ pz = zeros(length(x))
 for k in 2:length(t)
     
     for j = 1:Np
-        advect_x!(view(g,j,:), view(f,j,:), p[j]*Δt/Δx)
+        advect!(view(g,j,:), view(f,j,:), advection, p[j]*Δt/Δx)
     end
 
     n[k,:] = integrate(p, g)
@@ -83,7 +82,7 @@ for k in 2:length(t)
     advance_fields!(k*Δt, (y=py.*n[k,:], z=pz.*n[k,:]))
 
     for i = 1:Nx
-        advect_p!(view(f,:,i), view(g,:,i), e[i]*Δt/Δp)
+        advect!(view(f,:,i), view(g,:,i), advection, e[i]*Δt/Δp)
     end
 
     ε_e[k] = integrate(x, e.^2)
