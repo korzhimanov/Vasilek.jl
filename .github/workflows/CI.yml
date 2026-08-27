@@ -23,15 +23,17 @@ jobs:
         # lts is the long-term-support release the [compat] floor targets;
         # '1' is the current stable. Windows is in the matrix because it is
         # the development machine.
+        #
+        # arch is deliberately not set: setup-julia@v3 defaults to the runner's
+        # native architecture, which is how macos-latest gets aarch64 rather than
+        # x86 under Rosetta. Pinning it back to x64 would test emulation instead.
         version: ['lts', '1']
         os: [ubuntu-latest, windows-latest, macos-latest]
-        arch: [default]
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
         with:
           version: ${{ matrix.version }}
-          arch: ${{ matrix.arch }}
       - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
