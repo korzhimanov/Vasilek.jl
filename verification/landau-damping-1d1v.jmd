@@ -9,11 +9,18 @@ using Plots
 using NumericalIntegration
 using FFTW
 
-include(joinpath("..", "src","VlasovSolver","StrangSplitting.jl"))
-include(joinpath("..", "src","VlasovSolver","PFCNonUniform.jl"))
+using Vasilek
+using Vasilek: StrangSplitting
 
-import .PFCNonUniform
-import .StrangSplitting
+# Adapter: schemes now write into an explicit destination, while
+# StrangSplitting still calls advect!(column, alpha) in place. Kept local
+# because StrangSplitting is itself due for replacement when the 2D sweeps
+# land -- its transposes are the thing that has to go.
+function inplace_advect(scheme, n)
+    ws = workspace(scheme, n)
+    buf = Vector{Float64}(undef, n)
+    return (column, alpha) -> (advect!(buf, column, scheme, alpha, ws); copyto!(column, buf))
+end
 
 function solve_poisson!(e, ω, ρ, Δx)
     F = FFTW.rfft(ρ)
@@ -44,8 +51,8 @@ x = collect(π/8:π/8:8π)
 v = collect(-4:0.1:4)
 Δv = vcat([v[2]-v[1]], 0.5*(v[3:end] - v[1:end-2]), [v[end]-v[end-1]])
 
-advect_x! = PFCNonUniform.make_advect_1D!(Δx; fₘᵢₙ = 0.0, fₘₐₓ = 1.0)
-advect_v! = PFCNonUniform.make_advect_1D!(Δv; fₘᵢₙ = 0.0, fₘₐₓ = 1.0)
+advect_x! = inplace_advect(PFCNonUniform(Δx; fmin = 0.0, fmax = 1.0), length(Δx))
+advect_v! = inplace_advect(PFCNonUniform(Δv; fmin = 0.0, fmax = 1.0), length(Δv))
 
 fi = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. Δx/Δx)'
 ni = integrate(v, fi)
@@ -180,8 +187,8 @@ x = collect(π/8:π/8:8π)
 v = vcat(collect(-4:0.1:-1.1), collect(-1:0.05:1), collect(1.1:0.1:4))
 Δv = vcat([v[2]-v[1]], 0.5*(v[3:end] - v[1:end-2]), [v[end]-v[end-1]])
 
-advect_x! = PFCNonUniform.make_advect_1D!(Δx; fₘᵢₙ = 0.0, fₘₐₓ = 1.0)
-advect_v! = PFCNonUniform.make_advect_1D!(Δv; fₘᵢₙ = 0.0, fₘₐₓ = 1.0)
+advect_x! = inplace_advect(PFCNonUniform(Δx; fmin = 0.0, fmax = 1.0), length(Δx))
+advect_v! = inplace_advect(PFCNonUniform(Δv; fmin = 0.0, fmax = 1.0), length(Δv))
 
 fi = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. Δx/Δx)'
 ni = integrate(v, fi)
@@ -285,8 +292,8 @@ x = collect(π/8:π/8:8π)
 v = vcat(collect(-6:0.1:-1.1), collect(-1:0.05:1), collect(1.1:0.1:6))
 Δv = vcat([v[2]-v[1]], 0.5*(v[3:end] - v[1:end-2]), [v[end]-v[end-1]])
 
-advect_x! = PFCNonUniform.make_advect_1D!(Δx; fₘᵢₙ = 0.0, fₘₐₓ = 1.0)
-advect_v! = PFCNonUniform.make_advect_1D!(Δv; fₘᵢₙ = 0.0, fₘₐₓ = 1.0)
+advect_x! = inplace_advect(PFCNonUniform(Δx; fmin = 0.0, fmax = 1.0), length(Δx))
+advect_v! = inplace_advect(PFCNonUniform(Δv; fmin = 0.0, fmax = 1.0), length(Δv))
 
 fi = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. Δx/Δx)'
 ni = integrate(v, fi)

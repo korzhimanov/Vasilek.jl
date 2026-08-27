@@ -1,4 +1,4 @@
-using Vasilek: Upwind, LaxWendroff, Godunov, SemiLagrangian, PFC
+using Vasilek
 
 include(joinpath(@__DIR__, "golden_cases.jl"))
 
@@ -31,10 +31,10 @@ end
     golden = read_golden()
     @test length(golden) == length(GOLDEN_CASES)
 
-    for (name, mk) in GOLDEN_CASES
+    for (name, scheme) in GOLDEN_CASES
         @test haskey(golden, name)
         haskey(golden, name) || continue
-        out = golden_run(mk)
+        out = golden_run(scheme)
         expected = golden[name]
         if out != expected
             println("GOLDEN MISMATCH $name: max|Δ| = ", maximum(abs, out .- expected),

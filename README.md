@@ -6,11 +6,12 @@
 An ongoing project on developing a parallel 2D2P Maxwell — Vlasov — Boltzmann solver on adaptive meshes.
 
 As for now, the following functionality has been implemented:
-* PFC scheme on 1D non-uniform grid
+* Advection schemes as dispatchable types: upwind, Lax—Wendroff, Godunov
+  (piecewise-constant or -linear, with flux limiters), semi-Lagrangian
+  (linear, quadratic or cubic B-splines), and PFC on uniform and non-uniform grids
 * Strang splitting for 1D1V simulations
 * 1D Poisson Fourier solver
 * 1D FDTD Maxwell solver with PML
-* Advection solvers: upwind, Lax—Wendroff, Godunov, semi-Lagrangian
 * BGK collision operator
 
 The program has been verified on the following tests:
@@ -19,6 +20,32 @@ The program has been verified on the following tests:
 
 Note that these two documents were generated in 2021 and have not been
 regenerated since; they are not currently rebuilt by CI.
+
+## Usage
+
+```julia
+using Vasilek
+
+scheme = SemiLagrangian(CubicSpline())
+ws = workspace(scheme, length(src))    # once, per task
+advect!(dest, src, scheme, courant, ws)
+```
+
+Upgrading from 0.1: see [docs/migration-0.2.md](docs/migration-0.2.md).
+
+## Usage
+
+```julia
+using Vasilek
+
+scheme = SemiLagrangian(CubicSpline())
+ws = workspace(scheme, length(src))     # once, per task
+advect!(dest, src, scheme, courant, ws)
+```
+
+A scheme value holds no data, so one can be shared across every line of a
+multidimensional sweep and across tasks. Upgrading from 0.1: see
+[docs/migration-0.2.md](docs/migration-0.2.md).
 
 ## Development
 

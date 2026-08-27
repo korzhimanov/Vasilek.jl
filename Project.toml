@@ -1,7 +1,7 @@
 name = "Vasilek"
 uuid = "c81326fb-3428-4180-b511-858f58317b28"
 authors = ["korzhimanov <korzhimanov.artem@gmail.com>"]
-version = "0.1.0"
+version = "0.2.0"
 
 [deps]
 FFTW = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"

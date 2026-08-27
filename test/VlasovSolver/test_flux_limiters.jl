@@ -1,41 +1,36 @@
-using Vasilek.Limiters
-using Vasilek: Godunov
+using Vasilek
 
-const LIMITERS = (:VanLeer,)
+@testset "Flux limiters" begin
+    # Limiters are callable singleton types now, so an unrecognised one is a
+    # MethodError where it is written rather than a call on `nothing` from
+    # inside the hot loop.
+    for limiter in (VanLeer(),)
+        # special points
+        @test limiter(0.0) ≈ 0.0
+        @test limiter(1.0) ≈ 1.0
 
-function test_limiter(limiter_name)
-    limiter = Limiters.generate_limiter(limiter_name)
+        # symmetry
+        for r in (2.0, 3.0, 5.0, 11.0)
+            @test limiter(r) ≈ r*limiter(1/r)
+        end
 
-    # test special points
-    @test limiter(0.0) ≈ 0.0
-    @test limiter(1.0) ≈ 1.0
-
-    # test symmetricity
-    for r in (2.0, 3.0, 5.0, 11.0)
-        @test limiter(r) ≈ r*limiter(1/r)
+        # TVD region
+        for r in range(0.1, 0.9; step = 0.1)
+            @test r ≤ limiter(r) ≤ 2*r
+        end
+        for r in range(1.1, 1.9; step = 0.1)
+            @test 1 ≤ limiter(r) ≤ r
+        end
+        for r in range(2.0, 10.0; step = 1.0)
+            @test 1.0 ≤ limiter(r) ≤ 2.0
+        end
     end
 
-    # test TVD condition
-    for r in range(0.1, 0.9; step=0.1)
-        @test r ≤ limiter(r) ≤ 2*r
-    end
-    for r in range(1.1, 1.9; step=0.1)
-        @test 1 ≤ limiter(r) ≤ r
-    end
-    for r in range(2.0, 10.0; step=1.0)
-        @test 1.0 ≤ limiter(r) ≤ 2.0
-    end
-end
+    # NoLimiter is the identity that makes PiecewiseLinear unstable
+    @test NoLimiter()(0.0) == 1.0
+    @test NoLimiter()(17.0) == 1.0
 
-for limiter_name in LIMITERS
-    test_limiter(limiter_name)
-end
-
-@testset "unknown options fail at construction" begin
-    # Both of these used to fall off the end of an if-chain and return nothing,
-    # which surfaced as "nothing is not callable" from inside the hot loop.
-    @test_throws ArgumentError Limiters.generate_limiter(:NoSuchLimiter)
-    @test_throws ArgumentError Godunov.generate_solver([1.0, 2.0], [0.0, 0.0], :NoSuchSolver)
-    @test_throws ArgumentError Godunov.generate_solver([1.0, 2.0], [0.0, 0.0],
-                                                      :Riemann_linear; flux_limiter = :NoSuchLimiter)
+    # options that do not exist fail where they are written
+    @test_throws MethodError Godunov(:Riemann_linear)
+    @test_throws MethodError Godunov(PiecewiseLinear(), :VanLeer)
 end

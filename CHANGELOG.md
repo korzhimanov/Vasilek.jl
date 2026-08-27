@@ -5,7 +5,36 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project has not been released; entries below describe work on `master`.
 
-## [Unreleased]
+## [0.2.0] - unreleased
+
+### Breaking
+
+- **Advection schemes are types, and `generate_solver` is gone.** `advect!`
+  dispatches on an immutable scheme value; scratch memory, where a scheme
+  needs any, comes from `workspace` and is passed explicitly. See
+  [docs/migration-0.2.md](docs/migration-0.2.md).
+
+  No compatibility shim, contrary to the original plan: the module names
+  `generate_solver` lived under are the new type names, so the two APIs
+  cannot coexist in one namespace.
+
+  The reason is reentrancy. A 2D2P step sweeps O(N²) independent lines per
+  direction, which is work for `Threads.@threads`; the old closures captured
+  a single shared scratch buffer, so they could not be threaded over them.
+  The parallel 2D2P goal in the README was unreachable without this.
+
+- The `Symbol`-valued options are singleton types: `:Riemann_linear` becomes
+  `PiecewiseLinear()`, `:VanLeer` becomes `VanLeer()`, `:Cubic` becomes
+  `CubicSpline()`. A typo is now a `MethodError` where it is written.
+- **Collision operators follow the same shape**: `BGK(τ)` and
+  `collide!(dest, src, op, v, Δt, ws)` replace `BGK.generate_solver`, which
+  mutated its argument in place. `Landau1P` is unexported and experimental.
+- `Limiters` is gone; the limiters are callable types in `Advection`.
+
+  Numerics are unchanged. Every scheme is bit-for-bit identical to 0.1 in
+  both directions, and the golden values recorded before the change still
+  match.
+
 
 ### Added
 
