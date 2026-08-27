@@ -51,7 +51,7 @@ function generate_solve_pm(f₀, f, Riemann_solver_type; flux_limiter)
     function solve⁺!(c)
         godunov⁺!(f, f₀, 1, length(f), 2, length(f)-1, c)
         godunov⁺!(f, f₀, 2, 1, 3, length(f), c)
-        @inbounds @fastmath @simd for i = 3:length(f)-1
+        @inbounds @simd for i = 3:length(f)-1
             godunov⁺!(f, f₀, i, i-1, i+1, i-2, c)
         end
         godunov⁺!(f, f₀, length(f), length(f)-1, 1, length(f)-2, c)
@@ -59,7 +59,7 @@ function generate_solve_pm(f₀, f, Riemann_solver_type; flux_limiter)
 
     function solve⁻!(c)
         godunov⁻!(f, f₀, 1, length(f), 2, 3, c)
-        @inbounds @fastmath @simd for i = 2:length(f)-2
+        @inbounds @simd for i = 2:length(f)-2
             godunov⁻!(f, f₀, i, i-1, i+1, i+2, c)
         end
         godunov⁻!(f, f₀, length(f)-1, length(f)-2, length(f), 1, c)
