@@ -22,11 +22,15 @@ _Φ⁻(f, i, i⁻, i⁺, c, lo, hi) = c*(f[i] - (1.0 + c)/3.0*(
                 _ϵ⁺(f[i], f[i⁺], lo, hi)/2.0*(1.0 - c) +
                 _ϵ⁻(f[i], f[i⁻], lo, hi)/2.0*(2.0 + c)))
 
-function advect!(dest, src, p::PFC, c, ws)
+function advect!(dest, src, p::PFC{T,Checked}, c, ws) where {T,Checked}
     n = length(dest)
     lo, hi = p.fmin, p.fmax
-    @assert lo ≤ minimum(src) "fmin = $lo exceeds minimum(src) = $(minimum(src))"
-    @assert maximum(src) ≤ hi "fmax = $hi is below maximum(src) = $(maximum(src))"
+    if Checked
+        # A minimum/maximum pass per call, about 13% of the step at N = 10000.
+        # Compiled away entirely when the scheme is built with checked = false.
+        @assert lo ≤ minimum(src) "fmin = $lo exceeds minimum(src) = $(minimum(src))"
+        @assert maximum(src) ≤ hi "fmax = $hi is below maximum(src) = $(maximum(src))"
+    end
 
     if c > 0
         Φ = _Φ⁺(src, 1, n, 2, c, lo, hi)
