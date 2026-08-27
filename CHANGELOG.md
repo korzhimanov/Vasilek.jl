@@ -7,6 +7,39 @@ This project has not been released; entries below describe work on `master`.
 
 ## [0.2.0] - unreleased
 
+### Added
+
+- **Extended verification** (`test/test_verification.jl`), gated behind
+  `VASILEK_EXTENDED=1`. The claims the verification documents made in prose
+  are now assertions: Landau damping at k = 0.5 within 5% of the tabulated
+  0.1533 (measured 0.1498), and energy drift below 0.5% on the uniform grid
+  and 6% on the non-uniform one at t = 3000 (measured 0.38% and 4.85%).
+- [docs/normalization.md](docs/normalization.md): the unit conventions, the
+  wavenumber convention that the Poisson bug came from, the FDTD current
+  convention that the wakefield instability came from, and why the PFC bounds
+  have no default.
+- `PFC(; fmin, fmax, checked = false)` compiles the bounds check away. The
+  check moved into `advect!` when the scheme stopped seeing data at
+  construction, costing a minimum/maximum pass per call -- 13% of the step at
+  N = 10000, which I had not measured at the time. Now a type parameter, on
+  by default.
+
+### Changed
+
+- **The verification notebooks are runnable scripts.** `.jmd` + Weave becomes
+  Literate-format `.jl` that executes directly and writes its own figures.
+  Removes the Weave dependency and 330 kB of HTML generated in 2021 against
+  code that is no longer in the package.
+- **`wakefield.jl` produces output and is stable.** It used to plot the final
+  snapshot where a time-space matrix was wanted, which never raised because a
+  script never renders. Making it visible showed a peak field of 1.0e22
+  against a source amplitude of 1.0; a missing Δt on the current and a sign
+  taken from the verified longitudinal convention bring it to 0.38.
+
+  It still has **no ponderomotive coupling** -- the laser does not drive the
+  wake, evidenced by the wake coming out bit-identical whether the transverse
+  current is right or wrong by 32 orders of magnitude. Left to the author.
+
 ### Breaking
 
 - **Advection schemes are types, and `generate_solver` is gone.** `advect!`

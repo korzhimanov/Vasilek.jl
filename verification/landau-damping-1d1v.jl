@@ -1,9 +1,3 @@
----
-weave_options:
-    echo: false
----
-
-```julia
 using Plots
 
 using NumericalIntegration
@@ -11,6 +5,11 @@ using FFTW
 
 using Vasilek
 using Vasilek: StrangSplitting
+# Run directly, or render with Literate.jl. Figures are written beside this
+# script; under Weave they were captured by the renderer, which is why the
+# .jmd version produced nothing when executed as a script.
+figure(name) = joinpath(@__DIR__, "$name.png")
+
 
 # Adapter: schemes now write into an explicit destination, while
 # StrangSplitting still calls advect!(column, alpha) in place. Kept local
@@ -27,25 +26,23 @@ function solve_poisson!(e, ω, ρ, Δx)
     φ = FFTW.irfft(F./(-ω.^2), length(ρ))
     e[:] = vcat(0.5*[φ[2]-φ[end]], 0.5*(φ[3:end] - φ[1:end-2]), 0.5*[φ[1]-φ[end-1]])./Δx
 end;
-```
-
-# Linear Landau damping on uniform grid
-
-Here we perform a linear Landau damping test of the scheme in the case of uniform grid.
-
-Initial conditions for electrons are
-$$
-f(x, v) = \frac{1}{\sqrt{2\pi}}\exp\left\{-\frac{v^2}{2}\right\}\left(1 + \tilde n\cos kx\right)
-$$
-where velocities $v$ are normalised to a thermal velocity $v_{\rm th}$, concentration $n$ is normalized to equilibrium concentration $N_e$, spatial coordinate $x$ is normalized to $v_{\rm th} \over \omega_p$ where $\omega_p^2 = \frac{4\pi e^2 N_e}{m}$ is a plasma frequency ($e$ is the elemaentary charge and $m$ is the electron mass). $k$ normalized to $\omega_p \over v_{\rm th}$ is a wave number. Here we verify the case $k \sim 1$ for which dispersion and Landau damping are significant.
-
-Ions are supposed to be uniformly distributed and immobile.
-
-For simulations below we choose: $k = 0.5$, $\tilde n = 0.01$
-
-Simulations are performed on a uniform grid $x \in (\frac{\pi}{8},8\pi)$, $\Delta x = \frac{\pi}{8}$, $v \in (-4,4)$, $\Delta v = 0.1$, $t \in (0, 70)$, $\Delta t = 0.1$
-
-```julia
+#
+# # Linear Landau damping on uniform grid
+#
+# Here we perform a linear Landau damping test of the scheme in the case of uniform grid.
+#
+# Initial conditions for electrons are
+# $$
+# f(x, v) = \frac{1}{\sqrt{2\pi}}\exp\left\{-\frac{v^2}{2}\right\}\left(1 + \tilde n\cos kx\right)
+# $$
+# where velocities $v$ are normalised to a thermal velocity $v_{\rm th}$, concentration $n$ is normalized to equilibrium concentration $N_e$, spatial coordinate $x$ is normalized to $v_{\rm th} \over \omega_p$ where $\omega_p^2 = \frac{4\pi e^2 N_e}{m}$ is a plasma frequency ($e$ is the elemaentary charge and $m$ is the electron mass). $k$ normalized to $\omega_p \over v_{\rm th}$ is a wave number. Here we verify the case $k \sim 1$ for which dispersion and Landau damping are significant.
+#
+# Ions are supposed to be uniformly distributed and immobile.
+#
+# For simulations below we choose: $k = 0.5$, $\tilde n = 0.01$
+#
+# Simulations are performed on a uniform grid $x \in (\frac{\pi}{8},8\pi)$, $\Delta x = \frac{\pi}{8}$, $v \in (-4,4)$, $\Delta v = 0.1$, $t \in (0, 70)$, $\Delta t = 0.1$
+#
 x = collect(π/8:π/8:8π)
 Δx = vcat([x[2]-x[1]], 0.5*(x[3:end] - x[1:end-2]), [x[end]-x[end-1]])
 v = collect(-4:0.1:4)
@@ -77,9 +74,7 @@ n = t * n0'
 e = similar(x)
 
 g = f';
-```
-
-```julia
+#
 function run()
     global f, g, t, n, e, ε, ε_e, ω
 
@@ -107,27 +102,23 @@ function run()
     ε[end] = integrate(x, integrate(v, @. f*v^2)) + ε_e[end]
     return
 end;
-```
-
-```julia
+#
 run()
-```
-
-Below we check damping of electric energy calculated as follows
-
-$$
-\varepsilon_e = \int \frac{E^2}{2} dx
-$$
-
-where $E$ is an electric filed normalized to $\frac{m\omega_p v_{\rm th}}{e}$.
-
-We expect it to damp with the rate defined by the following expression:
-
-$$
-\gamma = \frac{\pi}{8\sqrt{2}}k^{-3}\exp\left(-\frac{1}{2k^2}\right)
-$$
-
-```julia
+#
+# Below we check damping of electric energy calculated as follows
+#
+# $$
+# \varepsilon_e = \int \frac{E^2}{2} dx
+# $$
+#
+# where $E$ is an electric filed normalized to $\frac{m\omega_p v_{\rm th}}{e}$.
+#
+# We expect it to damp with the rate defined by the following expression:
+#
+# $$
+# \gamma = \frac{\pi}{8\sqrt{2}}k^{-3}\exp\left(-\frac{1}{2k^2}\right)
+# $$
+#
 u = 1/0.5
 γ = π/(8*√2)*u^3*exp(-0.5*u^2)
 ε_th = ε_e[9]*exp.(-γ*(t.-t[9]))
@@ -137,51 +128,47 @@ plot!(t, ε_th, yscale=:log10, label="theoretical")
 ylims!(1e-13,1)
 xlabel!("ωₚt")
 ylabel!("εₑ/(mωₚvₜₕ³/e²)")
-```
-
-Here we see the great coincidence between simulations and the theory. We also see a well-known effect of oscillations recursion due to numerical artifact caused by finite resolution of veolcity space. It has been shown that the recursion time is of the order of $\pi/(k\Delta v)$ where $\Delta v$ is the velocity resolution. In our case this statement gives $t_{recur} \sim 62$ which is also in good coincidence with simulation results.
-
-We also can check the dispersion relation for Laingmuir oscillations in warm plasma. We expect that the frequency will be equal to
-
-$$
-\omega_L = (\omega_p^2 + 3k^2)^{\frac12}
-$$
-
-Here is the spectrum of oscillations in the central point (we take time interval $t \in (0,50)$ where oscillations does not contain numerical artifacts).
-
-```julia
+savefig(figure("landau-damping-1d1v-01"))
+#
+# Here we see the great coincidence between simulations and the theory. We also see a well-known effect of oscillations recursion due to numerical artifact caused by finite resolution of veolcity space. It has been shown that the recursion time is of the order of $\pi/(k\Delta v)$ where $\Delta v$ is the velocity resolution. In our case this statement gives $t_{recur} \sim 62$ which is also in good coincidence with simulation results.
+#
+# We also can check the dispersion relation for Laingmuir oscillations in warm plasma. We expect that the frequency will be equal to
+#
+# $$
+# \omega_L = (\omega_p^2 + 3k^2)^{\frac12}
+# $$
+#
+# Here is the spectrum of oscillations in the central point (we take time interval $t \in (0,50)$ where oscillations does not contain numerical artifacts).
+#
 F = FFTW.rfft(n[1:500,end÷2].-ni[end÷2])
 ω = 2π*collect(0.0:1.0/(t[501]-t[1]):0.5/(t[2]-t[1]))
 plot(ω, abs.(F), yscale=:log10)
 xlabel!("ω/ωₚ")
 ylabel!("F[nₑ-nᵢ]")
 xlims!(0,5)
-```
-
-Below we compare theoretical value for oscillations frequency and the one obtained numerically:
-
-```julia
+savefig(figure("landau-damping-1d1v-02"))
+#
+# Below we compare theoretical value for oscillations frequency and the one obtained numerically:
+#
 println("theoretical: ", sqrt(1 + 3*0.5^2))
 println("numerical:   ", ω[argmax(abs.(F))])
-```
-
-Again we have a very good coincidence limited only by resolution of time step.
-
-# Linear Landau damping on non-uniform grid
-
-Now we perform a linear Landau damping test of the scheme in the case of non-uniform grid.
-
-Initial conditions and simulation parameters are the same except for grid along velocity axis. Now it isn't uniform:
-
-$v \in (-4,4),$
-
-$\Delta v = 0.05 \iff |v| < 1,$
-
-$\Delta v = 0.1 \iff |v| > 1.$
-
-We also increase time resolution by factor of two.
-
-```julia
+#
+# Again we have a very good coincidence limited only by resolution of time step.
+#
+# # Linear Landau damping on non-uniform grid
+#
+# Now we perform a linear Landau damping test of the scheme in the case of non-uniform grid.
+#
+# Initial conditions and simulation parameters are the same except for grid along velocity axis. Now it isn't uniform:
+#
+# $v \in (-4,4),$
+#
+# $\Delta v = 0.05 \iff |v| < 1,$
+#
+# $\Delta v = 0.1 \iff |v| > 1.$
+#
+# We also increase time resolution by factor of two.
+#
 x = collect(π/8:π/8:8π)
 Δx = vcat([x[2]-x[1]], 0.5*(x[3:end] - x[1:end-2]), [x[end]-x[end-1]])
 v = vcat(collect(-4:0.1:-1.1), collect(-1:0.05:1), collect(1.1:0.1:4))
@@ -213,9 +200,7 @@ n = t * n0'
 e = similar(x)
 
 g = f';
-```
-
-```julia
+#
 function run()
     global f, g, t, n, e, ε, ε_e, ω
     for k in 1:length(t)-1
@@ -242,15 +227,11 @@ function run()
     ε[end] = integrate(x, integrate(v, @. f*v^2)) + ε_e[end]
     return
 end;
-```
-
-```julia
+#
 run();
-```
-
-Let us again check damping rate of electric energy and compare it to theoretical prediction
-
-```julia
+#
+# Let us again check damping rate of electric energy and compare it to theoretical prediction
+#
 u = 1/0.5
 γ = π/(8*√2)*u^3*exp(-0.5*u^2)
 ε_th = ε_e[15]*exp.(-γ*(t.-t[15]))
@@ -260,33 +241,29 @@ plot!(t, ε_th, yscale=:log10, label="theoretical")
 ylims!(1e-13,1)
 xlabel!("ωₚt")
 ylabel!("εₑ/(mωₚvₜₕ³/e²)")
-```
-
-Again we see a good coincidence between simulations and theory. However for the non-uniform grid the rucursion effect comes to play earlier.
-
-Now we check dispersion relation
-
-```julia
+savefig(figure("landau-damping-1d1v-03"))
+#
+# Again we see a good coincidence between simulations and theory. However for the non-uniform grid the rucursion effect comes to play earlier.
+#
+# Now we check dispersion relation
+#
 F = FFTW.rfft(n[1:600,end÷2].-ni[end÷2])
 ω = 2π*collect(0.0:1.0/(t[601]-t[1]):0.5/(t[2]-t[1]))
 plot(ω, abs.(F), yscale=:log10)
 xlabel!("ω/ωₚ")
 ylabel!("F[nₑ-nᵢ]")
 xlims!(0,5)
-```
-
-```julia
+savefig(figure("landau-damping-1d1v-04"))
+#
 println("theoretical: ", sqrt(1 + 3*0.5^2))
 println("numerical:   ", ω[argmax(abs.(F))])
-```
-
-We again have a good coincidence limited only by time resolition
-
-# Non-linear Landau damping on non-uniform grid
-
-Finaly we check the case of non-linear (strong) Landau damping using non-uniform grid. For this we increase initial perturbation of electron concentration to $\tilde n = 0.5$. To cope with increasing amplitude of oscillations we also increase the velocity domain to $(-6, 6)$
-
-```julia
+#
+# We again have a good coincidence limited only by time resolition
+#
+# # Non-linear Landau damping on non-uniform grid
+#
+# Finaly we check the case of non-linear (strong) Landau damping using non-uniform grid. For this we increase initial perturbation of electron concentration to $\tilde n = 0.5$. To cope with increasing amplitude of oscillations we also increase the velocity domain to $(-6, 6)$
+#
 x = collect(π/8:π/8:8π)
 Δx = vcat([x[2]-x[1]], 0.5*(x[3:end] - x[1:end-2]), [x[end]-x[end-1]])
 v = vcat(collect(-6:0.1:-1.1), collect(-1:0.05:1), collect(1.1:0.1:6))
@@ -318,9 +295,7 @@ n = t * n0'
 e = similar(x)
 
 g = f';
-```
-
-```julia
+#
 function run()
     global f, g, t, n, e, ε, ε_e, ω
     for k in 1:length(t)-1
@@ -347,19 +322,15 @@ function run()
     ε[end] = integrate(x, integrate(v, @. f*v^2)) + ε_e[end]
     return
 end;
-```
-
-```julia
+#
 run();
-```
-
-Let us look again to time evolution of electric energy
-
-```julia
+#
+# Let us look again to time evolution of electric energy
+#
 plot(t, ε_e, yscale=:log10, label="simulated")
 ylims!(1e-8,1e2)
 xlabel!("ωₚt")
 ylabel!("εₑ/(mωₚvₜₕ³/e²)")
-```
-
-There is no analytical solution for strong landau damping. However the result can be compared to what has been obtained by other simulations. Our parameters are essentially the same as in the simulations performed in [Filbet et al. J. Comp. Phys. 172, 166-187 (2001)](https://doi.org/10.1006/jcph.2001.6818). So we can compare the curve presented above with the one plotted at Fig. 6(a) of this paper. It can be easily seen that the quantitative coincidence is almost perfect.
+savefig(figure("landau-damping-1d1v-05"))
+#
+# There is no analytical solution for strong landau damping. However the result can be compared to what has been obtained by other simulations. Our parameters are essentially the same as in the simulations performed in [Filbet et al. J. Comp. Phys. 172, 166-187 (2001)](https://doi.org/10.1006/jcph.2001.6818). So we can compare the curve presented above with the one plotted at Fig. 6(a) of this paper. It can be easily seen that the quantitative coincidence is almost perfect.

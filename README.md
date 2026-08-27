@@ -14,12 +14,35 @@ As for now, the following functionality has been implemented:
 * 1D FDTD Maxwell solver with PML
 * BGK collision operator
 
-The program has been verified on the following tests:
-* [Long-lasting plasma oscillations](verification/plasma-oscillations-1d1v.html)
-* [Landau damping](verification/landau-damping-1d1v.html)
+## Verification
 
-Note that these two documents were generated in 2021 and have not been
-regenerated since; they are not currently rebuilt by CI.
+Three runnable studies live in `verification/`. They execute directly and write
+their figures beside themselves, and they are written in Literate.jl comment
+form so they can also be rendered:
+
+```bash
+julia --project=verification verification/landau-damping-1d1v.jl
+julia --project=verification verification/plasma-oscillations-1d1v.jl
+julia --project=verification verification/wakefield.jl
+```
+
+Their headline claims are asserted by the test suite rather than left in prose:
+
+```bash
+VASILEK_EXTENDED=1 julia --project=. -e 'using Pkg; Pkg.test()'
+```
+
+| claim | asserted |
+|---|---|
+| Landau damping at k = 0.5 | fitted γ within 5% of the tabulated 0.1533 (measured 0.1498, 2.3%) |
+| plasma oscillations, uniform grid | \|Δε/ε\| < 0.5% at t = 3000 (measured 0.38%) |
+| plasma oscillations, non-uniform grid | \|Δε/ε\| < 6% at t = 3000 (measured 4.85%) |
+
+The wakefield example runs and is stable, but has **no ponderomotive
+coupling**: the laser does not drive the wake. See the note in the script.
+
+Unit conventions are in [docs/normalization.md](docs/normalization.md).
+
 
 ## Usage
 
