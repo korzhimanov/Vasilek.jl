@@ -25,7 +25,17 @@ struct PML{T<:Integer, S<:AbstractFloat}
     end
 end
 
-function make_advance_fields(f::YeeMesh1D{T,S}, cfl, pulse_shape, Δt, Δx, x_min, pml::PML = PML(10,1e3,Δt,Δx)) where {T,S}
+"""
+    PML(; N, σ_max, Δx, Δt)
+
+Keyword form of the [`PML`](@ref) constructor. The positional form takes
+`Δx` before `Δt`, and the two are trivially swappable at a call site --
+the default argument of `make_advance_fields` had them the wrong way
+round from the day it was written. Prefer this form.
+"""
+PML(; N, σ_max, Δx, Δt) = PML(N, σ_max, Δx, Δt)
+
+function make_advance_fields(f::YeeMesh1D{T,S}, cfl, pulse_shape, Δt, Δx, x_min, pml::PML = PML(; N = 10, σ_max = 1e3, Δx = Δx, Δt = Δt)) where {T,S}
     Nx = f.N
 
     function generate_fields_x_min!(t)
@@ -56,7 +66,7 @@ function make_advance_fields(f::YeeMesh1D{T,S}, cfl, pulse_shape, Δt, Δx, x_mi
             f.ez[i] = pml.r₁[1+2*(pml.N-i+1)]*f.ez[i] + pml.r₂[1+2*(pml.N-i+1)]*(f.hy[i] - f.hy[i-1])
         end
         for i = pml.N+2:Nx-pml.N
-            f.ez[i] += cfl*(f.hy[i] - f.hz[i-1])
+            f.ez[i] += cfl*(f.hy[i] - f.hy[i-1])
         end
         for i = Nx-pml.N+1:Nx
             f.ez[i] = pml.r₁[1+2*(i-Nx+pml.N-1)]*f.ez[i] + pml.r₂[1+2*(i-Nx+pml.N-1)]*(f.hy[i] - f.hy[i-1])

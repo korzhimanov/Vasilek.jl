@@ -7,7 +7,7 @@ function generate_solver(f₀, f, c)
 
     function solve⁺!()
         upwind⁺!(f, f₀, 1, length(f))
-        @inbounds @fastmath @simd for i = 2:length(f)
+        @inbounds @simd for i = 2:length(f)
             upwind⁺!(f, f₀, i, i-1)
         end
     end
@@ -17,7 +17,7 @@ function generate_solver(f₀, f, c)
     end
 
     function solve⁻!()
-        @inbounds @fastmath @simd for i = 1:length(f)-1
+        @inbounds @simd for i = 1:length(f)-1
             upwind⁻!(f, f₀, i, i+1)
         end
         upwind⁻!(f, f₀, length(f), 1)
@@ -41,13 +41,13 @@ function generate_solver(f₀, f)
 
     function solve⁺!(c)
         upwind⁺!(f, f₀, 1, length(f), c)
-        @inbounds @fastmath @simd for i = 2:length(f)
+        @inbounds @simd for i = 2:length(f)
             upwind⁺!(f, f₀, i, i-1, c)
         end
     end
 
     function solve⁻!(c)
-        @inbounds @fastmath @simd for i = 1:length(f)-1
+        @inbounds @simd for i = 1:length(f)-1
             upwind⁻!(f, f₀, i, i+1, c)
         end
         upwind⁻!(f, f₀, length(f), 1, c)
