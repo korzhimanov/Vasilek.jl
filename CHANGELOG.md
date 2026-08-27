@@ -9,6 +9,20 @@ This project has not been released; entries below describe work on `master`.
 
 ### Added
 
+- **Golden-value regression tests** (`test/test_golden.jl`): bit-for-bit
+  reference output for all nine advection scheme/option combinations, eight
+  steps each. Convergence rates are far too loose to catch an index swapped
+  by one; bit-identity is not. Regenerate with `test/generate_golden.jl`, and
+  only when a numerical change is intended. Advection-only by design — the
+  collision operators go through libm and already differ between Julia
+  1.10 and 1.12.
+- **Order-of-accuracy suite** (`test/test_convergence.jl`): global convergence
+  order for eight schemes, measured before being asserted. Replaces reliance
+  on magic `atol` values at a single resolution.
+- **Structural invariants** (`test/test_invariants.jl`): mass conservation,
+  total variation, PFC positivity and the maximum principle, and the Courant
+  limit. None of this was covered.
+
 - Continuous integration on GitHub Actions: tests on Julia `lts` and `1` across
   Linux, Windows and macOS, plus a coverage job reporting to Codecov.
   Verified locally on both ends of the matrix (1.10.12 and 1.12.7).
