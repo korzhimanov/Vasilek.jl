@@ -20,6 +20,25 @@ This project has not been released; entries below describe work on `master`.
 
 ### Fixed
 
+- **`FDTD1D` read `f.hz[i-1]` in an `hy`-only stencil for `ez`.** Because `hz`
+  is non-zero throughout the existing tests, this actively injected `ez`,
+  which then drove `hy`, which fed back: seeding only the y polarization at
+  amplitude 1.0 gave `max|ez| = 7.84` after ten steps. The `(ey, hz)` pair
+  survived only because it never reads `hy`. Numerically breaking for any
+  z-polarized run.
+- `FDTD1D`'s `PML` default argument passed `Δt` and `Δx` in the wrong order.
+  Added a keyword constructor so the mistake is unrepresentable.
+- **`Landau1P` differentiated at the wrong index.** The inner loop computed
+  `Δfⱼ` but branched on `i` and read `f₀[i±1]`, so `Δfⱼ ≡ Δfᵢ`; and `J[j]` was
+  never assigned when `i == j`, leaving a stale or uninitialised value that
+  was then integrated. `L` and `Tₜ` are now keyword arguments.
+- **`PFCNonUniform` computed its limiter from the global spacing ratio,** so
+  one refined region tightened it everywhere (ξ ≈ 0.571 against 2 on the
+  notebooks' velocity grid). Now per cell triple. Energy drift of the
+  non-uniform plasma-oscillation case falls from a reported 12% to 4.85% at
+  t = 3000; the uniform grid is bit-identical, as it must be.
+- `PFCNonUniform` hardcoded `fₘᵢₙ = 0`, `fₘₐₓ = 1`; now required keywords, as
+  in `PFC`. **Breaking API change.**
 - **`PoissonFourier1D` returned a field too large by `1/Δx²`.** `rfftfreq(n)`
   yields cycles per *sample*, so `Δx` never entered the spectrum while the
   φ→E step divided by it once. Numerically breaking: any result computed with
@@ -50,6 +69,11 @@ This project has not been released; entries below describe work on `master`.
   `LinearAlgebra`, `NumericalIntegration`. `DSP` and `Weave` were imported
   nowhere; `Plots` only inside dead branches; `BenchmarkTools` belongs to
   benchmarks. Added the missing `[compat]` section and `[extras]`/`[targets]`.
+- `@fastmath` removed from the advection kernels. Measured at N = 10000 it
+  bought nothing (1.55→1.51 µs, 2.47→2.38 µs, 48.2→48.1 µs) and output is
+  bit-identical, but it licensed LLVM to reassociate floating-point
+  arithmetic — and bit-for-bit reproducibility is what the planned
+  golden-value tests depend on. `@inbounds @simd` are kept.
 - `Limiters` hoisted to the top level; `Godunov` now uses `using ..Limiters`
   rather than nested-including it, so the test process no longer holds two
   distinct `Limiters` modules.
@@ -72,11 +96,17 @@ This project has not been released; entries below describe work on `master`.
 
 ### Known issues
 
-- `Landau1P` computes `Δfⱼ` but branches on `i` and indexes `f₀[i±1]`, so
-  `Δfⱼ ≡ Δfᵢ`; and `J[j]` is never assigned when `i == j`. Marked `@test_broken`.
-- `FDTD1D` uses `f.hz[i-1]` in an `hy`-only stencil for `ez`, injecting spurious
-  `ez` on every run. No test covers the z polarization.
-- `FDTD1D`'s `PML` default argument passes `Δt` and `Δx` in the wrong order.
-  Dead code today: every call site passes a PML explicitly.
+- `Landau1P`'s closure is inconsistent: the numerator carries the transversal
+  estimate `2Tₜ` while the denominator uses the longitudinal `|vᵢ-vⱼ|³`, leaving
+  a non-integrable singularity at `i ≈ j`. The collision integral grows under
+  grid refinement instead of converging (0.0023, 0.0053, 0.0080, 0.0104 at
+  Δv = 0.4, 0.2, 0.1, 0.05) and a Maxwellian is not a stationary point. Two
+  `@test_broken` assertions record this. A consistent closure would use
+  `(Δv² + 2Tₜ)^(3/2)`; that is a physics decision, not a coding fix.
+- `Landau1P` differences a cell-centred `I` rather than staggered fluxes, so
+  mass is not conserved to machine precision. Measured drift over 100 steps is
+  2e-10, which the test asserts as a bound.
 - Benchmark timings are invalid: `@benchmarkable` interpolates only `N`, so a
-  non-`const` global `Dict` is looked up inside the timed region.
+  non-`const` global `Dict` is looked up inside the timed region. There is also
+  a Cyrillic `с` (U+0441) in the `"Upwind с"` keys.
+- Coverage is collected but discarded: `CODECOV_TOKEN` is not configured.
