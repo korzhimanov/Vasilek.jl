@@ -1,73 +1,68 @@
 module VlasovBenchmarks
 
 using BenchmarkTools
-using Vasilek: LaxWendroff, Upwind, Godunov, SemiLagrangian, PFC
+using Vasilek: LaxWendroff, Upwind, Godunov, SemiLagrangian, PFC, PFCNonUniform
 
 const SUITE = BenchmarkGroup()
 
-SUITE["LaxWendroff"] = BenchmarkGroup()
-SUITE["LaxWendroff c"] = BenchmarkGroup()
+const SIZES = (100, 1000, 10000)
+const Δx = 0.01
+const COURANT = 0.8
 
-SUITE["Upwind"] = BenchmarkGroup()
-SUITE["Upwind с"] = BenchmarkGroup()
+initial(N) = [1.0 + 0.01*sin(2π*i*Δx) for i = 0:N]
 
-SUITE["Godunov constant"] = BenchmarkGroup()
-SUITE["Godunov linear"] = BenchmarkGroup()
-SUITE["Godunov linear VanLeer"] = BenchmarkGroup()
+# Schemes taking the Courant number at call time -- the path that survives the
+# planned move to scheme structs.
+const SCHEMES = (
+    ("LaxWendroff",            (a, b) -> LaxWendroff.generate_solver(a, b)),
+    ("Upwind",                 (a, b) -> Upwind.generate_solver(a, b)),
+    ("Godunov constant",       (a, b) -> Godunov.generate_solver(a, b, :Riemann_constant)),
+    ("Godunov linear",         (a, b) -> Godunov.generate_solver(a, b, :Riemann_linear)),
+    ("Godunov linear VanLeer", (a, b) -> Godunov.generate_solver(a, b, :Riemann_linear; flux_limiter = :VanLeer)),
+    ("SemiLagrangian linear",    (a, b) -> SemiLagrangian.generate_solver(a, b; interpolation_order = :Linear)),
+    ("SemiLagrangian quadratic", (a, b) -> SemiLagrangian.generate_solver(a, b; interpolation_order = :Quadratic)),
+    ("SemiLagrangian cubic",     (a, b) -> SemiLagrangian.generate_solver(a, b; interpolation_order = :Cubic)),
+    ("PFC",                    (a, b) -> PFC.generate_solver(a, b; fₘᵢₙ = 0.0, fₘₐₓ = 2.0)),
+)
 
-SUITE["SemiLagrangian linear"] = BenchmarkGroup()
-SUITE["SemiLagrangian quadratic"] = BenchmarkGroup()
-SUITE["SemiLagrangian cubic"] = BenchmarkGroup()
+# The same kernels reached through the overload that bakes the Courant number
+# in at construction. Kept so the delegation introduced when the two were
+# unified can be shown to cost nothing.
+const BAKED = (
+    ("LaxWendroff baked", (a, b, c) -> LaxWendroff.generate_solver(a, b, c)),
+    ("Upwind baked",      (a, b, c) -> Upwind.generate_solver(a, b, c)),
+    ("PFC baked",         (a, b, c) -> PFC.generate_solver(a, b, c; fₘᵢₙ = 0.0, fₘₐₓ = 2.0)),
+)
 
-SUITE["PFC"] = BenchmarkGroup()
+for (name, _) in SCHEMES
+    SUITE[name] = BenchmarkGroup()
+end
+for (name, _) in BAKED
+    SUITE[name] = BenchmarkGroup()
+end
+SUITE["PFCNonUniform"] = BenchmarkGroup()
 
-Δx = Dict()
-Δt = Dict()
-v = Dict()
-f₀ = Dict()
-f = Dict()
-advect! = Dict()
+for N in SIZES
+    f₀ = initial(N)
 
-for N in [100, 1000, 10000]
-    Δx[N] = 0.01
-    Δt[N] = 0.8*Δx[N]
-    v[N] = 1
-    f₀[N] = [1.0 + 0.01*sin(2π*i*Δx[N]) for i = 0:N]
-    f[N] = similar(f₀[N])
-    advect![N] = Dict()
+    for (name, mk) in SCHEMES
+        step! = mk(f₀, similar(f₀))
+        # The closure is interpolated, not looked up. Writing `advect![$N][:X]()`
+        # left a non-const global Dict lookup inside the timed region, which at
+        # N = 100 plausibly cost more than the kernel.
+        SUITE[name]["advect $N"] = @benchmarkable $step!($COURANT)
+    end
 
-    advect![N][:LaxWendroff] = LaxWendroff.generate_solver(f₀[N], f[N], v[N]*Δt[N]/Δx[N])
-    SUITE["LaxWendroff"]["advect $N"] = @benchmarkable advect![$N][:LaxWendroff]()
+    for (name, mk) in BAKED
+        step! = mk(f₀, similar(f₀), COURANT)
+        SUITE[name]["advect $N"] = @benchmarkable $step!()
+    end
 
-    advect![N][:LaxWendroff_c] = LaxWendroff.generate_solver(f₀[N], f[N])
-    SUITE["LaxWendroff c"]["advect $N"] = @benchmarkable advect![$N][:LaxWendroff_c]($(v[N]*Δt[N]/Δx[N]))
-
-    advect![N][:Upwind] = Upwind.generate_solver(f₀[N], f[N], v[N]*Δt[N]/Δx[N])
-    SUITE["Upwind"]["advect $N"] = @benchmarkable advect![$N][:Upwind]()
-
-    advect![N][:Upwind_с] = Upwind.generate_solver(f₀[N], f[N])
-    SUITE["Upwind с"]["advect $N"] = @benchmarkable advect![$N][:Upwind_с]($(v[N]*Δt[N]/Δx[N]))
-
-    advect![N][:Godunov_constant] = Godunov.generate_solver(f₀[N], f[N], :Riemann_constant)
-    SUITE["Godunov constant"]["advect $N"] = @benchmarkable advect![$N][:Godunov_constant]($(v[N]*Δt[N]/Δx[N]))
-
-    advect![N][:Godunov_linear] = Godunov.generate_solver(f₀[N], f[N], :Riemann_linear)
-    SUITE["Godunov linear"]["advect $N"] = @benchmarkable advect![$N][:Godunov_linear]($(v[N]*Δt[N]/Δx[N]))
-
-    advect![N][:Godunov_linear_VanLeer] = Godunov.generate_solver(f₀[N], f[N], :Riemann_linear; flux_limiter = :VanLeer)
-    SUITE["Godunov linear VanLeer"]["advect $N"] = @benchmarkable advect![$N][:Godunov_linear_VanLeer]($(v[N]*Δt[N]/Δx[N]))
-
-    advect![N][:SemiLagrangian_linear] = SemiLagrangian.generate_solver(f₀[N], f[N]; interpolation_order = :Linear)
-    SUITE["SemiLagrangian linear"]["advect $N"] = @benchmarkable advect![$N][:SemiLagrangian_linear]($(v[N]*Δt[N]/Δx[N]))
-
-    advect![N][:SemiLagrangian_quadratic] = SemiLagrangian.generate_solver(f₀[N], f[N]; interpolation_order = :Quadratic)
-    SUITE["SemiLagrangian quadratic"]["advect $N"] = @benchmarkable advect![$N][:SemiLagrangian_quadratic]($(v[N]*Δt[N]/Δx[N]))
-
-    advect![N][:SemiLagrangian_cubic] = SemiLagrangian.generate_solver(f₀[N], f[N]; interpolation_order = :Cubic)
-    SUITE["SemiLagrangian cubic"]["advect $N"] = @benchmarkable advect![$N][:SemiLagrangian_cubic]($(v[N]*Δt[N]/Δx[N]))
-
-    advect![N][:PFC] = PFC.generate_solver(f₀[N], f[N]; fₘᵢₙ=0.0, fₘₐₓ=maximum(f₀[N]))
-    SUITE["PFC"]["advect $N"] = @benchmarkable advect![$N][:PFC]($(v[N]*Δt[N]/Δx[N]))
+    Δ = fill(Δx, N + 1)
+    g = initial(N)
+    nustep! = PFCNonUniform.make_advect_1D!(Δ; fₘᵢₙ = 0.0, fₘₐₓ = 2.0)
+    α = COURANT*Δx
+    SUITE["PFCNonUniform"]["advect $N"] = @benchmarkable $nustep!($g, $α)
 end
 
 end # module

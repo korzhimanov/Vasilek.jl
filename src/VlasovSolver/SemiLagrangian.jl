@@ -2,21 +2,52 @@ module SemiLagrangian
 
 using Interpolations
 
-function generate_solver(f₀, f; interpolation_order = :Cubic)
+function _interpolation_type(interpolation_order)
     if interpolation_order == :Linear
-        interpolation_function = BSpline(Linear())
+        return BSpline(Linear())
     elseif interpolation_order == :Quadratic
-        interpolation_function = BSpline(Quadratic(Periodic(OnCell())))
+        return BSpline(Quadratic(Periodic(OnCell())))
     elseif interpolation_order == :Cubic
-        interpolation_function = BSpline(Cubic(Periodic(OnCell())))
+        return BSpline(Cubic(Periodic(OnCell())))
+    else
+        throw(ArgumentError("unknown interpolation_order $interpolation_order"))
     end
+end
 
-    function solve!(c)
-        if interpolation_order == :Linear
-            itp = interpolate([f₀; f₀[1]], interpolation_function)
+"""
+    _make_step(f₀, f, interpolation_order)
+
+Builds the per-step kernel shared by both `generate_solver` methods.
+
+`interpolate` copies its input and runs the B-spline prefilter on the copy, so
+calling it inside the step allocated a fresh coefficient array every time —
+80 kB per step at N = 1000 for linear, 173 kB for quadratic and cubic. The
+buffer is now allocated once and prefiltered in place; `interpolate!` was
+checked to give bit-identical results to `interpolate`.
+
+Linear keeps its explicit wrap-around point. Dropping it and relying on the
+periodic extrapolation alone changes the result, so it stays.
+
+(The two `generate_solver` methods share this rather than each carrying a copy
+of the body. That is a local consequence of not wanting to apply the same fix
+twice, not the wider deduplication of the closure factories.)
+"""
+function _make_step(f₀, f, interpolation_order)
+    itp_type = _interpolation_type(interpolation_order)
+    wrap = interpolation_order == :Linear
+    buf = wrap ? similar(f₀, length(f₀) + 1) : similar(f₀)
+
+    return function step!(c)
+        if wrap
+            # 5-argument copyto!, not a view: on Julia 1.10 the SubArray was
+            # heap-allocated on the CI machines (16 bytes) while being elided on
+            # the development machine at the same patch version.
+            copyto!(buf, 1, f₀, 1, length(f₀))
+            buf[end] = f₀[1]
         else
-            itp = interpolate(f₀, interpolation_function)
+            copyto!(buf, f₀)
         end
+        itp = interpolate!(buf, itp_type)
         etp = extrapolate(itp, Periodic(OnCell()))
 
         for i = 1:length(f₀)
@@ -27,37 +58,15 @@ function generate_solver(f₀, f; interpolation_order = :Cubic)
             end
         end
     end
+end
 
-    return solve!
+function generate_solver(f₀, f; interpolation_order = :Cubic)
+    return _make_step(f₀, f, interpolation_order)
 end
 
 function generate_solver(f₀, f, c; interpolation_order = :Cubic)
-    if interpolation_order == :Linear
-        interpolation_function = BSpline(Linear())
-    elseif interpolation_order == :Quadratic
-        interpolation_function = BSpline(Quadratic(Periodic(OnCell())))
-    elseif interpolation_order == :Cubic
-        interpolation_function = BSpline(Cubic(Periodic(OnCell())))
-    end
-
-    function solve!()
-        if interpolation_order == :Linear
-            itp = interpolate([f₀; f₀[1]], interpolation_function)
-        else
-            itp = interpolate(f₀, interpolation_function)
-        end
-        etp = extrapolate(itp, Periodic(OnCell()))
-
-        for i = 1:length(f₀)
-            if 1.0 ≤ i - c ≤ length(itp)
-                f[i] = itp(i - c)
-            else
-                f[i] = etp(i - c)
-            end
-        end
-    end
-
-    return solve!
+    step! = _make_step(f₀, f, interpolation_order)
+    return () -> step!(c)
 end
 
 end  # module SemiLagrangian
