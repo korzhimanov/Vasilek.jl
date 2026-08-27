@@ -53,8 +53,6 @@ jobs:
         with:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
-          # CODECOV_TOKEN is not set, so this upload is confirmed to fail with
-          # "Token required - not valid tokenless upload". Kept non-blocking so
-          # coverage cannot turn the build red; add the secret in repository
-          # settings to make this job actually report something.
+          # Non-blocking on purpose: a Codecov outage or rate limit is not a
+          # code-correctness problem and should not turn the build red.
           fail_ci_if_error: false
