@@ -1,4 +1,6 @@
-# Extended verification. Slow -- roughly twenty minutes -- so it is gated:
+# Extended verification. About 40 seconds now that PFCNonUniform's per-cell
+# allocations are gone -- cheap enough to run far more often than nightly --
+# but still gated so the default test run stays instant:
 #
 #     VASILEK_EXTENDED=1 julia --project=. -e 'using Pkg; Pkg.test()'
 #
