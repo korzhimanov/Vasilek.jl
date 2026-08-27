@@ -1,67 +1,35 @@
 module Upwind
 
-function generate_solver(f₀, f, c)
-   function upwind⁺!(g, f, i, i⁻)
-        g[i] = f[i] - c*(f[i]-f[i⁻])
-    end
+@inline _flux⁺(f, i, i⁻, c) = f[i] - c*(f[i] - f[i⁻])
+@inline _flux⁻(f, i, i⁺, c) = f[i] - c*(f[i⁺] - f[i])
 
-    function solve⁺!()
-        upwind⁺!(f, f₀, 1, length(f))
-        @inbounds @simd for i = 2:length(f)
-            upwind⁺!(f, f₀, i, i-1)
-        end
-    end
+"""
+    _advect!(dest, src, c)
 
-    function upwind⁻!(g, f, i, i⁺)
-        g[i] = f[i] - c*(f[i⁺]-f[i])
-    end
+First-order upwind advection with periodic boundaries, one step.
 
-    function solve⁻!()
-        @inbounds @simd for i = 1:length(f)-1
-            upwind⁻!(f, f₀, i, i+1)
-        end
-        upwind⁻!(f, f₀, length(f), 1)
-    end
-
+The single numerical kernel. Both `generate_solver` methods are wrappers over
+it: the only thing that ever differed between them was whether the Courant
+number was captured at construction or passed at call time, and the kernel was
+written out twice to express that.
+"""
+function _advect!(dest, src, c)
+    n = length(dest)
     if c > 0
-        return solve⁺!
+        dest[1] = _flux⁺(src, 1, n, c)
+        @inbounds @simd for i = 2:n
+            dest[i] = _flux⁺(src, i, i-1, c)
+        end
     else
-        return solve⁻!
+        @inbounds @simd for i = 1:n-1
+            dest[i] = _flux⁻(src, i, i+1, c)
+        end
+        dest[n] = _flux⁻(src, n, 1, c)
     end
+    return dest
 end
 
-function generate_solver(f₀, f)
-   function upwind⁺!(g, f, i, i⁻, c)
-        g[i] = f[i] - c*(f[i]-f[i⁻])
-    end
-
-    function upwind⁻!(g, f, i, i⁺, c)
-        g[i] = f[i] - c*(f[i⁺]-f[i])
-    end
-
-    function solve⁺!(c)
-        upwind⁺!(f, f₀, 1, length(f), c)
-        @inbounds @simd for i = 2:length(f)
-            upwind⁺!(f, f₀, i, i-1, c)
-        end
-    end
-
-    function solve⁻!(c)
-        @inbounds @simd for i = 1:length(f)-1
-            upwind⁻!(f, f₀, i, i+1, c)
-        end
-        upwind⁻!(f, f₀, length(f), 1, c)
-    end
-
-    function solve!(c)
-        if c > 0
-            solve⁺!(c)
-        else
-            solve⁻!(c)
-        end
-    end
-
-    return solve!
-end
+generate_solver(f₀, f) = c -> _advect!(f, f₀, c)
+generate_solver(f₀, f, c) = () -> _advect!(f, f₀, c)
 
 end # module

@@ -40,6 +40,14 @@ This project has not been released; entries below describe work on `master`.
 
 ### Fixed
 
+- **The `(h, h₀)` methods of `LaxWendroff` sized their loops from the captured
+  array** rather than from the pair passed to them, so a differently sized
+  pair read and wrote out of range. The same mistake `PFC` had. Both now
+  have a regression test, which neither did.
+- `Godunov.generate_Φ` and `Limiters.generate_limiter` returned `nothing` for
+  an unrecognised option, surfacing as a call on `nothing` from inside the
+  hot loop. Both now throw `ArgumentError` at construction.
+
 - **`SemiLagrangian` rebuilt its interpolation on every step.** `interpolate`
   copies its input and runs the B-spline prefilter on the copy, costing 80 kB
   per step at N = 1000 for linear and 173 kB for quadratic and cubic. The
@@ -99,6 +107,11 @@ This project has not been released; entries below describe work on `master`.
   Restored; it passes.
 
 ### Changed
+
+- `Upwind` and `LaxWendroff` reduced to a single numerical kernel each, with
+  both `generate_solver` methods as wrappers. The kernel had been written out
+  twice per module, differing only in whether the Courant number was captured
+  or passed. Output is bit-identical, confirmed by the golden tests.
 
 - Tests load the package (`using Vasilek`) instead of including source files by
   relative path and dispatching through `eval`. `src/Vasilek.jl` was previously

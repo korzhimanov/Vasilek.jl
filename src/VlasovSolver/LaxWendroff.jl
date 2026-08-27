@@ -1,50 +1,41 @@
 module LaxWendroff
 
-function generate_solver(f₀, f, c)
-    function lax_wendroff!(g, f, i, i⁻, i⁺)
-        g[i] = f[i] - 0.5*c*(f[i⁺]-f[i⁻]) + 0.5*c^2*(f[i⁺]-2*f[i]+f[i⁻])
-    end
+@inline function _flux(f, i, i⁻, i⁺, c)
+    return f[i] - 0.5*c*(f[i⁺] - f[i⁻]) + 0.5*c^2*(f[i⁺] - 2*f[i] + f[i⁻])
+end
 
-    function solve!()
-        lax_wendroff!(f, f₀, 1, length(f), 2)
-        @inbounds @simd for i = 2:length(f)-1
-            lax_wendroff!(f, f₀, i, i-1, i+1)
-        end
-        lax_wendroff!(f, f₀, length(f), length(f)-1, 1)
-    end
+"""
+    _advect!(dest, src, c)
 
-    function solve!(h, h₀)
-        lax_wendroff!(h, h₀, 1, length(f), 2)
-        @inbounds @simd for i = 2:length(f)-1
-            lax_wendroff!(h, h₀, i, i-1, i+1)
-        end
-        lax_wendroff!(h, h₀, length(f), length(f)-1, 1)
-    end
+Lax–Wendroff advection with periodic boundaries, one step.
 
-    return solve!
+The single numerical kernel; both `generate_solver` methods wrap it.
+
+Sizing from `length(dest)` also fixes a latent bug: the `(h, h₀)` methods used
+to take their bounds from `length(f)`, the array captured at construction,
+so passing a differently sized pair read and wrote out of range. The same
+mistake was present in `PFC` and is fixed there too. No test exercised it.
+"""
+function _advect!(dest, src, c)
+    n = length(dest)
+    dest[1] = _flux(src, 1, n, 2, c)
+    @inbounds @simd for i = 2:n-1
+        dest[i] = _flux(src, i, i-1, i+1, c)
+    end
+    dest[n] = _flux(src, n, n-1, 1, c)
+    return dest
 end
 
 function generate_solver(f₀, f)
-    function lax_wendroff!(g, f, i, i⁻, i⁺, c)
-        g[i] = f[i] - 0.5*c*(f[i⁺]-f[i⁻]) + 0.5*c^2*(f[i⁺]-2*f[i]+f[i⁻])
-    end
-
-    function solve!(c)
-        lax_wendroff!(f, f₀, 1, length(f), 2, c)
-        @inbounds @simd for i = 2:length(f)-1
-            lax_wendroff!(f, f₀, i, i-1, i+1, c)
-        end
-        lax_wendroff!(f, f₀, length(f), length(f)-1, 1, c)
-    end
-
-    function solve!(h, h₀, c)
-        lax_wendroff!(h, h₀, 1, length(f), 2, c)
-        @inbounds @simd for i = 2:length(f)-1
-            lax_wendroff!(h, h₀, i, i-1, i+1, c)
-        end
-        lax_wendroff!(h, h₀, length(f), length(f)-1, 1, c)
-    end
-
+    solve!(c) = _advect!(f, f₀, c)
+    solve!(h, h₀, c) = _advect!(h, h₀, c)
     return solve!
 end
+
+function generate_solver(f₀, f, c)
+    solve!() = _advect!(f, f₀, c)
+    solve!(h, h₀) = _advect!(h, h₀, c)
+    return solve!
+end
+
 end # module

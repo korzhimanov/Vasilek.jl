@@ -12,6 +12,8 @@ end
 function generate_limiter(limiter_name)
     if limiter_name == :VanLeer
         return van_leer
+    else
+        throw(ArgumentError("unknown flux limiter $limiter_name"))
     end
 end
 

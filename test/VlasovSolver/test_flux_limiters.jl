@@ -1,4 +1,5 @@
 using Vasilek.Limiters
+using Vasilek: Godunov
 
 const LIMITERS = (:VanLeer,)
 
@@ -28,4 +29,13 @@ end
 
 for limiter_name in LIMITERS
     test_limiter(limiter_name)
+end
+
+@testset "unknown options fail at construction" begin
+    # Both of these used to fall off the end of an if-chain and return nothing,
+    # which surfaced as "nothing is not callable" from inside the hot loop.
+    @test_throws ArgumentError Limiters.generate_limiter(:NoSuchLimiter)
+    @test_throws ArgumentError Godunov.generate_solver([1.0, 2.0], [0.0, 0.0], :NoSuchSolver)
+    @test_throws ArgumentError Godunov.generate_solver([1.0, 2.0], [0.0, 0.0],
+                                                      :Riemann_linear; flux_limiter = :NoSuchLimiter)
 end
