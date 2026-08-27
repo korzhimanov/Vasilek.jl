@@ -9,6 +9,12 @@ This project has not been released; entries below describe work on `master`.
 
 ### Added
 
+- **Allocation gate** (`test/test_allocations.jl`): blocking, deterministic, and
+  asserting zero for every kernel that achieves it. `@allocated` does not flap
+  the way wall-clock timing does, so it can gate CI.
+- `--strict` and `--rebaseline` flags for the benchmark driver, and
+  `PFCNonUniform` and `FDTD1D` added to the benchmark suite.
+
 - **Golden-value regression tests** (`test/test_golden.jl`): bit-for-bit
   reference output for all nine advection scheme/option combinations, eight
   steps each. Convergence rates are far too loose to catch an index swapped
@@ -33,6 +39,24 @@ This project has not been released; entries below describe work on `master`.
   bit-identical output — the invariant `PFC` had been violating.
 
 ### Fixed
+
+- **`SemiLagrangian` rebuilt its interpolation on every step.** `interpolate`
+  copies its input and runs the B-spline prefilter on the copy, costing 80 kB
+  per step at N = 1000 for linear and 173 kB for quadratic and cubic. The
+  buffer is now allocated once and prefiltered in place: linear drops to zero,
+  quadratic and cubic to about 100 kB, all of it inside the periodic prefilter
+  in Interpolations itself. Output is bit-identical, confirmed by the golden
+  tests.
+- **`BGK` allocated six temporaries per step** (39 kB at 801 velocity points).
+  Two reusable buffers and fused in-place broadcasts take it to zero, with
+  bit-identical output over 100 steps.
+- Benchmark measurements were invalid: `@benchmarkable` interpolated only `N`,
+  leaving a non-`const` global `Dict` lookup inside the timed region. The
+  closures are now interpolated directly.
+- The benchmark driver ran only the Vlasov group, so the Maxwell group was
+  tuned and never executed. `results.json` stored every raw sample (4.4 MB);
+  it now stores the estimate (13 kB).
+- The Cyrillic `c` (U+0441) in the benchmark keys is gone.
 
 - **`FDTD1D` read `f.hz[i-1]` in an `hy`-only stencil for `ez`.** Because `hz`
   is non-zero throughout the existing tests, this actively injected `ez`,
@@ -120,7 +144,4 @@ This project has not been released; entries below describe work on `master`.
 - `Landau1P` differences a cell-centred `I` rather than staggered fluxes, so
   mass is not conserved to machine precision. Measured drift over 100 steps is
   2e-10, which the test asserts as a bound.
-- Benchmark timings are invalid: `@benchmarkable` interpolates only `N`, so a
-  non-`const` global `Dict` is looked up inside the timed region. There is also
-  a Cyrillic `с` (U+0441) in the `"Upwind с"` keys.
 - Coverage is collected but discarded: `CODECOV_TOKEN` is not configured.
