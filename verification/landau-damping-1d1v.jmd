@@ -44,8 +44,8 @@ x = collect(π/8:π/8:8π)
 v = collect(-4:0.1:4)
 Δv = vcat([v[2]-v[1]], 0.5*(v[3:end] - v[1:end-2]), [v[end]-v[end-1]])
 
-advect_x! = PFCNonUniform.make_advect_1D!(Δx)
-advect_v! = PFCNonUniform.make_advect_1D!(Δv)
+advect_x! = PFCNonUniform.make_advect_1D!(Δx; fₘᵢₙ = 0.0, fₘₐₓ = 1.0)
+advect_v! = PFCNonUniform.make_advect_1D!(Δv; fₘᵢₙ = 0.0, fₘₐₓ = 1.0)
 
 fi = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. Δx/Δx)'
 ni = integrate(v, fi)
@@ -180,8 +180,8 @@ x = collect(π/8:π/8:8π)
 v = vcat(collect(-4:0.1:-1.1), collect(-1:0.05:1), collect(1.1:0.1:4))
 Δv = vcat([v[2]-v[1]], 0.5*(v[3:end] - v[1:end-2]), [v[end]-v[end-1]])
 
-advect_x! = PFCNonUniform.make_advect_1D!(Δx)
-advect_v! = PFCNonUniform.make_advect_1D!(Δv)
+advect_x! = PFCNonUniform.make_advect_1D!(Δx; fₘᵢₙ = 0.0, fₘₐₓ = 1.0)
+advect_v! = PFCNonUniform.make_advect_1D!(Δv; fₘᵢₙ = 0.0, fₘₐₓ = 1.0)
 
 fi = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. Δx/Δx)'
 ni = integrate(v, fi)
@@ -285,8 +285,8 @@ x = collect(π/8:π/8:8π)
 v = vcat(collect(-6:0.1:-1.1), collect(-1:0.05:1), collect(1.1:0.1:6))
 Δv = vcat([v[2]-v[1]], 0.5*(v[3:end] - v[1:end-2]), [v[end]-v[end-1]])
 
-advect_x! = PFCNonUniform.make_advect_1D!(Δx)
-advect_v! = PFCNonUniform.make_advect_1D!(Δv)
+advect_x! = PFCNonUniform.make_advect_1D!(Δx; fₘᵢₙ = 0.0, fₘₐₓ = 1.0)
+advect_v! = PFCNonUniform.make_advect_1D!(Δv; fₘᵢₙ = 0.0, fₘₐₓ = 1.0)
 
 fi = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. Δx/Δx)'
 ni = integrate(v, fi)
