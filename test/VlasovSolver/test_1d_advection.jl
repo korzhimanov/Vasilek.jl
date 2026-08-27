@@ -142,3 +142,30 @@ end
     test_1d_advection_step(PFC, Δx, Δt,  v, f₀, f₁, 1e-18; fₘᵢₙ=0.0, fₘₐₓ=maximum(f₀))
     test_1d_advection_step(PFC, Δx, Δt, -v, f₀, f₂, 1e-18; fₘᵢₙ=0.0, fₘₐₓ=maximum(f₀))
 end
+
+@testset "solvers do not size themselves from the captured arrays" begin
+    # `PFC` and `LaxWendroff` both offer a method taking an explicit (dest, src)
+    # pair. Both used to take their loop bounds from `length(f)` -- the array
+    # handed to `generate_solver` -- rather than from the pair actually passed,
+    # so a differently sized pair read and wrote out of range. Nothing exercised
+    # it: every call site in the repository happened to pass matching lengths.
+    #
+    # The result must not depend on the captured arrays at all, so a solver
+    # built on one size and applied to another must agree with one built on
+    # that size directly.
+    big = [1.0 + 0.5*sin(2π*(i-1)/100) for i = 1:100]
+    small₀ = [1.0 + 0.5*sin(2π*(i-1)/50) for i = 1:50]
+    c = 0.4
+
+    borrowed = similar(small₀)
+    LaxWendroff.generate_solver(big, similar(big))(borrowed, small₀, c)
+    native = similar(small₀)
+    LaxWendroff.generate_solver(small₀, native)(c)
+    @test borrowed == native
+
+    borrowed = similar(small₀)
+    PFC.generate_solver(big, similar(big); fₘᵢₙ = 0.0, fₘₐₓ = 2.0)(borrowed, small₀, c)
+    native = similar(small₀)
+    PFC.generate_solver(small₀, native; fₘᵢₙ = 0.0, fₘₐₓ = 2.0)(c)
+    @test borrowed == native
+end

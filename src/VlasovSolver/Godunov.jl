@@ -24,11 +24,14 @@ function generate_Φ_linear(limiter_func)
     return Φ
 end
 
+
 function generate_Φ(Riemann_solver_type, limiter_func)
     if Riemann_solver_type == :Riemann_constant
         return Φ_constant
     elseif Riemann_solver_type == :Riemann_linear
         return generate_Φ_linear(limiter_func)
+    else
+        throw(ArgumentError("unknown Riemann solver type $Riemann_solver_type"))
     end
 end
 
