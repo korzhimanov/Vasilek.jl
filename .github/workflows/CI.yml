@@ -27,7 +27,7 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
         arch: [x64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: julia-actions/setup-julia@v2
         with:
           version: ${{ matrix.version }}
@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: julia-actions/setup-julia@v2
         with:
           version: '1'
@@ -53,6 +53,8 @@ jobs:
         with:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
-          # coverage reporting must not gate the build: CODECOV_TOKEN is not
-          # configured yet, and a missing token should not turn CI red.
+          # CODECOV_TOKEN is not set, so this upload is confirmed to fail with
+          # "Token required - not valid tokenless upload". Kept non-blocking so
+          # coverage cannot turn the build red; add the secret in repository
+          # settings to make this job actually report something.
           fail_ci_if_error: false
