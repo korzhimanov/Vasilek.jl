@@ -19,6 +19,7 @@ end
 end
 
 function advect!(dest, src, g::Godunov, c, ws)
+    _validate(dest, src, g, ws)
     n = length(dest)
     r, l = g.reconstruction, g.limiter
     if c > 0

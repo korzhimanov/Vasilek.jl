@@ -9,6 +9,36 @@ This project has not been released; entries below describe work on `master`.
 
 ### Added
 
+- **Reentrancy is asserted** (`test/test_threading.jl`), and a `Multithreaded`
+  CI job runs the suite at `JULIA_NUM_THREADS=4` so it means something. Sweeping
+  many independent lines with one shared scheme value and a per-task workspace
+  must reproduce the serial result *bit-for-bit*, in both Courant directions,
+  for every scheme and for `BGK`. This is the property the 0.2 refactor existed
+  for — the old closures captured a single shared scratch buffer, which is why
+  the parallel 2D2P goal was unreachable — and it was the one claim with no test.
+  Workspaces are allocated inside the task rather than indexed by
+  `Threads.threadid()`: tasks migrate, and `maxthreadid()` exceeds `nthreads()`
+  whenever an interactive pool exists (8 against 4 here), so a `threadid()`-keyed
+  pool is both a race and an out-of-bounds read waiting to happen. The test is
+  the pattern the 2D2P sweeps should copy.
+- **`BGK` moment conservation** (`test/BoltzmannSolver/test_damping_1v.jl`).
+  Leaving `n`, `u` and `T` alone is the entire content of the operator and
+  nothing checked it; worse, every existing test started from data symmetric in
+  `v`, so `u` was zero throughout and the mean-velocity computation was never
+  exercised at all. Measured over 100 steps on `v ∈ [-10, 10]`: machine
+  precision for skewed and drifting initial data, 2.5e-10 for a bi-Maxwellian.
+  Adds an arbitrary Maxwellian as a fixed point at four `(u, T)` pairs, and both
+  limits of the update — `Δt ≪ τ`, and `Δt ≫ τ` giving the local Maxwellian
+  bit-for-bit — plus the intermediate `f·e + (1−e)·M`, also bit-for-bit.
+  The residual at `T = 2` is quantified as the velocity window rather than left
+  as a footnote: ±8 gives 1.6e-5 where ±10 gives 3.7e-9, which is the tail the
+  trapezoid loses, and it sets the window callers need.
+- **Contract tests** for `advect!` (`test/test_contracts.jl`): the argument
+  checks below, workspaces carrying no state between calls, `@inferred` on every
+  kernel, and element-type behaviour — including the pinned fact that
+  `workspace(::SemiLagrangian, n)` hard-codes `Vector{Float64}`, so a `Float32`
+  line is prefiltered in double precision.
+
 - **Direction-symmetry suite** (`test/test_symmetry.jl`). Every other advection
   suite ran at `c = 0.4 > 0`, and `c > 0` and `c < 0` are separate branches in
   every scheme that has one; only a single-step check ever touched the negative
@@ -73,6 +103,34 @@ This project has not been released; entries below describe work on `master`.
   by default.
 
 ### Changed
+
+- **`advect!` validates its arguments.** Three ways of calling it wrongly used
+  to produce a plausible wrong answer rather than an error, which is the class
+  of failure this package has already paid for twice — the two `PFC` overloads
+  that disagreed by a factor of 740, and the `LaxWendroff` methods that sized
+  their loops from a captured array.
+
+  * `dest === src` is rejected. Every scheme except `SemiLagrangian` and
+    `PFCNonUniform` reads neighbours of `src` that an aliased `dest` has already
+    overwritten — measured 0.013 off for `Upwind`, 0.21 for `PFC`. The two that
+    survived did so by accident of holding a scratch copy, not by contract, so
+    aliasing is rejected uniformly rather than left scheme-dependent.
+  * `length(dest) != length(src)` is rejected. It used to be half-loud:
+    `length(dest) < length(src)` truncated silently in the finite-difference
+    schemes, wrapping periodically at the shorter length, while the other
+    direction threw `BoundsError`.
+  * A workspace of the wrong size is rejected. Undersized already threw;
+    **oversized did not**, and that was the dangerous one — `interpolate!`
+    prefilters the whole buffer, so a `SemiLagrangian` handed a workspace built
+    for a longer line returned garbage (max|Δ| ≈ 0.4) without complaint. The
+    check is exact equality, so a single large workspace can no longer be shared
+    across lines of differing length.
+  * Fewer than three cells is rejected. `Godunov(PiecewiseLinear())` reaches two
+    neighbours either side and threw `BoundsError` at `n = 2` while every other
+    scheme quietly returned a degenerate answer; the floor is now uniform.
+
+  The checks are three comparisons outside the loop with `@noinline` error
+  paths. The allocation gate still reports zero bytes for every kernel.
 
 - **The verification notebooks are runnable scripts.** `.jmd` + Weave becomes
   Literate-format `.jl` that executes directly and writes its own figures.

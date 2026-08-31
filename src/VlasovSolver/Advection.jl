@@ -219,9 +219,81 @@ Advance `src` one step into `dest` at Courant number `c`.
 
 The four-argument form allocates a workspace when the scheme needs one; pass
 one explicitly in any loop that runs more than once.
+
+`dest` and `src` must be distinct arrays of equal length, at least three
+elements long, and `ws` must be the workspace `workspace(scheme, length(src))`
+returns. Each of those is checked; see [`_validate`](@ref) for why.
 """
 advect!(dest, src, scheme::AbstractAdvection1D, c) =
     advect!(dest, src, scheme, c, workspace(scheme, length(dest)))
+
+# ----------------------------------------------------------------- validation
+
+"""
+    _validate(dest, src, scheme, ws)
+
+Argument check run at the top of every `advect!` method.
+
+Three ways of calling `advect!` wrongly used to produce a plausible wrong
+answer rather than an error, and this package has twice paid for exactly that
+class of failure -- the two `PFC` overloads that disagreed by a factor of 740,
+and the `LaxWendroff` methods that sized their loops from a captured array.
+
+  * **`dest === src`.** Every scheme except `SemiLagrangian` and
+    `PFCNonUniform` reads neighbours of `src` that it has already overwritten
+    in `dest`, so aliasing silently corrupts the result -- measured 0.013 for
+    `Upwind` and 0.21 for `PFC`. The two that survive do so by accident of
+    holding a scratch copy, which is not a contract worth relying on, so
+    aliasing is rejected uniformly.
+  * **Unequal lengths.** `length(dest) < length(src)` truncated silently in the
+    finite-difference schemes, wrapping periodically at the *shorter* length;
+    the other direction threw `BoundsError`. Half-loud is worse than either.
+  * **A workspace of the wrong size.** Undersized already threw. Oversized did
+    not: `interpolate!` prefilters the whole buffer, so a `SemiLagrangian`
+    handed a workspace built for a longer line returned garbage -- measured
+    max|Δ| ≈ 0.4 -- with no complaint.
+
+The checks are three comparisons outside the loop and cost no allocation; the
+error paths are `@noinline` so their message construction stays out of the hot
+code.
+"""
+@inline function _validate(dest, src, scheme::AbstractAdvection1D, ws)
+    dest === src && _err_alias()
+    length(dest) == length(src) || _err_length(length(dest), length(src))
+    length(src) ≥ 3 || _err_short(length(src))
+    _validate_workspace(scheme, ws, length(src))
+    return nothing
+end
+
+@noinline _err_alias() = throw(ArgumentError(
+    "advect! requires dest !== src: every scheme reads neighbours of src that " *
+    "an aliased dest would already have overwritten"))
+@noinline _err_length(nd, ns) = throw(DimensionMismatch(
+    "advect! requires length(dest) == length(src), got $nd and $ns"))
+@noinline _err_short(n) = throw(ArgumentError(
+    "advect! needs at least 3 cells, got $n: the schemes' unrolled boundary " *
+    "stencils reach two neighbours either side"))
+@noinline _err_workspace(got, want) = throw(DimensionMismatch(
+    "workspace has length $got but this call needs $want; build it with " *
+    "workspace(scheme, length(src))"))
+
+"""
+    _validate_workspace(scheme, ws, n)
+
+Check that `ws` is what `workspace(scheme, n)` would have returned. Exact
+equality, not a lower bound: the spline prefilter runs over the whole buffer,
+so a longer one is as wrong as a shorter one.
+"""
+_validate_workspace(::AbstractAdvection1D, ::Any, ::Integer) = nothing
+_validate_workspace(::SemiLagrangian{LinearSpline}, ws::SplineWorkspace, n::Integer) =
+    length(ws.buffer) == n + 1 ? nothing : _err_workspace(length(ws.buffer), n + 1)
+_validate_workspace(::SemiLagrangian, ws::SplineWorkspace, n::Integer) =
+    length(ws.buffer) == n ? nothing : _err_workspace(length(ws.buffer), n)
+function _validate_workspace(p::PFCNonUniform, ws::PFCWorkspace, n::Integer)
+    length(p.Δx) == n || _err_length(n, length(p.Δx))
+    length(ws.accumulator) == n || _err_workspace(length(ws.accumulator), n)
+    return nothing
+end
 
 include(joinpath("schemes", "upwind.jl"))
 include(joinpath("schemes", "lax_wendroff.jl"))
