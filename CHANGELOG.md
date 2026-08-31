@@ -136,22 +136,29 @@ This project has not been released; entries below describe work on `master`.
 
 ### Changed
 
-- **Two boundary conventions in `FDTD1D` are pinned as they stand, not fixed.**
-  Both are the author's call, and a test now records each so a change to either
-  is deliberate.
+- **`FDTD1D` drives only the interior nodes, and the PEC boundaries are
+  written down.** Both ends of the grid are perfect electric conductors: no
+  update touches `ey[1]`, `ez[1]`, `ey[end]` or `ez[end]`, so they hold the zero
+  `YeeMesh1D` gives them. That was already true of the curl loops, but only by
+  omission and nowhere stated — `update_ey!` and `update_ez!` added the current
+  over `1:Nx`, so node 1 was driven while node `Nx+1` was not.
 
-  * `update_ey!` and `update_ez!` add the current over `1:Nx`, but `ey` has
-    `Nx+1` entries and every caller in this repository passes a current of
-    length `Nx+1`. The last node's current is silently dropped.
-  * Neither `ey[1]` nor `ey[end]` is ever touched by a curl loop, at any PML
-    setting: the interior loop runs `pml.N+2 : Nx-pml.N` and the two layer loops
-    stop short of both ends. They stay at their initial values, which is a PEC
-    boundary by omission — and `ey[end]` is read by `update_hz!`, so it is a
-    real boundary condition rather than dead storage.
+  Injecting a current into a perfect conductor is meaningless, and doing it at
+  one end only broke the symmetry the conserved staggered energy rests on: the
+  discrete curls are adjoint precisely because the boundary terms vanish. The
+  current is now applied over `2:Nx`, exactly the set of dynamic nodes. The
+  arrays still span all `N+1` nodes so they index alongside `f.ey`; their first
+  and last entries are ignored.
 
-  Together, `ey[1]` receives current but no curl while `ey[end]` receives
-  neither. If PEC at both ends is the intent, the current at node 1 is the
-  inconsistent one.
+  Callers should seed the interior: writing into an end node does not launch a
+  wave, it changes the boundary condition to `E = const`. The convention is now
+  in [docs/normalization.md](docs/normalization.md) and in the `YeeMesh1D` and
+  `make_advance_fields` docstrings, and the tests assert the observable
+  consequence rather than the loop bounds — a pulse reaching either wall returns
+  inverted, with a measured reflection coefficient of −0.9998.
+
+  No effect on the verification runs: `wakefield.jl` is the only caller passing
+  a nonzero current, and its density profile vanishes at both walls.
 
 - **`advect!` validates its arguments.** Three ways of calling it wrongly used
   to produce a plausible wrong answer rather than an error, which is the class

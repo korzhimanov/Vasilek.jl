@@ -87,6 +87,34 @@ plasma-oscillation notebook verifies against the analytic plasma frequency:
 
 Together these give an oscillation. Flipping either gives exponential growth.
 
+## Boundaries in the FDTD solver
+
+Both ends of the grid are **perfect electric conductors**. The solver imposes
+that by never writing to either end node: the interior loop runs
+`pml.N+2 : Nx-pml.N` and the two absorbing-layer loops stop short of both ends,
+so `ey[1]`, `ez[1]`, `ey[end]` and `ez[end]` hold the zero `YeeMesh1D` gives
+them, for all time.
+
+They are not dead storage. `update_hz!` reads `ey[end]`, which is how the
+condition enters the solution, and a pulse reaching either wall comes back with
+its sign inverted — measured reflection coefficient −0.9998. It is also what
+makes the staggered energy exactly conserved: the discrete curls are adjoint
+only because the boundary terms vanish.
+
+Two consequences for callers:
+
+* **Seed the interior.** Writing a nonzero value into an end node does not
+  launch a wave, it silently changes the boundary condition to `E = const`.
+* **The current arrays span all `N+1` nodes, but only `2:N` are driven.** A
+  current cannot be injected into a perfect conductor. The first and last
+  entries of `j.y` and `j.z` are ignored; they exist so the arrays index
+  alongside `f.ey`.
+
+The second of those was wrong until recently: the current was added over
+`1:Nx`, so node 1 was driven while node `Nx+1` was not. It broke the symmetry
+the energy identity rests on, and injected a source into a conductor at one end
+only.
+
 ## Bounds for the PFC schemes
 
 `PFC` and `PFCNonUniform` require `fmin` and `fmax`. By Liouville's theorem `f`

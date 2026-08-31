@@ -342,45 +342,75 @@ end
     @test dev < 1e-12
 end
 
-@testset "Where the current is applied, and which nodes are frozen" begin
-    # Two asymmetries in the field update, pinned as they stand rather than
-    # changed -- both are boundary conventions, and which one is intended is the
-    # author's call.
+@testset "The end nodes are PEC boundaries" begin
+    # Tangential E vanishes at a perfect conductor, and this solver imposes that
+    # by never writing to either end node: the interior loop runs
+    # `pml.N+2 : Nx-pml.N` and the two absorbing-layer loops stop short of both
+    # ends, so `ey[1]` and `ey[end]` hold the zero `YeeMesh1D` gives them.
     #
-    #   * `update_ey!` adds the current over `1:Nx`, but `ey` has `Nx+1` entries
-    #     and every caller in this repository passes a current of length `Nx+1`.
-    #     The last node's current is silently dropped.
-    #   * Neither `ey[1]` nor `ey[end]` is ever touched by a curl loop, at any
-    #     PML setting: the interior loop runs `pml.N+2 : Nx-pml.N` and the two
-    #     layer loops stop short of both. They are frozen at their initial
-    #     values, which is a PEC boundary by omission -- and `ey[end]` is read
-    #     by `update_hz!`, so it is a real boundary condition rather than dead
-    #     storage.
+    # They are not dead storage -- `update_hz!` reads `ey[end]` -- so this is
+    # the boundary condition rather than an accident of the loop bounds, and it
+    # is what makes the staggered energy above exactly conserved: the discrete
+    # curls are adjoint only because the boundary terms vanish.
     #
-    # Together: `ey[1]` receives current but no curl, `ey[end]` receives
-    # neither. If the intent is PEC at both ends, the current at node 1 is the
-    # inconsistent one.
+    # The current used to be added over `1:Nx`, which drove node 1 while node
+    # `Nx+1` was left alone. Injecting a current into a perfect conductor is
+    # meaningless, and doing it at one end only broke the symmetry the energy
+    # identity depends on. It is now applied over `2:Nx`, exactly the set of
+    # dynamic nodes.
     Δx = 0.01; cfl = 0.8; Δt = cfl*Δx; N = 20
-    for NP in (0, 5)
+
+    @testset "a current drives the interior only, PML N = $NP" for NP in (0, 5)
         m = FDTD1D.YeeMesh1D{Float64}(N)
         advance! = FDTD1D.make_advance_fields(m, cfl, NO_PULSE, Δt, Δx, 0,
                                               FDTD1D.PML(NP, 1e3, Δx, Δt))
         advance!(0.0, (y = fill(1.0, N+1), z = fill(1.0, N+1)))
         @test length(m.ey) == N + 1
-        @test all(m.ey[1:N] .== 1.0)        # current applied here
-        @test m.ey[N+1] == 0.0              # and dropped here
+        @test m.ey[1] == 0.0                 # PEC: not driven
+        @test m.ey[N+1] == 0.0               # PEC: not driven
+        @test all(m.ey[2:N] .== 1.0)         # every interior node is
+        @test m.ez[1] == 0.0 && m.ez[N+1] == 0.0
+        @test all(m.ez[2:N] .== 1.0)
     end
 
-    for NP in (0, 10)
-        m = FDTD1D.YeeMesh1D{Float64}(60)
-        m.ey .= 7.0; m.hz .= 3.0
+    @testset "the ends stay zero through a real run, PML N = $NP" for NP in (0, 10)
+        m = FDTD1D.YeeMesh1D{Float64}(200)
+        for i = 1:120
+            m.ey[i+40] = exp(-((i - 60)/12)^2)     # seeded in the interior
+        end
         advance! = FDTD1D.make_advance_fields(m, cfl, NO_PULSE, Δt, Δx, 0,
                                               FDTD1D.PML(NP, 1e3, Δx, Δt))
-        j = zero_current(61)
-        for s = 1:5
+        j = (y = fill(1e-3, 201), z = fill(1e-3, 201))
+        for s = 1:300
             advance!(s*Δt, j)
         end
-        @test m.ey[1] == 7.0                # frozen: no curl loop reaches either end
-        @test m.ey[end] == 7.0
+        @test m.ey[1] == 0.0
+        @test m.ey[end] == 0.0
+        @test m.ez[1] == 0.0
+        @test m.ez[end] == 0.0
+        @test any(!iszero, m.ey)             # and the run did something
+    end
+
+    @testset "a wave reflects with inverted sign, PML N = 0" begin
+        # The observable consequence of PEC, and the reason it matters: a pulse
+        # hitting the wall comes back inverted. An open or absorbing end would
+        # not do this, so it distinguishes the boundary condition rather than
+        # merely observing that two array slots stay zero.
+        N = 400
+        m = FDTD1D.YeeMesh1D{Float64}(N)
+        for i = 0:N
+            m.ey[i+1] = exp(-((i - 300)/12)^2)
+            i + 1 ≤ N && (m.hz[i+1] = exp(-((i + 0.5 - 300 - 0.5*cfl)/12)^2))
+        end
+        incident = maximum(m.ey)
+        advance! = FDTD1D.make_advance_fields(m, cfl, NO_PULSE, Δt, Δx, 0, no_pml(Δx, Δt))
+        j = zero_current(N + 1)
+        for s = 1:250                        # out to the wall and part way back
+            advance!(s*Δt, j)
+        end
+        println("  PEC reflection: incident ", incident, ", reflected ", minimum(m.ey),
+                ", ratio ", minimum(m.ey)/incident)
+        @test minimum(m.ey)/incident < -0.9  # inverted, and almost lossless
+        @test maximum(m.ey) < 0.1*incident   # nothing of the original sign left
     end
 end
