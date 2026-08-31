@@ -150,3 +150,67 @@ end
     s = test_fdtd_1d_current(Δx, Δt, Δt/Δx, f₀, f₁, j, 0.1)
     @test s ≈ 0 atol=0.1
 end
+
+"A right-going Gaussian, seeded consistently for the given Courant number."
+function gaussian_mesh(N, Δx, cfl; centre = 60, width = 3.0, halfwidth = 20)
+    m = FDTD1D.YeeMesh1D{Float64}(N)
+    for i = 0:2*halfwidth
+        m.ey[centre - halfwidth + i] = exp(-((i - halfwidth)/width)^2)
+        m.hz[centre - halfwidth + i] = exp(-((i + 0.5 - halfwidth - 0.5*cfl)/width)^2)
+    end
+    return m
+end
+
+@testset "FDTD at the magic time step is exact" begin
+    # At cfl = 1 the 1D Yee scheme has no numerical dispersion at all: the
+    # update reduces to a one-cell shift per step, and a pulse translates
+    # exactly. This is the strongest statement available about the interior
+    # update, and it is a near-bit-level one -- measured 1.1e-19 after 20 steps
+    # against a plain circshift, where a single mis-signed or mis-indexed term
+    # would leave an O(1) residue.
+    #
+    # cfl = 0.8 is run alongside to show the test has teeth: the same
+    # comparison there is off by 0.83, which is the physical dispersion the
+    # existing propagation test tolerates.
+    Δx = 0.01; N = 200
+    for (cfl, exact) in ((1.0, true), (0.8, false))
+        Δt = cfl*Δx
+        m = gaussian_mesh(N, Δx, cfl)
+        before = copy(m.ey)
+        f = run_fdtd(m, cfl, NO_PULSE, Δt, Δx, no_pml(Δx, Δt), 20,
+                     (t, f) -> zero_current(length(f.ey)))
+        dev = maximum(abs, f.ey[80:120] .- circshift(before, 20)[80:120])
+        println("  cfl = ", cfl, ": max|ey − shift(ey₀, 20)| = ", dev)
+        if exact
+            @test dev < 1e-15
+        else
+            @test dev > 0.1        # dispersion is real, and the test can see it
+        end
+    end
+end
+
+@testset "FDTD Courant stability limit" begin
+    # cfl ≤ 1 is the 1D stability condition, and nothing asserted it. Seeded
+    # from a single nonzero cell so every mode including the grid-scale one is
+    # excited. Measured after 2000 steps: 0.409 at cfl = 0.99, exactly 1.0 at
+    # cfl = 1, and NaN at 1.02 and 1.2.
+    Δx = 0.01; N = 200
+    for cfl in (0.99, 1.0)
+        Δt = cfl*Δx
+        m = FDTD1D.YeeMesh1D{Float64}(N); m.ey[100] = 1.0
+        f = run_fdtd(m, cfl, NO_PULSE, Δt, Δx, no_pml(Δx, Δt), 2000,
+                     (t, f) -> zero_current(length(f.ey)))
+        peak = maximum(abs, f.ey)
+        println("  cfl = ", rpad(cfl, 5), " after 2000 steps: max|ey| = ", peak)
+        @test all(isfinite, f.ey)
+        @test peak ≤ 1.0 + 1e-12
+    end
+    for cfl in (1.02, 1.2)
+        Δt = cfl*Δx
+        m = FDTD1D.YeeMesh1D{Float64}(N); m.ey[100] = 1.0
+        f = run_fdtd(m, cfl, NO_PULSE, Δt, Δx, no_pml(Δx, Δt), 2000,
+                     (t, f) -> zero_current(length(f.ey)))
+        println("  cfl = ", rpad(cfl, 5), " after 2000 steps: max|ey| = ", maximum(abs, f.ey))
+        @test !all(isfinite, f.ey)
+    end
+end

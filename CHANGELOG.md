@@ -9,6 +9,54 @@ This project has not been released; entries below describe work on `master`.
 
 ### Added
 
+- **Direction-symmetry suite** (`test/test_symmetry.jl`). Every other advection
+  suite ran at `c = 0.4 > 0`, and `c > 0` and `c < 0` are separate branches in
+  every scheme that has one; only a single-step check ever touched the negative
+  one. Instead of duplicating four suites, this asserts the identity that ties
+  the branches together, `R∘A(+c) == A(−c)∘R` — exact for `Upwind` and
+  `Godunov`, 4.4e-16 for `LaxWendroff` and `PFC`, 4.5e-14 for the
+  semi-Lagrangian family, measured over five datasets × four Courant numbers.
+  That it suffices was checked rather than assumed: backward-direction
+  convergence orders and invariants agree with the forward ones to three
+  decimals. Also covers constant-preservation, `c = 0` as the identity (which
+  runs the negative branch, `c > 0` being false at zero), periodicity of
+  `SemiLagrangian` in the Courant number — the only test of its periodic
+  extrapolation path — and its stability at `c = 3.7`, where every other scheme
+  diverges.
+- **`StrangSplitting` has tests** (`test/VlasovSolver/test_strang_splitting.jl`).
+  It was executed zero times in a default run, being reachable only through
+  `verification_harness.jl` behind `VASILEK_EXTENDED=1`. Second order in Δt is
+  asserted on rigid rotation, measured 2.003/2.001/2.002 against both a fine
+  reference and the analytic answer. The advection operator there is an exact
+  spectral shift, deliberately: a scheme's spatial error does not vanish as
+  Δt → 0 — semi-Lagrangian interpolation error accumulates with the step count —
+  so measuring the order against a real scheme measures the scheme. Also pins
+  the non-square `Nx ≠ Nv` transpose bookkeeping, and the postcondition that
+  **`f[2]` lags `f[1]` by the final half-step on return**, which every caller in
+  this repository reads diagnostics off.
+- **`PFC` bounds check is tested** (`test/test_contracts.jl`). The `checked`
+  type parameter had a paragraph of docstring, the memory of a 740× bug, and no
+  test. Asserts that the check fires in both branches and at neither end of the
+  closed interval, that `checked = false` is bit-for-bit identical on valid data,
+  and that the element type survives `promote` — including that integer bounds
+  *widen* a `Float32` pairing rather than narrowing to it.
+- **The Poisson solver's exact discrete identity is asserted**, closing a gap
+  between `docs/normalization.md` — which already claimed the test asserted it
+  "to machine precision" — and the test, which compared one mode at
+  `atol = 1e-3`. `E_num == sinc(kΔx)·E_exact` now holds to 1.2e-13 across even
+  and odd `N`, six modes and five grid spacings, including one mode below
+  Nyquist. The departure is normalised by the continuum amplitude `1/k` rather
+  than by the output: near Nyquist the sinc factor suppresses the field itself,
+  and dividing by the output would report 7.3e-12 for the same 2e-15 absolute
+  error the solver has everywhere. Adds linearity, invariance to a net charge,
+  bit-for-bit repeatability across calls, and second order in Δx.
+- **FDTD at the magic time step.** At `cfl = 1` the 1D Yee update has no
+  numerical dispersion and translates a pulse exactly: measured 1.1e-19 after
+  20 steps against a plain `circshift`, where a mis-signed or mis-indexed term
+  would leave an O(1) residue. `cfl = 0.8` is run beside it, off by 0.83, so the
+  test visibly has teeth. The Courant limit is asserted too — bounded at
+  `cfl = 0.99` and 1, non-finite at 1.02 and 1.2 — which nothing covered.
+
 - **Extended verification** (`test/test_verification.jl`), gated behind
   `VASILEK_EXTENDED=1`. The claims the verification documents made in prose
   are now assertions: Landau damping at k = 0.5 within 5% of the tabulated
