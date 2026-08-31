@@ -85,3 +85,92 @@ end
     println("  Landau1P refinement: $coarse -> $fine")
     @test_broken isapprox(fine, coarse; rtol = 0.1)
 end
+
+"Discrete number density, mean velocity and temperature of `f` on grid `v`."
+function moments(v, f)
+    n = integrate(v, f)
+    u = integrate(v, v.*f)/n
+    return n, u, integrate(v, (v .- u).^2 .*f)/n
+end
+
+@testset "BGK conserves its moments" begin
+    # Relaxation towards the *local* Maxwellian is defined by leaving n, u and T
+    # alone -- it is the whole content of the operator, and nothing checked it.
+    # The existing tests all start from data symmetric in v, so `u` was zero
+    # throughout and the mean-velocity computation was never exercised at all.
+    #
+    # Measured over 100 steps on v ∈ [-10, 10], Δv = 0.05: machine precision for
+    # the skewed and drifting cases, and 2.5e-10 for the bi-Maxwellian, whose
+    # relaxed state is wide enough that the grid truncates its tails.
+    v = collect(-10:0.05:10)
+    cases = [("skewed",                  @. exp(-v^2)*(1.0 + 0.3*v^3)),
+             ("drifting non-Maxwellian", @. exp(-(v-0.8)^2)*(1.0 + 0.4*(v-0.8)^2)),
+             ("flat-top",                @. exp(-(v/2.2)^8)),
+             ("bi-Maxwellian",           @. exp(-(v-1.0)^2) + 0.6*exp(-(v+1.5)^2/0.5))]
+    for (name, f₀) in cases
+        n₀, u₀, T₀ = moments(v, f₀)
+        f = relax(BGK(1e-1), v, 0.1, f₀, 100)
+        n₁, u₁, T₁ = moments(v, f)
+        println("  ", rpad(name, 24), " Δn/n = ", abs(n₁-n₀)/abs(n₀),
+                "  Δu = ", abs(u₁-u₀), "  ΔT/T = ", abs(T₁-T₀)/abs(T₀))
+        @test abs(n₁ - n₀)/abs(n₀) < 1e-9
+        @test abs(u₁ - u₀) < 1e-9
+        @test abs(T₁ - T₀)/abs(T₀) < 1e-8
+        @test minimum(f) ≥ 0.0
+    end
+end
+
+@testset "Any Maxwellian is a fixed point" begin
+    # Not just the symmetric unit-temperature one the suite happened to use.
+    # Measured after 100 steps on v ∈ [-10, 10]: 5.6e-17 at (u, T) = (0, 0.5),
+    # 1.7e-16 at (0.7, 0.5), 3.0e-15 at (-1.3, 1.0), 2.8e-17 at (1.5, 0.3).
+    v = collect(-10:0.05:10)
+    for (u₀, T₀) in [(0.0, 0.5), (0.7, 0.5), (-1.3, 1.0), (1.5, 0.3)]
+        f₀ = @. 1/sqrt(2π*T₀)*exp(-(v - u₀)^2/(2T₀))
+        f = relax(BGK(1e-2), v, 0.1, f₀, 100)
+        println("  u = ", rpad(u₀, 5), " T = ", rpad(T₀, 4), " max|f - f₀| = ",
+                maximum(abs, f .- f₀))
+        @test maximum(abs, f .- f₀) < 1e-13
+    end
+
+    # The residue that remains is the velocity window, not the operator. A
+    # Maxwellian at T = 2 has σ = 1.41, so ±8 is under six σ and the trapezoid
+    # loses the tail; widening the grid recovers four orders of magnitude
+    # (1.6e-5 → 3.7e-9). Quantified rather than left as a footnote, because it
+    # sets the window every caller of this operator needs.
+    T₀, u₀ = 2.0, 0.4
+    dev(hi) = let v = collect(-hi:0.05:hi)
+        f₀ = @. 1/sqrt(2π*T₀)*exp(-(v - u₀)^2/(2T₀))
+        maximum(abs, relax(BGK(1e-2), v, 0.1, f₀, 100) .- f₀)
+    end
+    narrow, wide = dev(8.0), dev(10.0)
+    println("  T = 2 truncation: window ±8 gives ", narrow, ", ±10 gives ", wide)
+    @test wide < narrow/100
+end
+
+@testset "BGK limits and the exact update" begin
+    # `dest = src·e + (1−e)·M` with `e = exp(-Δt/τ)`, so both limits and the
+    # interpolation between them are algebraic identities, and hold exactly.
+    v = collect(-10:0.05:10)
+    f₀ = @. exp(-(v - 0.5)^2)*(1.0 + 0.3*v^2)
+    dest = similar(f₀)
+    n, u, T = moments(v, f₀)
+    M = @. n/sqrt(2π*T)*exp(-(v - u)^2/(2T))
+
+    # Δt ≪ τ: nothing happens. Measured 3.5e-12 at Δt/τ = 1e-10.
+    collide!(dest, f₀, BGK(1.0), v, 1e-10, collision_workspace(BGK(1.0), length(v)))
+    println("  Δt/τ = 1e-10: max|dest − src| = ", maximum(abs, dest .- f₀))
+    @test maximum(abs, dest .- f₀) < 1e-10
+
+    # Δt ≫ τ: the local Maxwellian, bit-for-bit -- `e` underflows to zero and
+    # the update collapses to `M` exactly.
+    collide!(dest, f₀, BGK(1e-8), v, 1.0, collision_workspace(BGK(1e-8), length(v)))
+    @test dest == M
+    @test minimum(dest) ≥ 0.0
+
+    # and in between, the stated formula, also bit-for-bit
+    τ, Δt = 0.7, 0.3
+    collide!(dest, f₀, BGK(τ), v, Δt, collision_workspace(BGK(τ), length(v)))
+    e = exp(-Δt/τ)
+    @test dest == @. f₀*e + (1.0 - e)*M
+end

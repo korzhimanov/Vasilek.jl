@@ -23,6 +23,7 @@ _Φ⁻(f, i, i⁻, i⁺, c, lo, hi) = c*(f[i] - (1.0 + c)/3.0*(
                 _ϵ⁻(f[i], f[i⁻], lo, hi)/2.0*(2.0 + c)))
 
 function advect!(dest, src, p::PFC{T,Checked}, c, ws) where {T,Checked}
+    _validate(dest, src, p, ws)
     n = length(dest)
     lo, hi = p.fmin, p.fmax
     if Checked

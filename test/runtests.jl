@@ -9,6 +9,7 @@ using LinearAlgebra
     include("test_invariants.jl")
     include("test_symmetry.jl")
     include("test_contracts.jl")
+    include("test_threading.jl")
     include("test_allocations.jl")
     include("test_verification.jl")
     include("test_maxwell_solvers.jl")

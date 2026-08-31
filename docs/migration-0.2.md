@@ -55,6 +55,16 @@ every call, so pass one explicitly in any loop.
 `workspace` returns `nothing` for schemes that need none, so generic code can
 always call the five-argument form.
 
+The size has to match exactly: `workspace(scheme, n)` is what a call on `n`
+elements requires, and both a shorter and a longer buffer are rejected. A
+longer one is not merely wasteful — the spline prefilter runs over the whole
+buffer, so a `SemiLagrangian` handed a workspace built for a longer line used
+to return garbage silently. Allocate one per line length, not one big one for
+all of them.
+
+`advect!` also requires `dest !== src` and at least three cells. Both used to
+be quietly wrong rather than an error.
+
 ## Note on the fourth argument
 
 For the uniform-grid schemes it is the Courant number `vΔt/Δx`. For

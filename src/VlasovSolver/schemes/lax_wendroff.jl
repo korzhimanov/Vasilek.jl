@@ -2,7 +2,8 @@
     return f[i] - 0.5*c*(f[i⁺] - f[i⁻]) + 0.5*c^2*(f[i⁺] - 2*f[i] + f[i⁻])
 end
 
-function advect!(dest, src, ::LaxWendroff, c, ws)
+function advect!(dest, src, scheme::LaxWendroff, c, ws)
+    _validate(dest, src, scheme, ws)
     n = length(dest)
     dest[1] = _lax_wendroff(src, 1, n, 2, c)
     @inbounds @simd for i = 2:n-1

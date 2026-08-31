@@ -27,6 +27,7 @@ For `PFCNonUniform` the fourth argument is the displacement `vΔt`, a length,
 not a Courant number: a non-uniform grid has no single Courant number to quote.
 """
 function advect!(dest, src, p::PFCNonUniform, α, ws::PFCWorkspace)
+    _validate(dest, src, p, ws)
     Δx, ξ, lo, hi = p.Δx, p.ξ, p.fmin, p.fmax
     n = length(Δx)
     acc = ws.accumulator

@@ -58,3 +58,22 @@ jobs:
           # Non-blocking on purpose: a Codecov outage or rate limit is not a
           # code-correctness problem and should not turn the build red.
           fail_ci_if_error: false
+
+  threads:
+    # The reentrancy test in test/test_threading.jl is the only assertion that
+    # the 0.2 scheme-value refactor achieved what it was for, and it degenerates
+    # into a tautology on one thread. The matrix above runs at the Julia
+    # default, so this job is what gives that test teeth.
+    name: Multithreaded
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      JULIA_NUM_THREADS: '4'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - uses: julia-actions/julia-buildpkg@v1
+      - uses: julia-actions/julia-runtest@v1
