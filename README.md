@@ -49,26 +49,21 @@ Unit conventions are in [docs/normalization.md](docs/normalization.md).
 ```julia
 using Vasilek
 
-scheme = SemiLagrangian(CubicSpline())
-ws = workspace(scheme, length(src))    # once, per task
-advect!(dest, src, scheme, courant, ws)
-```
-
-Upgrading from 0.1: see [docs/migration-0.2.md](docs/migration-0.2.md).
-
-## Usage
-
-```julia
-using Vasilek
+src = [1.0 + 0.5*sinpi(2*(i-1)/128) for i = 1:128]
+dest = similar(src)
+courant = 0.4
 
 scheme = SemiLagrangian(CubicSpline())
-ws = workspace(scheme, length(src))     # once, per task
+ws = workspace(scheme, length(src))     # once, per task; the size must match
 advect!(dest, src, scheme, courant, ws)
 ```
 
 A scheme value holds no data, so one can be shared across every line of a
-multidimensional sweep and across tasks. Upgrading from 0.1: see
+multidimensional sweep and across tasks; the workspace is what belongs to the
+task. `dest` and `src` must be distinct. Upgrading from 0.1: see
 [docs/migration-0.2.md](docs/migration-0.2.md).
+
+This block is executed by the test suite, so it cannot drift from the API.
 
 ## Development
 

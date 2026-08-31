@@ -9,6 +9,38 @@ This project has not been released; entries below describe work on `master`.
 
 ### Added
 
+- **The Yee leapfrog's conserved energy is asserted.** `E` sits at integer steps
+  and `H` at half-integer ones, so the conserved quadratic form is staggered in
+  time too — `‖E^{n+1}‖² + ⟨H^{n+1/2}, H^{n+3/2}⟩`, equivalently
+  `⟨E^n, E^{n+1}⟩ + ‖H^{n+1/2}‖²`. Measured relative drift over 2000 steps:
+  3e-15 at cfl = 0.5, 0.8 and 0.99. The naive `‖E‖² + ‖H‖²` at a single instant
+  is **not** conserved — it ranges over 12% to 24% across the same runs — and
+  the test asserts that too, so nobody reaches for it later.
+- **PML absorption is measured rather than eyeballed.** The previous test
+  checked the field ended up near zero, which a badly-but-symmetrically
+  absorbing layer also passes. Now: reflection coefficient 6.25e-9 rightgoing
+  and 6.26e-9 leftgoing, asymmetry 1.0010 — the two ends have different index
+  arithmetic, so an off-by-one in one of them was invisible to a test that only
+  looked one way — and a no-PML control leaving 0.999 of the pulse on the grid,
+  so the numbers are the layer working rather than the pulse having left.
+- **`BGK` satisfies the H-theorem**, to machine precision once the velocity
+  window resolves the relaxed state. The most negative single-step increment
+  over 200 steps is -1.2e-4 at ±6, -3.1e-12 at ±10 and -4.4e-16 at ±14, while
+  refining Δv does not move it — which is what identifies the truncation rather
+  than the operator as the cause, and the test asserts both halves of that.
+- **`∂f∂v` is tested directly**: second order in the interior, first at the
+  ends, and exact on a linear profile including on a non-uniform grid. It was
+  factored out of `Landau1P` after the second copy was found differentiating at
+  the wrong index, and until now was only ever exercised through the operator
+  that misused it.
+- `YeeMesh1D` shape and element type, and a `Bounds checking` CI job running the
+  suite under `--check-bounds=yes` so the `@inbounds` on the advection kernels
+  is non-binding for one run. It passes today; the point is that nothing else
+  could have told us.
+- **The README's usage example is executed by the suite** and so cannot drift.
+  It had: the block referred to `src`, `dest` and `courant` without defining any
+  of them, and the file carried two near-identical `## Usage` sections.
+
 - **Reentrancy is asserted** (`test/test_threading.jl`), and a `Multithreaded`
   CI job runs the suite at `JULIA_NUM_THREADS=4` so it means something. Sweeping
   many independent lines with one shared scheme value and a per-task workspace
@@ -103,6 +135,23 @@ This project has not been released; entries below describe work on `master`.
   by default.
 
 ### Changed
+
+- **Two boundary conventions in `FDTD1D` are pinned as they stand, not fixed.**
+  Both are the author's call, and a test now records each so a change to either
+  is deliberate.
+
+  * `update_ey!` and `update_ez!` add the current over `1:Nx`, but `ey` has
+    `Nx+1` entries and every caller in this repository passes a current of
+    length `Nx+1`. The last node's current is silently dropped.
+  * Neither `ey[1]` nor `ey[end]` is ever touched by a curl loop, at any PML
+    setting: the interior loop runs `pml.N+2 : Nx-pml.N` and the two layer loops
+    stop short of both ends. They stay at their initial values, which is a PEC
+    boundary by omission — and `ey[end]` is read by `update_hz!`, so it is a
+    real boundary condition rather than dead storage.
+
+  Together, `ey[1]` receives current but no curl while `ey[end]` receives
+  neither. If PEC at both ends is the intent, the current at node 1 is the
+  inconsistent one.
 
 - **`advect!` validates its arguments.** Three ways of calling it wrongly used
   to produce a plausible wrong answer rather than an error, which is the class
