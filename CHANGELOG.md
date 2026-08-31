@@ -9,6 +9,38 @@ This project has not been released; entries below describe work on `master`.
 
 ### Added
 
+- **The Yee leapfrog's conserved energy is asserted.** `E` sits at integer steps
+  and `H` at half-integer ones, so the conserved quadratic form is staggered in
+  time too — `‖E^{n+1}‖² + ⟨H^{n+1/2}, H^{n+3/2}⟩`, equivalently
+  `⟨E^n, E^{n+1}⟩ + ‖H^{n+1/2}‖²`. Measured relative drift over 2000 steps:
+  3e-15 at cfl = 0.5, 0.8 and 0.99. The naive `‖E‖² + ‖H‖²` at a single instant
+  is **not** conserved — it ranges over 12% to 24% across the same runs — and
+  the test asserts that too, so nobody reaches for it later.
+- **PML absorption is measured rather than eyeballed.** The previous test
+  checked the field ended up near zero, which a badly-but-symmetrically
+  absorbing layer also passes. Now: reflection coefficient 6.25e-9 rightgoing
+  and 6.26e-9 leftgoing, asymmetry 1.0010 — the two ends have different index
+  arithmetic, so an off-by-one in one of them was invisible to a test that only
+  looked one way — and a no-PML control leaving 0.999 of the pulse on the grid,
+  so the numbers are the layer working rather than the pulse having left.
+- **`BGK` satisfies the H-theorem**, to machine precision once the velocity
+  window resolves the relaxed state. The most negative single-step increment
+  over 200 steps is -1.2e-4 at ±6, -3.1e-12 at ±10 and -4.4e-16 at ±14, while
+  refining Δv does not move it — which is what identifies the truncation rather
+  than the operator as the cause, and the test asserts both halves of that.
+- **`∂f∂v` is tested directly**: second order in the interior, first at the
+  ends, and exact on a linear profile including on a non-uniform grid. It was
+  factored out of `Landau1P` after the second copy was found differentiating at
+  the wrong index, and until now was only ever exercised through the operator
+  that misused it.
+- `YeeMesh1D` shape and element type, and a `Bounds checking` CI job running the
+  suite under `--check-bounds=yes` so the `@inbounds` on the advection kernels
+  is non-binding for one run. It passes today; the point is that nothing else
+  could have told us.
+- **The README's usage example is executed by the suite** and so cannot drift.
+  It had: the block referred to `src`, `dest` and `courant` without defining any
+  of them, and the file carried two near-identical `## Usage` sections.
+
 - **Reentrancy is asserted** (`test/test_threading.jl`), and a `Multithreaded`
   CI job runs the suite at `JULIA_NUM_THREADS=4` so it means something. Sweeping
   many independent lines with one shared scheme value and a per-task workspace
@@ -103,6 +135,30 @@ This project has not been released; entries below describe work on `master`.
   by default.
 
 ### Changed
+
+- **`FDTD1D` drives only the interior nodes, and the PEC boundaries are
+  written down.** Both ends of the grid are perfect electric conductors: no
+  update touches `ey[1]`, `ez[1]`, `ey[end]` or `ez[end]`, so they hold the zero
+  `YeeMesh1D` gives them. That was already true of the curl loops, but only by
+  omission and nowhere stated — `update_ey!` and `update_ez!` added the current
+  over `1:Nx`, so node 1 was driven while node `Nx+1` was not.
+
+  Injecting a current into a perfect conductor is meaningless, and doing it at
+  one end only broke the symmetry the conserved staggered energy rests on: the
+  discrete curls are adjoint precisely because the boundary terms vanish. The
+  current is now applied over `2:Nx`, exactly the set of dynamic nodes. The
+  arrays still span all `N+1` nodes so they index alongside `f.ey`; their first
+  and last entries are ignored.
+
+  Callers should seed the interior: writing into an end node does not launch a
+  wave, it changes the boundary condition to `E = const`. The convention is now
+  in [docs/normalization.md](docs/normalization.md) and in the `YeeMesh1D` and
+  `make_advance_fields` docstrings, and the tests assert the observable
+  consequence rather than the loop bounds — a pulse reaching either wall returns
+  inverted, with a measured reflection coefficient of −0.9998.
+
+  No effect on the verification runs: `wakefield.jl` is the only caller passing
+  a nonzero current, and its density profile vanishes at both walls.
 
 - **`advect!` validates its arguments.** Three ways of calling it wrongly used
   to produce a plausible wrong answer rather than an error, which is the class

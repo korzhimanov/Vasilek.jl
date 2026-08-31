@@ -174,3 +174,90 @@ end
     e = exp(-Δt/τ)
     @test dest == @. f₀*e + (1.0 - e)*M
 end
+
+@testset "BGK satisfies the H-theorem" begin
+    # Entropy -∫ f ln f must not decrease. It is the statement that makes BGK a
+    # relaxation rather than an arbitrary interpolation towards a Maxwellian,
+    # and nothing checked it.
+    #
+    # It holds to machine precision once the velocity window resolves the
+    # relaxed state, and the failures below it are the window rather than the
+    # operator: the most negative single-step increment over 200 steps is
+    # -1.2e-4 at ±6, -3.1e-12 at ±10 and -4.4e-16 at ±14. Refining Δv does not
+    # help -- ±10 at Δv = 0.02 gives the same -3.1e-12 as at 0.05 -- which is
+    # what identifies the truncation as the cause.
+    function entropy_run(halfwidth, Δv)
+        v = collect(-halfwidth:Δv:halfwidth)
+        f₀ = @. exp(-(v - 1.0)^2) + 0.6*exp(-(v + 1.5)^2/0.5)
+        op = BGK(1e-1)
+        ws = collision_workspace(op, length(v))
+        src = copy(f₀); dst = similar(src)
+        H(f) = -integrate(v, [x > 0 ? x*log(x) : 0.0 for x in f])
+        previous = H(src); worst = 0.0
+        for _ = 1:200
+            collide!(dst, src, op, v, 0.1, ws); copyto!(src, dst)
+            h = H(src)
+            worst = min(worst, h - previous)
+            previous = h
+        end
+        return worst, previous - H(f₀)
+    end
+
+    worst14, total14 = entropy_run(14.0, 0.05)
+    println("  window ±14: most negative increment = ", worst14, ", total ΔH = ", total14)
+    @test worst14 > -1e-14                 # non-decreasing, to round-off
+    @test total14 > 0.3                    # and it genuinely relaxes
+
+    # The dependence on the window, quantified rather than assumed.
+    worst6, _ = entropy_run(6.0, 0.05)
+    worst10, _ = entropy_run(10.0, 0.05)
+    coarse, _ = entropy_run(10.0, 0.02)
+    println("  most negative increment: ±6 ", worst6, ", ±10 ", worst10, ", ±14 ", worst14)
+    @test worst6 < worst10 < worst14       # widening the window is what fixes it
+    @test isapprox(worst10, coarse; rtol = 0.1)   # refining Δv is not
+end
+
+@testset "∂f∂v" begin
+    # Factored out of Landau1P after the second copy was found differentiating
+    # at the wrong index, so it is worth testing directly rather than only
+    # through the operator that misused it.
+    C = Vasilek.Collisions
+    g(x) = exp(-x^2)*sin(3x)
+    g′(x) = exp(-x^2)*(3cos(3x) - 2x*sin(3x))
+
+    # Second order in the interior, first order at the ends -- exactly what the
+    # docstring claims. Measured interior errors 0.2875, 0.0742, 0.0187,
+    # 0.00468 and endpoint errors 7.9e-4, 3.2e-4, 1.5e-4, 7.0e-5.
+    interior = Float64[]; ends = Float64[]
+    for Δv in (0.2, 0.1, 0.05, 0.025)
+        v = collect(-3:Δv:3); f = g.(v)
+        push!(interior, maximum(abs(C.∂f∂v(f, v, k) - g′(v[k])) for k = 2:length(v)-1))
+        push!(ends, max(abs(C.∂f∂v(f, v, 1) - g′(v[1])),
+                        abs(C.∂f∂v(f, v, length(v)) - g′(v[end]))))
+    end
+    for i = 2:length(interior)
+        p = log2(interior[i-1]/interior[i])
+        println("  interior order ", round(p; digits = 3))
+        @test isapprox(p, 2.0; atol = 0.15)
+    end
+    # The one-sided stencil approaches first order from above rather than
+    # sitting on it: measured 1.274, 1.143, 1.073 as Δv halves, the coarsest
+    # pair still preasymptotic. Asserted as a decreasing approach to 1, which is
+    # the actual behaviour, rather than as a single number the first pair misses.
+    endpoint_orders = [log2(ends[i-1]/ends[i]) for i = 2:length(ends)]
+    println("  endpoint orders ", round.(endpoint_orders; digits = 3))
+    @test issorted(endpoint_orders; rev = true)
+    @test all(p -> 1.0 ≤ p < 1.4, endpoint_orders)
+    @test isapprox(endpoint_orders[end], 1.0; atol = 0.15)
+
+    # Both stencils are exact on a linear profile, on a non-uniform grid too:
+    # the centred form divides by v[k+1] − v[k−1] rather than by 2Δv, so it does
+    # not silently assume uniform spacing.
+    v = collect(-3:0.1:3)
+    f = @. 2.5*v - 1.0
+    @test maximum(abs(C.∂f∂v(f, v, k) - 2.5) for k in eachindex(v)) < 1e-13
+
+    vnu = vcat(collect(-3:0.2:-1), collect(-0.9:0.1:1), collect(1.2:0.2:3))
+    fnu = @. 2.5*vnu - 1.0
+    @test maximum(abs(C.∂f∂v(fnu, vnu, k) - 2.5) for k in eachindex(vnu)) < 1e-13
+end

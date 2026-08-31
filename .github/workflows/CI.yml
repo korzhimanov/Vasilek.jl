@@ -77,3 +77,22 @@ jobs:
       - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
+
+  boundscheck:
+    # The advection kernels carry `@inbounds` on their interior loops, which
+    # turns an index error there into silent memory corruption rather than a
+    # BoundsError. Nothing in the normal matrix can see that. Forcing bounds
+    # checking on makes the annotations non-binding for one run, so an index
+    # that escapes its array shows up as a test failure instead of as a wrong
+    # number months later.
+    name: Bounds checking
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - uses: julia-actions/julia-buildpkg@v1
+      - run: julia --project=. -e 'using Pkg; Pkg.test(julia_args = ["--check-bounds=yes"])'
