@@ -41,7 +41,7 @@ function landau_case(k, Nx, vmax, Δt, tmax)
     v = collect(-vmax:0.1:vmax)
     t = collect(0.0:Δt:tmax)
     f₀ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. (1.0 + 0.01*cos(k*x)))'
-    ε_e, _ = vlasov_poisson(x, v, f₀, t)
+    ε_e = vlasov_poisson(x, v, f₀, t).ε_e
     return t, ε_e, vmax*Δt/Δx
 end
 
@@ -137,6 +137,129 @@ end
             end
         end
 
+        @testset "Landau damping converges under refinement" begin
+            # Agreement at one resolution inside a 3% band can be luck: two
+            # errors of opposite sign meeting in the middle is exactly how a
+            # plausible-but-wrong solver survives a tolerance. What cannot be
+            # luck is the error *shrinking* when the grid is refined.
+            #
+            # Δx, Δv and Δt are halved together, so the Courant number stays at
+            # 0.81 and only the discretisation moves. Measured at k = 0.5:
+            #
+            #   Nx    Δv      Δt     γ         error    ΔL²/L² over the run
+            #   32    0.2     0.16   0.16230   5.83%    -9.99e-5
+            #   64    0.1     0.08   0.15558   1.45%    -9.80e-6
+            #   128   0.05    0.04   0.15431   0.62%    -1.26e-6
+            #   256   0.025   0.02   0.15407   0.47%    -1.62e-7
+            #
+            # The last level costs 14 s on its own and is left out; the three
+            # below cost about two seconds together.
+            #
+            # The L² column is why the γ column behaves as it does, and is worth
+            # asserting alongside it. `PFC` is third order, so halving the grid
+            # should cut its dissipation by eight -- measured 10.2, 7.8 and 7.8.
+            # The residual error in γ *is* that dissipation: the fitted rate is
+            # the physical damping plus the scheme's own, which is why every
+            # measurement above sits on the high side of the analytic value
+            # rather than scattering about it.
+            k = 0.5
+            L = 2*(2π/k)
+            γa = LANDAU_ROOTS[k][1]
+            errors = Float64[]
+            dissipation = Float64[]
+            for (Nx, Δv, Δt) in ((32, 0.2, 0.16), (64, 0.1, 0.08), (128, 0.05, 0.04))
+                Δx = L/Nx
+                x = collect(Δx:Δx:L)
+                v = collect(-4:Δv:4)
+                t = collect(0.0:Δt:70.0)
+                f₀ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. (1.0 + 0.01*cos(k*x)))'
+                r = vlasov_poisson(x, v, f₀, t; invariants = true)
+                γ, _ = damping_rate(t, r.ε_e; tmin = 6.0, tmax = 30.0)
+                push!(errors, abs(γ - γa)/γa)
+                push!(dissipation, abs(r.l2[end-1] - r.l2[1])/r.l2[1])
+                println("  Nx = ", lpad(Nx, 3), "  Δv = ", rpad(Δv, 5), "  Δt = ", rpad(Δt, 4),
+                        "  γ = ", rpad(round(γ; digits = 5), 7),
+                        "  error ", rpad(round(100*errors[end]; digits = 2), 5), "%",
+                        "  ΔL²/L² = ", round(dissipation[end]; sigdigits = 3))
+            end
+
+            # Strictly decreasing, which is the statement that distinguishes
+            # convergence from coincidence.
+            @test issorted(errors; rev = true)
+            @test errors[end] < 0.01
+
+            # And the dissipation falls at the scheme's order. Held loosely --
+            # between 4 and 16 for a nominal 8 -- because these are three
+            # coupled refinements at once and the fit window is fixed in time
+            # rather than in steps, not because the measurement is noisy.
+            for i in 2:length(dissipation)
+                ratio = dissipation[i-1]/dissipation[i]
+                println("  L² dissipation falls by ", round(ratio; digits = 1),
+                        "x  (third order would give 8)")
+                @test 4 < ratio < 16
+            end
+        end
+
+        @testset "The invariants of the split system" begin
+            # Total energy is asserted below, and was the only invariant that
+            # ever was. Mass, momentum, the L² norm and the entropy are all
+            # statements about the solver that the energy does not carry.
+            #
+            # **Measured with the cell-width sum `Σ f ΔvΔx`, not `integrate`.**
+            # That is what a flux-form scheme conserves; the trapezoid halves
+            # the endpoint weights, which no conservation law protects, and
+            # reports 1.6e-4 of mass drift that belongs to the quadrature rather
+            # than the solver. See the note on `vlasov_poisson`.
+            #
+            # Measured over the k = 0.5 case, 875 steps:
+            #
+            #   mass       2.8e-16 relative               -- round-off
+            #   momentum   1.7e-15 absolute, on mass 25.1 -- round-off
+            #   L²         -9.8e-6, monotone decreasing   -- numerical dissipation
+            #   entropy    +7.4e-6, monotone increasing   -- the same thing
+            #
+            # Mass and momentum are exact conservation laws of the continuous
+            # system that the discrete scheme also satisfies, so they are held
+            # at round-off. L² and entropy are *not* conserved by the scheme and
+            # must not be asserted as if they were: an exact Vlasov flow
+            # preserves both, and the drift is the numerical dissipation the
+            # refinement test above measures. What can be asserted is the
+            # **direction** -- a dissipative scheme can only lose L² and gain
+            # entropy, and a step of either the wrong way is a bug.
+            k = 0.5
+            L = 2*(2π/k)
+            Δx = L/64
+            x = collect(Δx:Δx:L)
+            v = collect(-4:0.1:4)
+            t = collect(0.0:0.08:70.0)
+            f₀ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. (1.0 + 0.01*cos(k*x)))'
+            r = vlasov_poisson(x, v, f₀, t; invariants = true)
+
+            # `[end]` is padded from `[end-1]` by the driver, so the histories
+            # are read one short throughout.
+            mass, mom = r.mass[1:end-1], r.momentum[1:end-1]
+            l2, S = r.l2[1:end-1], r.entropy[1:end-1]
+
+            mass_drift = maximum(abs, mass .- mass[1])/mass[1]
+            println("  mass     drift ", mass_drift, " relative")
+            @test mass_drift < 1e-13
+
+            # Momentum starts at zero by symmetry, so there is no scale to take
+            # a ratio against; it is held in absolute terms against the mass.
+            println("  momentum max|p| ", maximum(abs, mom), "  on mass ", round(mass[1]; digits = 3))
+            @test maximum(abs, mom) < 1e-12
+
+            println("  L²       ", (l2[end] - l2[1])/l2[1], " relative, monotone: ",
+                    all(diff(l2) .≤ 1e-15))
+            @test l2[end] < l2[1]
+            @test all(diff(l2) .≤ 1e-15)          # dissipative at every step
+
+            println("  entropy  ", (S[end] - S[1])/S[1], " relative, monotone: ",
+                    all(diff(S) .≥ -1e-15))
+            @test S[end] > S[1]
+            @test all(diff(S) .≥ -1e-15)          # and never un-mixes
+        end
+
         @testset "Plasma oscillations, Bohm–Gross frequency" begin
             # `docs/normalization.md` says the plasma-oscillation study verifies
             # the analytic plasma frequency. Nothing measured a frequency
@@ -158,7 +281,7 @@ end
             t = collect(0.0:0.1:200.0)
             k = 2π/100
             f₀ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. (1.0 + 0.01*cos(k*x)))'
-            ε_e, _ = vlasov_poisson(x, v, f₀, t)
+            ε_e = vlasov_poisson(x, v, f₀, t).ε_e
 
             ω, nmins = oscillation_frequency(t, ε_e; tmin = 5.0, tmax = 195.0)
             ω_bg = sqrt(1 + 3k^2)
@@ -195,7 +318,7 @@ end
 
             # The uniform-grid claim the notebook makes: below 0.5% at t = 3000.
             uniform = collect(-4:0.1:4)
-            _, ε = vlasov_poisson(x, uniform, f(uniform), t)
+            ε = vlasov_poisson(x, uniform, f(uniform), t).ε
             drift = (ε[end-1] - ε[1])/ε[1]
             println("  uniform grid Δε/ε = ", drift)
             @test abs(drift) < 0.005
@@ -203,7 +326,7 @@ end
             # The non-uniform grid was reported at "about 12%" with the limiter
             # computed globally. Per-cell-triple ξ brings it to 4.85%.
             nonuniform = vcat(collect(-4:0.2:-1.2), collect(-1:0.1:1), collect(1.2:0.2:4))
-            _, ε = vlasov_poisson(x, nonuniform, f(nonuniform), t)
+            ε = vlasov_poisson(x, nonuniform, f(nonuniform), t).ε
             drift = (ε[end-1] - ε[1])/ε[1]
             println("  non-uniform grid Δε/ε = ", drift)
             @test abs(drift) < 0.06

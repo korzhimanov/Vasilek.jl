@@ -45,6 +45,19 @@ VASILEK_EXTENDED=1 julia --project=. -e 'using Pkg; Pkg.test()'
 | plasma oscillations, uniform grid | \|Δε/ε\| < 0.5% at t = 3000 | 0.38% |
 | plasma oscillations, non-uniform grid | \|Δε/ε\| < 6% at t = 3000 | 4.85% |
 
+A fourth study compares the advection schemes on the physics rather than on a
+shifted sine, and is advisory rather than asserted:
+
+```bash
+julia --project=verification verification/scheme-comparison.jl
+```
+
+Ranked by error in the Landau damping rate, `LaxWendroff` (0.64%) and cubic
+`SemiLagrangian` (1.07%) lead and upwind trails at 48.8% — its own dissipation
+being two orders of magnitude larger than the damping it is measuring. At 50%
+amplitude the two schemes that lead are exactly the two that drive `f` negative,
+which is why the solvers default to `PFC`.
+
 The wakefield example runs and is stable, but has **no ponderomotive
 coupling**: the laser does not drive the wake. See the note in the script.
 
