@@ -6,4 +6,5 @@ end
     include(joinpath("VlasovSolver", "test_1d_advection.jl"))
     include(joinpath("VlasovSolver", "test_nonuniform_advection.jl"))
     include(joinpath("VlasovSolver", "test_strang_splitting.jl"))
+    include(joinpath("VlasovSolver", "test_free_streaming.jl"))
 end

@@ -9,6 +9,77 @@ This project has not been released; entries below describe work on `master`.
 
 ### Added
 
+- **The extended verification suite now runs in CI.** `VASILEK_EXTENDED=1` was
+  named in the README, the changelog and three test files, and set by none of
+  the four CI jobs — so the body of `test/test_verification.jl` had never
+  executed on a runner, and the three claims in the README's verification table
+  held only when someone remembered to export the variable by hand. There is now
+  an `Extended verification` job that sets it. Per-PR rather than nightly: the
+  benchmark suite is advisory because wall-clock timing on a shared runner is
+  unreliable at any tolerance worth having, and that argument does not carry over
+  to deterministic numerics. Measured 2m08s for the whole job against 51s for the
+  default suite; the three assertions pass.
+
+- **Von Neumann amplification factors, against closed forms**
+  (`test/test_amplification.jl`). Each scheme is linear, so a Fourier mode is an
+  eigenvector and one step multiplies it by a `g(kΔx, c)` available in closed
+  form. Six symbols are derived from the update formulas and asserted mode by
+  mode: `Upwind`, `Godunov(PiecewiseConstant)` and `SemiLagrangian(LinearSpline)`
+  share `1 − c(1 − e^{−iθ})`; `LaxWendroff` is `1 − ic·sinθ + c²(cosθ − 1)`;
+  `Godunov(PiecewiseLinear, NoLimiter)` collapses to the centred flux
+  `1 − ic·sinθ`; and `PFC`'s unlimited branch is its third-order flux. Measured
+  agreement over `m ∈ {1,2,4,8,16,24,31}` and `c ∈ {0.4, 0.8}`: 8.9e-15 for the
+  three-point schemes, 4.6e-14 for `PFC`.
+
+  This is sharper than what guarded these kernels before. `test_convergence`
+  fits a slope to ±0.15 and `test_golden` pins one dataset for eight steps;
+  this pins every mode from the fundamental to the grid scale against an
+  analytic value, and because the comparison runs elementwise it asserts at the
+  same time that the output *is* a pure mode. Two consequences worth naming: the
+  two claimed scheme equivalences now hold mode by mode rather than on one
+  profile, and `PiecewiseLinear`'s unconditional instability is stated
+  analytically — `|g| > 1` for every mode, worst 1.077 per step at `c = 0.4` —
+  where it was previously demonstrated by marching `4N/c` steps and watching the
+  amplitude reach 6.66e+24.
+
+- **Dissipation and dispersion, per scheme per wavenumber**, from the same
+  symbols at no extra cost: `|g|` is the amplitude lost per step and
+  `arg(g)/(−cθ)` the relative phase velocity. The two order the schemes
+  *differently*, which is the point. At `c = 0.4`, `λ = 64Δx`: upwind loses
+  1.16e-3 per step where `LaxWendroff` and `PFC` lose 2e-6. At `λ = 4Δx` the
+  phase error is 2.4% for `PFC` against 29% for `LaxWendroff` — `LaxWendroff`
+  keeps a marginal mode's amplitude and puts it in the wrong place, where upwind
+  removes it instead. Also asserted from the symbol alone: the amplitude retained
+  after one full domain traversal, 0.831 for upwind against 0.9998 for
+  `LaxWendroff` and `PFC`, which is the same 17% loss that shows up in the
+  advection error tables, arrived at independently.
+
+- **Free streaming: phase mixing and recurrence**
+  (`test/VlasovSolver/test_free_streaming.jl`). With no field the Vlasov
+  equation has an exact solution, and a spatially modulated Maxwellian gives a
+  density mode decaying as `exp(−k²t²/2)` — a Gaussian, not an exponential,
+  because the mode is sheared into fine velocity structure rather than
+  dissipated. On a discrete velocity grid the sheared modes rephase and the mode
+  returns at `T_R = 2π/(kΔv)`, a number set by `Δv` alone that no scheme can
+  move.
+
+  This is the only exact kinetic solution available without a field solve, and
+  it exercises the x-sweep together with the velocity moment outside the
+  extended gate — that path previously ran only inside `verification_harness.jl`.
+  Measured relative error in the mode amplitude over `t ≤ 4`: 2.7e-6 for cubic
+  semi-Lagrangian, 3.3e-5 for `PFC`, 1.2e-3 for `LaxWendroff`, 1.7e-2 for
+  upwind. Four orders of magnitude on a quantity with physical meaning, and the
+  ordering is asserted rather than only printed, errors being deterministic
+  where timings are not. Recurrence is measured on a deliberately coarse
+  velocity grid, which brings `T_R` from 125.7 to 31.4 and makes the test four
+  times cheaper without weakening it: both schemes peak at `t = 31.42` against
+  `T_R = 31.4159`, recovering 1.0000 and 0.9991 of the initial amplitude.
+
+  The Courant limit binds here in a way it does not in the one-dimensional
+  advection tests: the fastest velocity row carries `max|v|·Δt/Δx`, so the
+  velocity window and the time step are not independent. Everything runs at
+  0.611.
+
 - **The Yee leapfrog's conserved energy is asserted.** `E` sits at integer steps
   and `H` at half-integer ones, so the conserved quadratic form is staggered in
   time too — `‖E^{n+1}‖² + ⟨H^{n+1/2}, H^{n+3/2}⟩`, equivalently
