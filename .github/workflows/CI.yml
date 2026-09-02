@@ -96,3 +96,29 @@ jobs:
       - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
       - run: julia --project=. -e 'using Pkg; Pkg.test(julia_args = ["--check-bounds=yes"])'
+
+  verification:
+    # `test/test_verification.jl` is gated behind VASILEK_EXTENDED=1 so that a
+    # developer's `Pkg.test()` stays instant. Nothing set it. The body of that
+    # file had therefore never executed in CI, which made the three claims in
+    # the README's verification table -- the Landau damping rate and the two
+    # energy drifts -- assertions in name only: they held whenever someone
+    # remembered to export the variable by hand, and at no other time.
+    #
+    # Per-PR rather than nightly, and deliberately so. The benchmark suite is
+    # advisory because wall-clock timing on a shared runner is not reliable at
+    # any tolerance worth having; these are deterministic numerics, so that
+    # argument does not carry over to them. The whole job is about two minutes.
+    name: Extended verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VASILEK_EXTENDED: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - uses: julia-actions/julia-buildpkg@v1
+      - uses: julia-actions/julia-runtest@v1
