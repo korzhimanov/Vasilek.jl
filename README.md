@@ -39,7 +39,9 @@ VASILEK_EXTENDED=1 julia --project=. -e 'using Pkg; Pkg.test()'
 | Landau damping rate, k = 0.3, 0.4, 0.5 | γ within 3% of the tabulated root | 0.42%, 0.51%, 1.45% |
 | Landau real frequency, same three k | ω within 1% of the tabulated root | 0.25%, 0.36%, 0.14% |
 | the damping fit does not depend on its window | two windows agree within 3% | 1.45%, 0.44%, 0.43% |
+| nor does the frequency fit | two windows agree within 1% | 0.05%, 0.15%, 0.10% |
 | plasma oscillation frequency | ω within 0.2% of Bohm–Gross √(1+3k²), and the cold ωₚ excluded | 0.018%, against 0.57% for cold |
+| nor does that frequency depend on its window | two windows agree within 0.2% | 0.006% |
 | plasma oscillations, uniform grid | \|Δε/ε\| < 0.5% at t = 3000 | 0.38% |
 | plasma oscillations, non-uniform grid | \|Δε/ε\| < 6% at t = 3000 | 4.85% |
 

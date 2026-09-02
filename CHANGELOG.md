@@ -28,6 +28,17 @@ This project has not been released; entries below describe work on `master`.
   A window-sensitivity assertion is now part of the test, so this class of
   failure cannot come back silently.
 
+- **`local_extrema` skipped the last interior point it was asked about.** The
+  helper iterated `2:length(y)-2`, but the strict-interior comparison is
+  well-defined up to `length(y)-1`, where the right neighbour is `y[end]`. On
+  its own documented terms — "the strict interior local maxima … or minima of
+  `y`" — it was one short: `[10, 20, 5]` returned nothing at all, and
+  `[1, 3, 2, 4, 1]` returned only the first of its two peaks. No measured value
+  moves, because both callers read `ε_e` from `vlasov_poisson`, which pads
+  `ε_e[end] = ε_e[end-1]`, so a strict inequality at index `end-1` compares
+  against an equal neighbour and cannot fire — an invariant that lived in the
+  caller and was not stated on the helper.
+
 ### Added
 
 - **Landau damping at three wavenumbers, and the real frequency**
@@ -57,6 +68,23 @@ This project has not been released; entries below describe work on `master`.
   where recurrence and round-off take over, and that arrives earlier *in units
   of e-foldings* the weaker the damping is: at `k = 0.3` the mode has decayed
   only threefold by `t = 50`, and fitting past it reports γ = 0.0099, 22% low.
+
+- **The frequency estimator is now held to its window as well.** `γ` gained a
+  window-sensitivity assertion above; `ω` rested on a counting assumption of its
+  own and had none. Its spacing is averaged between the first and last minimum
+  over `length(m) − 1` intervals, so one null missed on a near-tie — or one
+  spurious null off numerical noise — rescales the answer with nothing to say
+  so, and agreement with the analytic value on a single window could be luck.
+  Both windows are now read for `ω` too: the three Landau cases agree to 0.05%,
+  0.15% and 0.10% against a 1% threshold, and the Bohm–Gross run to 0.006%
+  against 0.2%. It costs no extra solve, only a second reading of the same
+  `ε_e`.
+
+  The thresholds sit in a gap worth naming. Below them is the estimator's own
+  floor: a null is located only to within `Δt`, so two windows disagree by about
+  `Δt/span` whatever the physics does — 0.4% at `k = 0.5`, and 0.05% for the
+  long Bohm–Gross window. Above them is the failure being tested for: losing one
+  null of ten rescales the spacing by 11%, one of sixty by 1.7%.
 
 - **The plasma oscillation frequency is asserted against Bohm–Gross.**
   `docs/normalization.md` states that the plasma-oscillation study verifies the

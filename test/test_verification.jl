@@ -111,6 +111,29 @@ end
                         " on the alternate window, spread ",
                         round(100*spread; digits = 2), "%")
                 @test spread < 0.03
+
+                # And the same of ω, which rests on a counting assumption of its
+                # own: the spacing is averaged between the first and last
+                # minimum over `length(m)-1` intervals, so one null missed on a
+                # near-tie -- or one spurious null off numerical noise --
+                # rescales the answer with nothing to say so. A second window
+                # changes which nulls are in the sample; a miscount does not
+                # survive that, where landing near the analytic value on one
+                # window could be luck.
+                #
+                # 1% sits in a wide gap. Below it is the estimator's own floor:
+                # a null is located only to within Δt, so two windows disagree
+                # by about Δt/span whatever the physics does, which is 0.4% at
+                # k = 0.5. Measured here 0.10%, 0.15% and 0.05%, with a sweep
+                # over further windows reaching 0.35%. Above it is the failure
+                # being tested for: losing one null of ten rescales the spacing
+                # by 10/9, i.e. by 11%.
+                ω_alt, _ = oscillation_frequency(t, ε_e; tmin = alt[1], tmax = alt[2])
+                ω_spread = abs(ω - ω_alt)/ω
+                println("      window sensitivity: ω = ", round(ω_alt; digits = 5),
+                        " on the alternate window, spread ",
+                        round(100*ω_spread; digits = 3), "%")
+                @test ω_spread < 0.01
             end
         end
 
@@ -149,6 +172,20 @@ end
             @test isapprox(ω, ω_bg; rtol = 0.002)
             # and the cold value is genuinely excluded, not merely less good
             @test abs(ω - 1.0) > 0.003
+
+            # The discrimination above is 0.57% wide, so it is worth knowing
+            # that ω is not an artefact of its window. Same argument as in the
+            # Landau loop, and cheap here because no second run is needed --
+            # only a second reading of the same ε_e. The long window makes this
+            # the sharpest of the four: 60 minima over 190 time units puts the
+            # Δt/span floor at 0.05%, and a sweep of windows moves ω by at most
+            # 0.028%, where losing one null of sixty would move it by 1.7%.
+            ω_alt, nalt = oscillation_frequency(t, ε_e; tmin = 20.0, tmax = 180.0)
+            ω_spread = abs(ω - ω_alt)/ω
+            println("  window sensitivity: ω = ", round(ω_alt; digits = 6),
+                    " on t ∈ [20, 180] (", nalt, " minima), spread ",
+                    round(100*ω_spread; digits = 4), "%")
+            @test ω_spread < 0.002
         end
 
         @testset "Plasma oscillations, energy conservation" begin
