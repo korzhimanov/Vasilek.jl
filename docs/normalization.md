@@ -87,6 +87,13 @@ plasma-oscillation notebook verifies against the analytic plasma frequency:
 
 Together these give an oscillation. Flipping either gives exponential growth.
 
+The frequency of that oscillation is now asserted rather than asserted-about:
+`test/test_verification.jl` measures it at `ω = 1.005719` against the
+Bohm–Gross `√(1 + 3k²) = 1.005904` at `k = 2π/100`, which is 0.018% — and
+0.57% from the cold `ωₚ = 1`, so the thermal correction is resolved rather than
+merely tolerated. Until that test was written this paragraph was the only place
+the claim existed.
+
 ## Boundaries in the FDTD solver
 
 Both ends of the grid are **perfect electric conductors**. The solver imposes

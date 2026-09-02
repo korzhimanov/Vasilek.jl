@@ -7,7 +7,94 @@ This project has not been released; entries below describe work on `master`.
 
 ## [0.2.0] - unreleased
 
+### Fixed
+
+- **The Landau damping rate was fitted with an estimator that its own window
+  chose the answer for.** `ε_e ∝ exp(−2γt)·cos²(ωt + φ)`, and the fit ran a
+  least squares over `log ε_e` at *every* sample — so it was fitting
+  `log cos²`, which has a pole at every null of the oscillation. The window it
+  used, `t ∈ [5.9, 29.9]`, began exactly on a minimum. That is the entire
+  reason it reported γ = 0.1498, 2.3% below the tabulated 0.15336; moving the
+  start one step, to 6.0, gives 0.1532 on the same data.
+
+  Sweeping plausible windows moved the old estimate over 0.14837 to 0.15755, a
+  spread of 6.2% — larger than the 5% tolerance it was being held to, so the
+  test was passing on the strength of where its window happened to land.
+  Fitting through the local maxima instead removes the `cos²` entirely: the
+  same sweep now gives 0.15451 to 0.15571, a spread of 0.8%, consistently about
+  1% above the analytic value. That residue is numerical damping and does not
+  move when Δx, Δv and Δt are all halved.
+
+  A window-sensitivity assertion is now part of the test, so this class of
+  failure cannot come back silently.
+
+- **`local_extrema` skipped the last interior point it was asked about.** The
+  helper iterated `2:length(y)-2`, but the strict-interior comparison is
+  well-defined up to `length(y)-1`, where the right neighbour is `y[end]`. On
+  its own documented terms — "the strict interior local maxima … or minima of
+  `y`" — it was one short: `[10, 20, 5]` returned nothing at all, and
+  `[1, 3, 2, 4, 1]` returned only the first of its two peaks. No measured value
+  moves, because both callers read `ε_e` from `vlasov_poisson`, which pads
+  `ε_e[end] = ε_e[end-1]`, so a strict inequality at index `end-1` compares
+  against an equal neighbour and cannot fire — an invariant that lived in the
+  caller and was not stated on the helper.
+
 ### Added
+
+- **Landau damping at three wavenumbers, and the real frequency**
+  (`test/test_verification.jl`). One `k` with one fitted `γ` is a single point
+  on a curve and cannot separate a solver that reproduces the dispersion
+  relation from one that lands near a value at one wavenumber. Both roots are
+  now measured at `k = 0.3, 0.4, 0.5`:
+
+  | k | γ | vs tabulated | ω_r | vs tabulated |
+  |---|---|---|---|---|
+  | 0.3 | 0.01257 | 0.42% | 1.15696 | 0.25% |
+  | 0.4 | 0.06646 | 0.51% | 1.28042 | 0.36% |
+  | 0.5 | 0.15558 | 1.45% | 1.41372 | 0.14% |
+
+  The real frequency is about four times the sharper of the two — it comes from
+  counting nulls, where `γ` comes from fitting an amplitude that numerical
+  dissipation also acts on — so it is held to 1% where `γ` is held to 3%.
+
+  Two constraints are documented in the test because they are not obvious and
+  cost real time to rediscover. The velocity window must contain the resonance
+  at `v = ω_r/k` (2.83, 3.21, 3.87), since that is where the damping comes
+  from; and the window then fixes `Δt`, because the fastest row runs at
+  `max|v|·Δt/Δx` against `PFCNonUniform`'s Courant limit of 1 — so reaching a
+  resonance costs a smaller time step, not just more velocity points. The
+  existing `k = 0.5` case ran at 1.019, marginally over; it now runs at 0.815.
+  Separately, the fitting window has to stop before the mode reaches the floor
+  where recurrence and round-off take over, and that arrives earlier *in units
+  of e-foldings* the weaker the damping is: at `k = 0.3` the mode has decayed
+  only threefold by `t = 50`, and fitting past it reports γ = 0.0099, 22% low.
+
+- **The frequency estimator is now held to its window as well.** `γ` gained a
+  window-sensitivity assertion above; `ω` rested on a counting assumption of its
+  own and had none. Its spacing is averaged between the first and last minimum
+  over `length(m) − 1` intervals, so one null missed on a near-tie — or one
+  spurious null off numerical noise — rescales the answer with nothing to say
+  so, and agreement with the analytic value on a single window could be luck.
+  Both windows are now read for `ω` too: the three Landau cases agree to 0.05%,
+  0.15% and 0.10% against a 1% threshold, and the Bohm–Gross run to 0.006%
+  against 0.2%. It costs no extra solve, only a second reading of the same
+  `ε_e`.
+
+  The thresholds sit in a gap worth naming. Below them is the estimator's own
+  floor: a null is located only to within `Δt`, so two windows disagree by about
+  `Δt/span` whatever the physics does — 0.4% at `k = 0.5`, and 0.05% for the
+  long Bohm–Gross window. Above them is the failure being tested for: losing one
+  null of ten rescales the spacing by 11%, one of sixty by 1.7%.
+
+- **The plasma oscillation frequency is asserted against Bohm–Gross.**
+  `docs/normalization.md` states that the plasma-oscillation study verifies the
+  analytic plasma frequency; nothing in the repository measured a frequency
+  anywhere, only the energy drift — which a solver oscillating at entirely the
+  wrong rate passes without difficulty. Measured ω = 1.005719 against
+  `√(1 + 3k²) = 1.005904`, 0.018%, where the cold `ωₚ = 1` is 0.57% away. The
+  factor of thirty is the point: the test fails if the thermal correction is
+  dropped rather than merely preferring it to be there. Costs one second at
+  `t ≤ 200`, where the energy test needs 3000 and forty times as long.
 
 - **The extended verification suite now runs in CI.** `VASILEK_EXTENDED=1` was
   named in the README, the changelog and three test files, and set by none of
