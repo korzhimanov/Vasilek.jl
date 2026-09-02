@@ -88,7 +88,7 @@ Indices of the strict interior local maxima (`maxima = true`) or minima of `y`,
 restricted to `tmin ≤ t[i] ≤ tmax`.
 """
 function local_extrema(t, y; tmin, tmax, maxima::Bool)
-    return [i for i in 2:length(y)-2 if tmin ≤ t[i] ≤ tmax &&
+    return [i for i in 2:length(y)-1 if tmin ≤ t[i] ≤ tmax &&
             (maxima ? (y[i] > y[i-1] && y[i] > y[i+1])
                     : (y[i] < y[i-1] && y[i] < y[i+1]))]
 end
