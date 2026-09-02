@@ -71,3 +71,71 @@ function vlasov_poisson(x, v, f₀, t)
     ε[end] = ε[end-1]
     return ε_e, ε
 end
+
+# --------------------------------------------------------- mode fitting
+#
+# The electric energy of a single Landau mode goes as
+#
+#     ε_e(t) ∝ exp(-2γt)·cos²(ω t + φ)
+#
+# so both the damping rate and the real frequency are recoverable from it --
+# but only if the `cos²` is handled rather than ignored.
+
+"""
+    local_extrema(t, y; tmin, tmax, maxima)
+
+Indices of the strict interior local maxima (`maxima = true`) or minima of `y`,
+restricted to `tmin ≤ t[i] ≤ tmax`.
+"""
+function local_extrema(t, y; tmin, tmax, maxima::Bool)
+    return [i for i in 2:length(y)-2 if tmin ≤ t[i] ≤ tmax &&
+            (maxima ? (y[i] > y[i-1] && y[i] > y[i+1])
+                    : (y[i] < y[i-1] && y[i] < y[i+1]))]
+end
+
+"""
+    damping_rate(t, ε_e; tmin, tmax)
+
+Landau damping rate `γ`, from a least-squares fit of `log ε_e` against `t`
+through the **local maxima only**.
+
+Fitting every sample instead -- which is what this suite did until now -- fits
+`log(exp(-2γt)·cos²(ωt+φ))`, and `log cos²` has a pole at every null of the
+oscillation. The result is dominated by how close the window edges happen to
+land to a null, and it moves discontinuously as the window is nudged.
+
+Measured at k = 0.5, where the tabulated root is 0.15336. Fitting every sample:
+0.14837 to 0.15755 as the window varies over plausible choices, a spread of 6.2%
+of the value -- and the window this file used, `t ∈ [5.9, 29.9]`, began *exactly*
+on a minimum, which is the entire reason it reported 0.1498 (2.3% low). Moving
+the start one step, to 6.0, gives 0.1532 (0.1%) from the same data.
+
+Through the maxima the same sweep gives 0.15451 to 0.15571, a spread of 0.8%,
+consistently about 1% above the analytic value. That residue is numerical
+damping and does not move under refinement; the 6.2% was an artefact of the
+estimator.
+"""
+function damping_rate(t, ε_e; tmin, tmax)
+    p = local_extrema(t, ε_e; tmin = tmin, tmax = tmax, maxima = true)
+    length(p) ≥ 3 || error("damping_rate needs at least 3 maxima in [$tmin, $tmax], found $(length(p))")
+    A = hcat(ones(length(p)), t[p])
+    return -(A \ log.(ε_e[p]))[2]/2, length(p)
+end
+
+"""
+    oscillation_frequency(t, ε_e; tmin, tmax)
+
+Real frequency `ω`, from the mean spacing of the minima of `ε_e`.
+
+The minima are spaced by `π/ω` rather than `2π/ω`: the energy carries `cos²`,
+which has twice the frequency of the field. They are used in preference to the
+maxima because a null is a sharp feature whose location is well defined even
+once the amplitude has decayed by several orders of magnitude, and only the
+first and last are needed, so the estimate improves with the length of the
+window rather than degrading with it.
+"""
+function oscillation_frequency(t, ε_e; tmin, tmax)
+    m = local_extrema(t, ε_e; tmin = tmin, tmax = tmax, maxima = false)
+    length(m) ≥ 2 || error("oscillation_frequency needs at least 2 minima in [$tmin, $tmax], found $(length(m))")
+    return π/((t[m[end]] - t[m[1]])/(length(m) - 1)), length(m)
+end

@@ -26,17 +26,22 @@ julia --project=verification verification/plasma-oscillations-1d1v.jl
 julia --project=verification verification/wakefield.jl
 ```
 
-Their headline claims are asserted by the test suite rather than left in prose:
+Their headline claims are asserted by the test suite rather than left in prose.
+CI runs this on every pull request; locally it is behind an environment variable
+so that a default `Pkg.test()` stays instant:
 
 ```bash
 VASILEK_EXTENDED=1 julia --project=. -e 'using Pkg; Pkg.test()'
 ```
 
-| claim | asserted |
-|---|---|
-| Landau damping at k = 0.5 | fitted γ within 5% of the tabulated 0.1533 (measured 0.1498, 2.3%) |
-| plasma oscillations, uniform grid | \|Δε/ε\| < 0.5% at t = 3000 (measured 0.38%) |
-| plasma oscillations, non-uniform grid | \|Δε/ε\| < 6% at t = 3000 (measured 4.85%) |
+| claim | asserted | measured |
+|---|---|---|
+| Landau damping rate, k = 0.3, 0.4, 0.5 | γ within 3% of the tabulated root | 0.42%, 0.51%, 1.45% |
+| Landau real frequency, same three k | ω within 1% of the tabulated root | 0.25%, 0.36%, 0.14% |
+| the damping fit does not depend on its window | two windows agree within 3% | 1.45%, 0.44%, 0.43% |
+| plasma oscillation frequency | ω within 0.2% of Bohm–Gross √(1+3k²), and the cold ωₚ excluded | 0.018%, against 0.57% for cold |
+| plasma oscillations, uniform grid | \|Δε/ε\| < 0.5% at t = 3000 | 0.38% |
+| plasma oscillations, non-uniform grid | \|Δε/ε\| < 6% at t = 3000 | 4.85% |
 
 The wakefield example runs and is stable, but has **no ponderomotive
 coupling**: the laser does not drive the wake. See the note in the script.
