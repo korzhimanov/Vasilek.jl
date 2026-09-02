@@ -7,6 +7,67 @@ This project has not been released; entries below describe work on `master`.
 
 ## [0.2.0] - unreleased
 
+### Added
+
+- **The verification driver takes its schemes as arguments**
+  (`test/verification_harness.jl`). `vlasov_poisson` hard-coded
+  `PFCNonUniform` on both directions, so the only way to ask what the physics
+  costs under a different scheme was to copy the Strang loop — and a copy drifts
+  from the one the tests assert against. It now takes `scheme_x` and `scheme_v`,
+  defaulting to what every previous caller got, and returns a NamedTuple rather
+  than a pair.
+
+  `line_advector` absorbs the API's one asymmetry: `PFCNonUniform` takes a
+  displacement while every other scheme takes a Courant number, which only
+  exists on a uniform grid. It divides by the spacing for those and **refuses** a
+  non-uniform grid rather than picking one of its spacings and being wrong by the
+  ratio between them.
+
+- **Mass, momentum, L² and entropy are measured and asserted.** Total energy was
+  the only invariant that ever was. Over the k = 0.5 Landau case, 875 steps:
+  mass drifts 2.8e-16 and momentum stays at 1.7e-15 on a mass of 25.1 — both
+  round-off, both exact conservation laws the discrete scheme also satisfies.
+  L² falls 9.8e-6 and entropy rises 7.4e-6, monotonically at every step. Those
+  two are *not* conserved and are not asserted as if they were: an exact Vlasov
+  flow preserves both, and the drift is numerical dissipation. What is asserted
+  is the direction, since a dissipative scheme can only lose L² and gain entropy.
+
+  **The invariants use the cell-width sum `Σ f ΔvΔx`, not `integrate`.** That is
+  the quadrature a flux form conserves; the trapezoid halves the two endpoint
+  weights, which no conservation law protects. Measured on the same run, the
+  trapezoid reports 1.6e-4 of mass drift and 7.3e-4 of momentum against 2.8e-16
+  and 1.7e-15 — three orders of magnitude of apparent non-conservation that
+  belongs entirely to the quadrature. The energy histories keep `integrate`,
+  being compared at half-a-percent tolerances where it cannot matter.
+
+- **Landau damping converges under refinement.** Agreement at one resolution
+  inside a 3% band can be two errors of opposite sign meeting in the middle.
+  Halving Δx, Δv and Δt together — so the Courant number stays at 0.81 and only
+  the discretisation moves — gives γ errors of 5.83%, 1.45%, 0.62% and 0.47%.
+  The L² dissipation over the same ladder falls by 10.2x, 7.8x and 7.8x against
+  the 8x a third-order scheme predicts, which is what identifies the residual
+  error in γ: the fitted rate is the physical damping plus the scheme's own,
+  which is why every measurement sits on the high side of the analytic value
+  rather than scattering about it.
+
+- **A cross-scheme study on a physical observable**
+  (`verification/scheme-comparison.jl`, advisory, exits 0). The benchmark suite
+  times a bare kernel and `test_convergence` measures an order on a shifted
+  sine; neither says what a scheme costs *in the physics*. Ranked by error in
+  the Landau damping rate at k = 0.5: `LaxWendroff` 0.64%, cubic
+  `SemiLagrangian` 1.07%, `PFC` 1.45%, `Godunov`+`VanLeer` 3.99%, and upwind —
+  with `Godunov(PiecewiseConstant)` and linear `SemiLagrangian`, identical to it
+  as `test_amplification` requires — at **48.8%**, its own dissipation being two
+  orders of magnitude larger than the physical damping it is trying to measure.
+
+  The interesting half is the second table. A 1% perturbation cannot rank the
+  schemes on positivity at all: every one returns the same `min f = 1.3e-4`,
+  which is only the Maxwellian's tail at `v = ±4`. At 50% amplitude the two
+  schemes that *lead* the accuracy table are exactly the two that drive `f`
+  negative — `LaxWendroff` to −0.094 and cubic `SemiLagrangian` to −0.098,
+  against a peak of 0.6. That is Godunov's theorem arriving in the physics, and
+  it is why the harness defaults to `PFC` despite it not leading the first table.
+
 ### Fixed
 
 - **The Landau damping rate was fitted with an estimator that its own window

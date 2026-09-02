@@ -24,23 +24,90 @@ end
 cell_widths(z) = vcat([z[2]-z[1]], 0.5*(z[3:end] - z[1:end-2]), [z[end]-z[end-1]])
 
 """
-    vlasov_poisson(x, v, f₀, t)
+    nlogn(u)
 
-Strang-split Vlasov–Poisson on a static grid, returning the electric energy
-history and the total energy history.
+`-u·log u`, and zero at `u ≤ 0`, for the entropy integrand.
+
+A scalar function rather than an `ifelse` inside the broadcast, because
+`ifelse` is an ordinary call and evaluates **both** arguments: written that way
+the guard does not guard, and `log` is handed the negative value anyway. That is
+not hypothetical here -- `LaxWendroff` and cubic `SemiLagrangian` drive `f` to
+-1.3e-10 and -4.4e-10 on the large-amplitude case in
+`verification/scheme-comparison.jl`, and the entropy diagnostic threw
+`DomainError` on both until this was split out.
 """
-function vlasov_poisson(x, v, f₀, t)
+nlogn(u) = u > 0 ? -u*log(u) : zero(u)
+
+"""
+    line_advector(scheme, Δz)
+
+Wrap `scheme` as an in-place `(column, α)` advector, where `α` is always a
+**displacement** -- a length -- whatever the scheme's own fourth argument means.
+
+`PFCNonUniform` takes a displacement already. Every other scheme takes a Courant
+number, which only exists on a uniform grid, so the wrapper divides by the
+spacing for those and **refuses** a non-uniform grid rather than picking one of
+its spacings and being quietly wrong by the ratio between them. That asymmetry
+is a documented wart of the advection API (see `docs/normalization.md`); this is
+the one place the verification runs have to absorb it.
+"""
+function line_advector(scheme::PFCNonUniform, Δz)
+    n = length(Δz)
+    ws = workspace(scheme, n)
+    buf = Vector{Float64}(undef, n)
+    return (col, α) -> (advect!(buf, col, scheme, α, ws); copyto!(col, buf))
+end
+
+function line_advector(scheme, Δz)
+    n = length(Δz)
+    h = Δz[1]
+    all(d -> isapprox(d, h; rtol = 1e-12), Δz) || error(
+        "$(nameof(typeof(scheme))) takes a Courant number, which a non-uniform grid " *
+        "does not have (spacings range over $(extrema(Δz))); use PFCNonUniform here")
+    ws = workspace(scheme, n)
+    buf = Vector{Float64}(undef, n)
+    return (col, α) -> (advect!(buf, col, scheme, α/h, ws); copyto!(col, buf))
+end
+
+"""
+    vlasov_poisson(x, v, f₀, t; scheme_x, scheme_v, invariants = false)
+
+Strang-split Vlasov–Poisson on a static grid.
+
+Returns a NamedTuple with `ε_e` (electric energy) and `ε` (total energy)
+histories. With `invariants = true` it also returns the `mass`, `momentum`,
+`l2` and `entropy` histories -- the conserved quantities that are *not* the
+energy, and that nothing asserted until now.
+
+**The invariants use the cell-width sum `Σ f ΔvΔx`, not `integrate`.** That is
+the quadrature the schemes actually conserve: `PFC` is a flux form, so what
+leaves one cell enters its neighbour and the full-weight sum is preserved
+exactly. The trapezoid halves the two endpoint weights, which no flux
+conservation law protects, and measuring with it reports a drift that belongs to
+the quadrature rather than to the scheme. Measured over the k = 0.5 Landau run,
+875 steps: mass drifts 2.8e-16 by the cell-width sum against **1.6e-4** by the
+trapezoid, and momentum stays at 1.7e-15 against 7.3e-4. Both trapezoid figures
+are the endpoint weighting, not the solver.
+
+The energy histories above keep `integrate`, because they are compared with
+tolerances of half a percent where the difference is irrelevant, and because
+changing them would silently move numbers the notebooks quote.
+
+`scheme_x` and `scheme_v` default to `PFCNonUniform` on the two grids, which is
+what the verification notebooks use and what every previous caller got. They are
+arguments so that the same driver can measure what the physics costs under a
+*different* scheme, which is what `verification/scheme-comparison.jl` does, and
+so that a refinement study can hold the scheme fixed while moving the grid.
+"""
+function vlasov_poisson(x, v, f₀, t;
+                        scheme_x = nothing, scheme_v = nothing, invariants = false)
     Δx = cell_widths(x)
     Δv = cell_widths(v)
-    scheme_x = PFCNonUniform(Δx; fmin = 0.0, fmax = 1.0)
-    scheme_v = PFCNonUniform(Δv; fmin = 0.0, fmax = 1.0)
-    ws_x = workspace(scheme_x, length(Δx))
-    ws_v = workspace(scheme_v, length(Δv))
-    buf_x = Vector{Float64}(undef, length(Δx))
-    buf_v = Vector{Float64}(undef, length(Δv))
+    sx = scheme_x === nothing ? PFCNonUniform(Δx; fmin = 0.0, fmax = 1.0) : scheme_x
+    sv = scheme_v === nothing ? PFCNonUniform(Δv; fmin = 0.0, fmax = 1.0) : scheme_v
 
-    advect_x! = (col, α) -> (advect!(buf_x, col, scheme_x, α, ws_x); copyto!(col, buf_x))
-    advect_v! = (col, α) -> (advect!(buf_v, col, scheme_v, α, ws_v); copyto!(col, buf_v))
+    advect_x! = line_advector(sx, Δx)
+    advect_v! = line_advector(sv, Δv)
 
     fᵢ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. Δx/Δx)'
     nᵢ = integrate(v, fᵢ)
@@ -54,6 +121,20 @@ function vlasov_poisson(x, v, f₀, t)
     e = similar(x)
     ε_e = similar(t)
     ε = similar(t)
+    # One scratch matrix, reused: the invariants are five integrals of the same
+    # shape as `f`, and allocating a temporary per integral per step dominated
+    # the step itself when this was first written.
+    tmp = similar(f)
+    wt       = invariants ? Δv .* Δx' : nothing      # the flux-form quadrature
+    mass     = invariants ? similar(t) : nothing
+    momentum = invariants ? similar(t) : nothing
+    l2       = invariants ? similar(t) : nothing
+    entropy  = invariants ? similar(t) : nothing
+    # `f` is a distribution function: negative values are unphysical, and a
+    # scheme that produces them can be accurate on a linear diagnostic while
+    # being unusable on a nonlinear run. Tracked because the comparison study
+    # would otherwise rank a non-positive scheme first without saying so.
+    fmin     = invariants ? similar(t) : nothing
 
     for k in 1:length(t)-1
         Δt = t[k+1] - t[k]
@@ -65,11 +146,25 @@ function vlasov_poisson(x, v, f₀, t)
         end
         StrangSplitting.make_time_step_2d!((g, f), (vΔt, eΔt), (advect_x!, advect_v!))
         ε_e[k] = integrate(x, e.^2)
-        ε[k] = integrate(x, integrate(v, @. f*v^2)) + ε_e[k]
+        @. tmp = f*v^2
+        ε[k] = integrate(x, integrate(v, tmp)) + ε_e[k]
+
+        if invariants
+            @. tmp = f*wt
+            mass[k] = sum(tmp)
+            @. tmp = f*v*wt
+            momentum[k] = sum(tmp)
+            @. tmp = f*f*wt
+            l2[k] = sum(tmp)
+            @. tmp = nlogn(f)*wt
+            entropy[k] = sum(tmp)
+            fmin[k] = minimum(f)
+        end
     end
-    ε_e[end] = ε_e[end-1]
-    ε[end] = ε[end-1]
-    return ε_e, ε
+    for h in (ε_e, ε, mass, momentum, l2, entropy, fmin)
+        h === nothing || (h[end] = h[end-1])
+    end
+    return (; ε_e, ε, mass, momentum, l2, entropy, fmin)
 end
 
 # --------------------------------------------------------- mode fitting
