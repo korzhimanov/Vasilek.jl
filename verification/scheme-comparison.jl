@@ -76,15 +76,38 @@ schemes() = [
     ("PFCNonUniform",          nothing),          # the harness default
 ]
 
-function run_one(scheme, grid = landau_grid)
+"""
+    run_one(scheme, grid = landau_grid; fit = true, timed = false)
+
+One run of `grid` under `scheme`, reduced to the columns the tables print.
+
+`fit = false` skips the damping-rate and frequency fits and returns `NaN` for
+both. The second table has no analytic rate to compare against and prints
+neither, and fitting anyway would throw away a row on a failure that does not
+concern it: `damping_rate` needs three maxima in its window and
+`oscillation_frequency` two minima, which a scheme that flattens or goes wild at
+50% amplitude need not provide, and the `min f` the table exists to report is
+already in hand by then.
+
+`timed = true` runs the case **twice** and clocks the second. Timing the first
+call measures the compiler: `line_advector` returns a distinct closure type per
+scheme, so `vlasov_poisson`, `make_time_step_2d!` and the whole step loop are
+specialised afresh for every row of the table. Measured here, first call against
+second: `Upwind` 1.03 s / 0.12 s, `Godunov constant` 0.98 s / 0.10 s, `PFC`
+1.23 s / 0.23 s. A single warm-up in `main` -- which is what this did until now
+-- only ever warmed the default scheme's own row, and left the table reporting
+`Upwind` as marginally *slower* than `PFCNonUniform` when it is about twice as
+fast.
+"""
+function run_one(scheme, grid = landau_grid; fit = true, timed = false)
     x, v, f₀, t = grid()
-    sx = scheme
-    sv = scheme
-    elapsed = @elapsed begin
-        r = vlasov_poisson(x, v, f₀, t; scheme_x = sx, scheme_v = sv, invariants = true)
-    end
-    γ, _ = damping_rate(t, r.ε_e; tmin = 6.0, tmax = 30.0)
-    ω, _ = oscillation_frequency(t, r.ε_e; tmin = 6.0, tmax = 30.0)
+    solve() = vlasov_poisson(x, v, f₀, t;
+                             scheme_x = scheme, scheme_v = scheme, invariants = true)
+    timed && solve()                     # compile this scheme, off the clock
+    local r
+    elapsed = @elapsed r = solve()
+    γ = fit ? damping_rate(t, r.ε_e; tmin = 6.0, tmax = 30.0)[1] : NaN
+    ω = fit ? oscillation_frequency(t, r.ε_e; tmin = 6.0, tmax = 30.0)[1] : NaN
     mass = maximum(abs, r.mass[1:end-1] .- r.mass[1])/r.mass[1]
     l2 = (r.l2[end-1] - r.l2[1])/r.l2[1]
     fmin = minimum(r.fmin[1:end-1])
@@ -96,13 +119,12 @@ function main()
     println("grid: 64 x 81, Δt = 0.08, t ≤ 70, Courant 0.81 on the fastest row")
     println("analytic: γ = ", γ_ANALYTIC, ", ω = ", ω_ANALYTIC, "\n")
 
-    # One warm-up so the table is not measuring the compiler.
-    run_one(nothing)
-
+    # Each row warms itself; see `run_one`. There is no single warm-up that
+    # would serve, because every scheme compiles its own step loop.
     results = Tuple{String,NamedTuple}[]
     for (name, scheme) in schemes()
         result = try
-            run_one(scheme)
+            run_one(scheme; timed = true)
         catch err
             println(@sprintf("%-24s failed: %s", name, sprint(showerror, err)))
             continue
@@ -110,18 +132,27 @@ function main()
         push!(results, (name, result))
     end
 
-    @printf("%-24s %9s %8s   %9s %8s   %8s %7s   %10s %11s\n",
-            "scheme", "γ", "err", "ω", "err", "wall", "rel", "mass drift", "ΔL²/L²")
-    baseline = minimum(r.elapsed for (_, r) in results)
-    for (name, r) in sort(results; by = p -> abs(p[2].γ - γ_ANALYTIC))
-        @printf("%-24s %9.5f %7.2f%%   %9.5f %7.2f%%   %7.3fs %6.1fx   %10.1e %11.2e\n",
-                name, r.γ, 100*abs(r.γ - γ_ANALYTIC)/γ_ANALYTIC,
-                r.ω, 100*abs(r.ω - ω_ANALYTIC)/ω_ANALYTIC,
-                r.elapsed, r.elapsed/baseline, r.mass, r.l2)
-    end
+    # `baseline` is a `minimum` over `results`, and every row above can have
+    # been dropped by the `catch`. An empty reduction throws, which would take
+    # the script out on a non-zero exit over a table it merely cannot print --
+    # and the second table below is independent of this one and still worth
+    # running.
+    if isempty(results)
+        println("\nevery scheme failed on this case; nothing to rank")
+    else
+        @printf("%-24s %9s %8s   %9s %8s   %8s %7s   %10s %11s\n",
+                "scheme", "γ", "err", "ω", "err", "wall", "rel", "mass drift", "ΔL²/L²")
+        baseline = minimum(r.elapsed for (_, r) in results)
+        for (name, r) in sort(results; by = p -> abs(p[2].γ - γ_ANALYTIC))
+            @printf("%-24s %9.5f %7.2f%%   %9.5f %7.2f%%   %7.3fs %6.1fx   %10.1e %11.2e\n",
+                    name, r.γ, 100*abs(r.γ - γ_ANALYTIC)/γ_ANALYTIC,
+                    r.ω, 100*abs(r.ω - ω_ANALYTIC)/ω_ANALYTIC,
+                    r.elapsed, r.elapsed/baseline, r.mass, r.l2)
+        end
 
-    println("\nRanked by damping-rate error. Read the wall column as an order of")
-    println("magnitude, not a measurement: it is one run on a shared machine.")
+        println("\nRanked by damping-rate error. Read the wall column as an order of")
+        println("magnitude, not a measurement: it is one run on a shared machine.")
+    end
 
     # ---------------------------------------------------------------------
     println("\n\nSame mode at 50% amplitude, where positivity starts to matter")
@@ -135,7 +166,7 @@ function main()
     @printf("%-24s %13s %12s %11s\n", "scheme", "min f", "mass drift", "positive")
     for (name, scheme) in schemes()
         r = try
-            run_one(scheme, nonlinear_grid)
+            run_one(scheme, nonlinear_grid; fit = false)
         catch err
             @printf("%-24s failed: %s\n", name, first(sprint(showerror, err), 60))
             continue

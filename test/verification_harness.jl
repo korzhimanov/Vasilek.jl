@@ -32,9 +32,12 @@ A scalar function rather than an `ifelse` inside the broadcast, because
 `ifelse` is an ordinary call and evaluates **both** arguments: written that way
 the guard does not guard, and `log` is handed the negative value anyway. That is
 not hypothetical here -- `LaxWendroff` and cubic `SemiLagrangian` drive `f` to
--1.3e-10 and -4.4e-10 on the large-amplitude case in
-`verification/scheme-comparison.jl`, and the entropy diagnostic threw
-`DomainError` on both until this was split out.
+-0.094 and -0.098 on the large-amplitude case in
+`verification/scheme-comparison.jl`, against a peak of 0.6, and the entropy
+diagnostic threw `DomainError` on both until this was split out. That is a 16%
+undershoot of the peak rather than round-off leaking below zero, which is worth
+stating precisely: it is the size of the overshoot that makes the guard a
+statement about the schemes rather than about floating point.
 """
 nlogn(u) = u > 0 ? -u*log(u) : zero(u)
 
