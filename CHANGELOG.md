@@ -42,11 +42,22 @@ This project has not been released; entries below describe work on `master`.
 - **The collision operators' complexity class is gated.** The one timing
   assertion in the suite, and it is gateable because it measures a class rather
   than a duration: `BGK` doubles when N doubles and `Landau1P` quadruples, so
-  the fitted exponents are 1.01 and 1.98 with nothing between them for noise to
-  land on. Three independent trials gave BGK ratios of 2.02 to 2.07 and
-  `Landau1P` 3.85 to 4.02, at times from 4.9 us to 1.5 ms. It catches an
-  accidental O(N²) in `BGK` — a moment recomputed inside the velocity loop, say
-  — which leaves the allocation gate happy and every physics assertion passing.
+  the fitted exponents are 1.00 and 1.99 with nothing between them for noise to
+  land on. Five trials under `--check-bounds=yes`, which is what `Pkg.test()`
+  passes and so the only mode the assertion runs in, gave BGK ratios of 2.00 to
+  2.09 and `Landau1P` 3.91 to 4.07, at times from 13.6 us to 6.4 ms. Under the
+  `Coverage` job's `--code-coverage=user` every one of those times grows about
+  fourteenfold and the exponents do not move — 0.98 to 1.01 and 2.00 to 2.01 —
+  because a uniform slowdown cancels in a ratio. That is what makes this
+  gateable where a duration is not, and why the 10 us floor `runbenchmarks.jl`
+  sets does not apply: nothing here is compared against a number stored on
+  another day. It catches an accidental O(N²) in `BGK` — a moment recomputed
+  inside the velocity loop, say — which leaves the allocation gate happy and
+  every physics assertion passing.
+
+  Samples are drawn against a time budget per size rather than a fixed count, so
+  the short measurements the fit is most sensitive to get thousands of them and
+  the long ones get five. The testset costs 0.42 s, or 0.7 s under coverage.
 
   The advection kernels are **not** gated this way, which is a measurement
   rather than an omission: their per-call times are sub-microsecond, and a

@@ -171,24 +171,44 @@ end
 # ---------------------------------------------------------------- complexity
 
 """
-    scaling_exponent(work, sizes; reps)
+    scaling_exponent(work, sizes; budget = 0.05, minreps = 5)
 
 Least-squares slope of `log(time)` against `log(N)`: the `p` in `t ∝ Nᵖ`.
 
-Each size is warmed twice before it is clocked and the **minimum** over `reps`
-is taken. Both matter. Julia specialises the kernel per operator type, so a
-first call times the compiler -- a mistake this repository has already made once
-in `verification/scheme-comparison.jl`, where it reported upwind as slower than
-`PFCNonUniform` when it is about twice as fast. And the minimum, rather than the
-mean, is the estimator that a shared machine's interruptions cannot inflate.
+Each size is warmed twice before it is clocked and the **minimum** over the
+samples is taken. Both matter. Julia specialises the kernel per operator type,
+so a first call times the compiler -- a mistake this repository has already made
+once in `verification/scheme-comparison.jl`, where it reported upwind as slower
+than `PFCNonUniform` when it is about twice as fast. And the minimum, rather
+than the mean, is the estimator that a shared machine's interruptions cannot
+inflate.
+
+Sampling is by **time budget per size, not by a fixed count**. The two are not
+the same thing where it matters. A fitted slope is most sensitive to its
+endpoints, and the smallest size is both the shortest measurement -- the one a
+scheduler interruption can inflate by a multiple rather than a percent -- and
+the one where inflation flattens the fit toward zero. A fixed count spends the
+same number of samples on the point that needs many and the point that needs
+few; here the cheap points get thousands and the expensive ones get `minreps`,
+which is the allocation the estimator actually wants. It also holds the cost of
+this testset flat at roughly `budget` per size regardless of the machine and of
+whether the run carries `--check-bounds=yes` or coverage instrumentation, both
+of which move these kernels by an order of magnitude.
 """
-function scaling_exponent(work, sizes; reps)
+function scaling_exponent(work, sizes; budget = 0.05, minreps = 5)
     times = map(sizes) do n
         f = work(n)
         f(); f()                                   # compile, off the clock
         t = Inf
-        for _ = 1:reps
-            t0 = time_ns(); f(); t = min(t, (time_ns() - t0)/1e9)
+        spent = 0.0
+        reps = 0
+        while reps < minreps || spent < budget
+            t0 = time_ns()
+            f()
+            δ = (time_ns() - t0)/1e9
+            t = min(t, δ)
+            spent += δ
+            reps += 1
         end
         t
     end
@@ -204,12 +224,32 @@ end
     #
     # It is gateable because the quantity is a complexity class, not a duration:
     # `BGK` doubles when N doubles and `Landau1P` quadruples, so the exponents
-    # are 1 and 2 with nothing in between for noise to land on. Measured over
-    # three independent trials on the development machine: BGK ratios 2.02 to
-    # 2.07, Landau1P 3.85 to 4.02, with times from 4.8 us to 1.46 ms -- all well
-    # clear of the 10 us floor `runbenchmarks.jl` sets for wall-clock gating.
-    # Fitted exponents 1.03 and 1.99, held to a threshold at 1.5, which is 45
-    # measurement errors away from either.
+    # are 1 and 2 with nothing in between for noise to land on.
+    #
+    # **Measured in the mode this actually runs in.** `Pkg.test()` passes
+    # `--check-bounds=yes`, so these kernels are about three times slower here
+    # than the same code timed from a plain `julia --project=.`, and quoting the
+    # faster figures would leave anyone debugging a failure comparing against
+    # numbers the suite never prints. Five trials under `--check-bounds=yes`:
+    #
+    #   BGK       13.6 27.4 55.0 110 us    ratios 2.00-2.09   exponent 1.003-1.028
+    #   Landau1P  102 401 1600 6385 us     ratios 3.91-4.07   exponent 1.990-2.001
+    #
+    # Held to a threshold at 1.5, which is some forty measurement errors from
+    # either. The `Coverage` job runs the same assertions under
+    # `--code-coverage=user`, where every number above grows by a factor of
+    # about fourteen: 194 to 1551 us and 673 us to 43 ms. The exponents come out
+    # 0.983-1.005 and 1.997-2.008 -- unmoved, because a uniform slowdown cancels
+    # in a ratio, which is the whole reason this quantity can be gated where a
+    # duration cannot.
+    #
+    # That is also why the 10 us floor in `runbenchmarks.jl` does not apply. The
+    # floor is there because comparing a *duration* against a baseline stored on
+    # another day needs a tolerance that survives 20-50% run-to-run drift, and
+    # below 10 us it does not -- that file measures a 10 us floor still tripping
+    # once in four runs. Nothing here is compared against a stored number: the
+    # four measurements are taken seconds apart in one process, and only their
+    # ratio is read.
     #
     # It catches a real regression that nothing else would: an accidental O(N²)
     # in `BGK` -- a moment recomputed inside the velocity loop, say -- leaves the
@@ -233,9 +273,9 @@ end
     end
 
     p_bgk, t_bgk = scaling_exponent(collision_work(BGK(1e-2)),
-                                    (800, 1600, 3200, 6400); reps = 200)
+                                    (800, 1600, 3200, 6400))
     p_landau, t_landau = scaling_exponent(collision_work(Landau1P(1e-2)),
-                                          (100, 200, 400, 800); reps = 5)
+                                          (100, 200, 400, 800))
 
     println("  BGK       N = 800..6400  ",
             join([string(round(t*1e6; digits = 1), "us") for t in t_bgk], " "),
