@@ -9,6 +9,65 @@ This project has not been released; entries below describe work on `master`.
 
 ### Added
 
+- **The splitting and a real scheme are measured together against an analytic
+  answer** (`test/VlasovSolver/test_strang_splitting.jl`). Everything there
+  hands the splitting an exact spectral shift, which is the right way to
+  isolate the splitting and should stay — but it meant nothing measured what a
+  production run actually is. On the same rigid rotation, refining Δx, Δv and Δt
+  together over N = 32, 64, 128: cubic `SemiLagrangian` 6.37e-3 → 5.72e-5 at
+  orders 3.60, 3.19; `PFC` at 2.26, 2.22; `LaxWendroff` at 1.84, 1.96.
+
+  Each scheme keeps its own spatial order rather than being dragged to the
+  splitting's second — the cubic spline reaches 3.19 where Strang alone gives 2.
+  That is not the problem being easy: a rigid rotation factors into shears,
+  which is what the splitting does, so the commutator error is unusually small
+  here and the scheme is what is left.
+
+- **The splitting is reversible, and the round-trip error measures
+  dissipation.** Rotation is invariant under `(t, v) → (−t, −v)`, and Strang
+  splitting is symmetric, so a forward rotation, a velocity flip, a second
+  forward rotation and a second flip must return the initial state. What breaks
+  it is the scheme's own dissipation, which has no time-reverse — so this
+  separates the schemes far more sharply than the forward error does. At
+  N = 64 → 128: cubic `SemiLagrangian` 1.01e-3 → 1.23e-4, `LaxWendroff`
+  3.77e-3 → 4.94e-4, `PFC` 1.95e-2 → 3.61e-3, and `Upwind` 4.04e-1 → 2.56e-1.
+
+  Upwind is included **because it fails**: 0.40 is 40% of the peak, it has
+  smeared the blob past recovery, and refining barely helps because the
+  dissipation is first order. A test every scheme passed would not show that
+  this measures dissipation rather than the splitting.
+
+- **The Yee scheme's numerical dispersion relation**
+  (`test/MaxwellSolver/test_fdtd_1d.jl`). The update satisfies
+  `sin(ωΔt/2) = cfl·sin(kΔx/2)` exactly, and nothing measured it: the suite
+  asserted the magic-step case and, at `cfl = 0.8`, only that the deviation from
+  a pure translation *exceeded* 0.1 — bounded from below and not from above, so
+  a wrong-but-dispersive scheme passed. Measured departure from the closed form
+  1.4e-16 to 1.3e-4 over `cfl ∈ {0.5, 0.9, 1.0}` and `kΔx` from 0.016 to 1.41,
+  with the physical content quantified: the phase velocity at `λ ≈ 4.4Δx` is
+  0.936c at `cfl = 0.5`, 0.981c at 0.9, and exactly c at 1.
+
+  Measured through the mode's own projection `Σ ey·sin(kx)` rather than a point
+  sample. A probe at `L/4` reads `sin(mπ/4)`, exactly zero whenever `m` is
+  divisible by four — at `m = 20` the "signal" was round-off and the fitted
+  frequency came out 4.2× too high.
+
+- **PML reflection against layer thickness.** The existing test measures one
+  configuration, which establishes that the layer absorbs but not that the σ
+  ramp is what absorbs. Sweeping the thickness at σ_max = 1e3: R = 8.73e-3,
+  2.97e-5, 2.16e-8, 3.74e-10, 5.84e-12 at 2, 4, 8, 16 and 32 cells — four orders
+  between 2 and 8 cells, which is the cubic ramp working, then a slower fall as
+  the limit stops being the layer and becomes the discretisation of the ramp.
+
+- **`BGK` relaxes at the rate it is given.** Both limits of the update were
+  pinned bit-for-bit and the moments asserted conserved; the rate in between —
+  which is what `τ` means — was not. It holds *exactly*, and the reason ties two
+  facts together: `M` is built from the conserved moments, so it is the same
+  vector at every step, and `f_k − M = (f_0 − M)·exp(−kΔt/τ)` is then an
+  algebraic identity rather than an approximation. A fitted rate that missed
+  `1/τ` would mean the moments had moved. Recovered to 1.7e-10, 8.6e-14 and
+  5.1e-15 at τ = 0.5, 1.0 and 2.0.
+
 - **The schemes are compared with each other, not only measured separately**
   (`test/test_comparison.jl`). `benchmark/` times each one in isolation and
   `test_convergence` establishes that each has the order it claims; neither said

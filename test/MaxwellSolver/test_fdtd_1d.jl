@@ -414,3 +414,133 @@ end
         @test maximum(m.ey) < 0.1*incident   # nothing of the original sign left
     end
 end
+
+@testset "The Yee scheme's numerical dispersion relation" begin
+    # The 1D Yee update satisfies, exactly,
+    #
+    #     sin(ωΔt/2) = cfl · sin(kΔx/2)
+    #
+    # and nothing measured it. The suite asserts the magic-step case (`cfl = 1`,
+    # no dispersion at all) and, at `cfl = 0.8`, only that the deviation from a
+    # pure translation *exceeds* 0.1 -- the error is bounded from below and not
+    # from above, so a scheme that was wrong but dispersive would pass. This
+    # closes it from the other side, against a closed form rather than a
+    # tolerance.
+    #
+    # A PEC standing mode `sin(kx)` with `k = mπ/L` is the natural probe here:
+    # both end nodes are held at zero by the boundary condition, so the mode is
+    # an exact eigenfunction of the discrete operator and oscillates as
+    # `cos(ωt)`.
+    #
+    # **Measured through the mode's own projection `Σ ey·sin(kx)`, not a point
+    # sample.** A single probe at `L/4` reads `sin(mπ/4)`, which is exactly zero
+    # for every `m` divisible by 4 -- at `m = 20` the "signal" is round-off, and
+    # the fitted frequency came out 4.2x too high. The projection has no nodes.
+    #
+    # Measured relative departure from the closed form: 1.4e-16 to 1.3e-4 over
+    # `cfl ∈ {0.5, 0.9, 1.0}` and `kΔx` from 0.016 to 1.41.
+    Δx = 0.01
+    N = 200
+    L = N*Δx
+    worst = 0.0
+
+    for cfl in (0.5, 0.9, 1.0), m in (1, 5, 20, 50, 90)
+        Δt = cfl*Δx
+        k = m*π/L
+        mesh = FDTD1D.YeeMesh1D{Float64}(N)
+        shape = [sin(k*i*Δx) for i = 0:N]
+        mesh.ey .= shape
+        advance! = FDTD1D.make_advance_fields(mesh, cfl, NO_PULSE, Δt, Δx, 0,
+                                              no_pml(Δx, Δt))
+        j = zero_current(N + 1)
+        amplitude = Float64[]
+        for s = 1:4000
+            advance!(s*Δt, j)
+            push!(amplitude, sum(mesh.ey .* shape))
+        end
+
+        ups = [s for s in 2:length(amplitude)
+               if amplitude[s-1] < 0 ≤ amplitude[s]]
+        ω = 2π/((ups[end] - ups[1])/(length(ups) - 1)*Δt)
+        ω_yee = 2/Δt*asin(min(1.0, cfl*sin(k*Δx/2)))
+        dev = abs(ω - ω_yee)/ω_yee
+        worst = max(worst, dev)
+        @test dev < 1e-3
+
+        # At the magic time step the relation collapses to ω = ck exactly:
+        # `asin(sin(kΔx/2))·2/Δt = k·Δx/Δt = k`. Measured departure from the
+        # *ideal* dispersion 0.0 at every mode but the last, where the mode is
+        # near the grid scale and the crossing count quantises: 1.1e-4.
+        if cfl == 1.0
+            @test abs(ω_yee - k)/k < 1e-14
+        end
+    end
+    println("  worst departure from sin(ωΔt/2) = cfl·sin(kΔx/2): ", worst)
+
+    # The physical content, which the closed form makes quantitative: short
+    # waves travel slow. Measured phase velocity at kΔx = 1.41 (λ ≈ 4.4Δx):
+    # 0.936c at cfl = 0.5, 0.981c at cfl = 0.9, and exactly c at cfl = 1.
+    for (cfl, expected) in ((0.5, 0.93575), (0.9, 0.98129), (1.0, 1.0))
+        Δt = cfl*Δx
+        k = 90π/L
+        vp = (2/Δt*asin(min(1.0, cfl*sin(k*Δx/2))))/k
+        println("  cfl = ", rpad(cfl, 4), " at kΔx = ", round(k*Δx; digits = 3),
+                ": phase velocity = ", round(vp; digits = 5), "c")
+        @test isapprox(vp, expected; atol = 1e-4)
+    end
+end
+
+@testset "PML reflection falls with layer thickness" begin
+    # The existing PML test measures the reflection coefficient at one
+    # configuration, `N = 10, σ_max = 1e3`. That establishes the layer absorbs;
+    # it does not establish that the σ profile is doing the absorbing, which a
+    # layer that happened to be lossy at one thickness would also pass.
+    #
+    # Sweeping the thickness tests the ramp. Measured, σ_max = 1e3, a Gaussian
+    # pulse over 800 steps:
+    #
+    #   N_pml    R
+    #   2        8.73e-03
+    #   4        2.97e-05      295x better
+    #   8        2.16e-08      1374x
+    #   16       3.74e-10      58x
+    #   32       5.84e-12      64x
+    #
+    # Four orders between 2 and 8 cells is the cubic ramp working. The rate
+    # falls off beyond that, which is the expected shape -- the reflection stops
+    # being limited by the layer and starts being limited by the discretisation
+    # of the ramp itself -- so the assertions below are strongest where the
+    # physics is.
+    Δx = 0.01
+    cfl = 0.8
+    Δt = cfl*Δx
+    N = 400
+
+    function residual(NP)
+        m = FDTD1D.YeeMesh1D{Float64}(N)
+        for i = 0:N
+            m.ey[i+1] = exp(-((i - 200)/12)^2)
+            i + 1 ≤ N && (m.hz[i+1] = exp(-((i + 0.5 - 200 - 0.5*cfl)/12)^2))
+        end
+        incident = maximum(abs, m.ey)
+        advance! = FDTD1D.make_advance_fields(m, cfl, NO_PULSE, Δt, Δx, 0,
+                                              FDTD1D.PML(NP, 1e3, Δx, Δt))
+        j = zero_current(N + 1)
+        for s = 1:800
+            advance!(s*Δt, j)
+        end
+        return maximum(abs, m.ey[NP+2:N-NP])/incident
+    end
+
+    thicknesses = (2, 4, 8, 16, 32)
+    R = [residual(NP) for NP in thicknesses]
+    for (NP, r) in zip(thicknesses, R)
+        println("  N_pml = ", lpad(NP, 3), "   R = ", r)
+    end
+
+    @test issorted(R; rev = true)             # thicker is always better
+    @test R[2] < R[1]/100                     # 2 -> 4 cells: measured 295x
+    @test R[3] < R[2]/100                     # 4 -> 8 cells: measured 1374x
+    @test R[3] < 1e-7
+    @test R[end] < 1e-10
+end

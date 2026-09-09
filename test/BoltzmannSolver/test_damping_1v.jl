@@ -261,3 +261,62 @@ end
     fnu = @. 2.5*vnu - 1.0
     @test maximum(abs(C.∂f∂v(fnu, vnu, k) - 2.5) for k in eachindex(vnu)) < 1e-13
 end
+
+@testset "BGK relaxes at the rate it is given" begin
+    # Both limits of the update are pinned bit-for-bit above, and the moments
+    # are asserted conserved. The *rate* in between was never checked -- and it
+    # is the number `τ` actually means.
+    #
+    # It holds exactly rather than approximately, and the reason is worth
+    # stating because it ties two facts together. `M` is built from `n`, `u` and
+    # `T`, which the operator conserves, so `M` is the **same vector at every
+    # step**. The update `f ← f·e + (1−e)M` then gives
+    #
+    #     f_k − M = (f_0 − M)·eᵏ = (f_0 − M)·exp(−kΔt/τ)
+    #
+    # as an algebraic identity, not a numerical approximation. A fitted rate
+    # that missed `1/τ` would therefore mean the moments had moved, which is the
+    # failure the testset above catches independently -- so this is a second,
+    # sharper reading of the same property.
+    #
+    # Measured over 60 steps at Δt = 0.1, fitting log‖f − M‖ against t:
+    #
+    #   τ = 0.5   1/τ recovered to 1.7e-10
+    #   τ = 1.0                     8.6e-14
+    #   τ = 2.0                     5.1e-15
+    #
+    # The τ = 0.5 residue is the deviation reaching 1.5e-6 of its initial size
+    # by the last step, where the logarithm starts to feel round-off; it is the
+    # fit running out of signal, not the operator.
+    v = collect(-10:0.05:10)
+    f₀ = @. exp(-(v - 0.5)^2)*(1.0 + 0.3*v^2)
+    Δt = 0.1
+    nsteps = 60
+
+    for τ in (0.5, 1.0, 2.0)
+        op = BGK(τ)
+        ws = collision_workspace(op, length(v))
+        n, u, T = moments(v, f₀)
+        M = @. n/sqrt(2π*T)*exp(-(v - u)^2/(2T))
+
+        src = copy(f₀)
+        dst = similar(src)
+        deviation = Float64[]
+        for _ = 1:nsteps
+            collide!(dst, src, op, v, Δt, ws)
+            copyto!(src, dst)
+            push!(deviation, maximum(abs, src .- M))
+        end
+
+        t = [k*Δt for k = 1:nsteps]
+        rate = -(hcat(ones(nsteps), t) \ log.(deviation))[2]
+        println("  τ = ", rpad(τ, 4), " fitted 1/τ = ", rate,
+                "  (analytic ", 1/τ, ", relative ",
+                round(abs(rate - 1/τ)*τ; sigdigits = 3), ")")
+        @test isapprox(rate, 1/τ; rtol = 1e-8)
+
+        # and it approaches M from one side, never overshooting: `e ∈ (0,1)`, so
+        # every step is a convex combination of `f` and `M`.
+        @test issorted(deviation; rev = true)
+    end
+end
