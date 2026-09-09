@@ -9,6 +9,31 @@ This project has not been released; entries below describe work on `master`.
 
 ### Added
 
+- **The suite runs against the Julia prerelease, weekly.** A release candidate
+  lands weeks before the release, and that gap is the only window in which an
+  upstream change that breaks the package — or that the package turns out to be
+  relying on by accident — can still be reported upstream and fixed there rather
+  than worked around here afterwards. A `Julia prerelease` job now runs the
+  default suite at `setup-julia`'s `version: 'pre'`, which resolves to the latest
+  RC, beta or alpha, and to the latest stable when no prerelease exists. Between
+  cycles the job is therefore a duplicate of the ubuntu `1` matrix entry; that is
+  the price of not re-editing a pin every time a cycle opens.
+
+  `continue-on-error`, because the subject under test is Julia and not Vasilek:
+  an RC is allowed to be broken, and a red X on the required checks for someone
+  else's unreleased bug would train everyone to ignore the checks. The cost is
+  silence — a green run sends no failure mail, so a broken RC is visible only in
+  the Actions tab.
+
+  The job also brought a `schedule:` trigger to the workflow, at 05:23 UTC on
+  Mondays, without which it could not do what it is for: this repository goes a
+  fortnight without a push or a PR often enough that an RC could ship, break the
+  package and reach its release with the job never having run. The other five
+  jobs run on the same cron rather than being gated off it, which is not only
+  simpler — the package commits no Manifest, so every run resolves afresh, and
+  the weekly run is the only thing that would catch a new `Interpolations` or
+  `FFTW` breaking us between one PR and the next.
+
 - **The verification driver takes its schemes as arguments**
   (`test/verification_harness.jl`). `vlasov_poisson` hard-coded
   `PFCNonUniform` on both directions, so the only way to ask what the physics

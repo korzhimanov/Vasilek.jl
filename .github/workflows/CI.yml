@@ -6,6 +6,27 @@ on:
     tags: ['*']
   pull_request:
   workflow_dispatch:
+  # Mondays, 05:23 UTC. Off the hour on purpose: GitHub queues cron runs at the
+  # top of the hour worst, and a job that starts twenty minutes late is a job
+  # that did not run for anyone watching.
+  #
+  # The `prerelease` job below is the reason this exists. Its whole argument is
+  # the weeks between an RC and the release, and it cannot make that argument on
+  # push and pull_request alone -- this repository regularly goes a fortnight
+  # without either, which is the same length as the window. An RC could ship,
+  # break the package and reach its release without the job having run once.
+  #
+  # Everything else runs weekly too, rather than being gated off the schedule.
+  # That is not just simpler: the package commits no Manifest, so every run
+  # resolves its dependencies afresh, and a weekly full run is the only thing
+  # that would catch a new Interpolations or FFTW release breaking us between
+  # one PR and the next. Six jobs of about two minutes, once a week.
+  #
+  # Note that GitHub disables scheduled workflows after 60 days without a commit
+  # to the repository, and emails the owner when it does. Re-enabling is a button
+  # in the Actions tab.
+  schedule:
+    - cron: '23 5 * * 1'
 
 concurrency:
   # cancel superseded runs on the same ref, but never on master
@@ -42,12 +63,21 @@ jobs:
     # Julia release candidates land weeks before the release itself, so this is
     # the window in which an upstream change that breaks the package -- or that
     # the package is relying on by accident -- can still be reported upstream
-    # and fixed there rather than worked around here after the fact.
+    # and fixed there rather than worked around here after the fact. The weekly
+    # cron in `on:` is what makes that true rather than aspirational; on push and
+    # pull_request alone this job would sit out most of the window it exists for.
     #
     # continue-on-error because the subject under test is Julia, not Vasilek: an
     # RC is allowed to be broken, and a red X on the required checks for someone
     # else's unreleased bug would train everyone to ignore the checks. The job
     # still reports its result, which is the point.
+    #
+    # The cost of that is silence: a green run sends no failure mail, so on the
+    # scheduled runs -- where there is no PR check list to glance at -- a broken
+    # RC is only visible by opening the Actions tab. Deliberate. Turning it into
+    # a notification means either failing the run, which is what continue-on-error
+    # is here to avoid, or opening an issue from the workflow, which needs write
+    # permissions this workflow does not otherwise want.
     #
     # 'pre' resolves to the latest RC/beta/alpha, and to the latest stable when
     # no prerelease exists. Between release cycles this job is therefore a
