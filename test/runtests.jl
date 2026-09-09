@@ -8,6 +8,7 @@ using LinearAlgebra
     include("test_golden.jl")
     include("test_amplification.jl")
     include("test_convergence.jl")
+    include("test_comparison.jl")
     include("test_invariants.jl")
     include("test_symmetry.jl")
     include("test_contracts.jl")

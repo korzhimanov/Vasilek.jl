@@ -96,7 +96,14 @@ Benchmarks live in their own environment:
 ```
 julia --project=benchmark -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate()'
 julia --project=benchmark benchmark/runbenchmarks.jl
+julia --project=benchmark benchmark/workprecision.jl
 ```
+
+`runbenchmarks.jl` times each kernel against a stored baseline.
+`workprecision.jl` pairs error with the cost of reaching it and prints the
+efficiency frontier per problem class — the schemes no other scheme beats on
+both axes. Both are advisory and exit 0; the accuracy half of the comparison is
+gated in `test/test_comparison.jl`, the timing half is not.
 
 See [CHANGELOG.md](CHANGELOG.md) for recent changes, including several
 numerically breaking fixes.
