@@ -38,6 +38,34 @@ jobs:
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
 
+  prerelease:
+    # Julia release candidates land weeks before the release itself, so this is
+    # the window in which an upstream change that breaks the package -- or that
+    # the package is relying on by accident -- can still be reported upstream
+    # and fixed there rather than worked around here after the fact.
+    #
+    # continue-on-error because the subject under test is Julia, not Vasilek: an
+    # RC is allowed to be broken, and a red X on the required checks for someone
+    # else's unreleased bug would train everyone to ignore the checks. The job
+    # still reports its result, which is the point.
+    #
+    # 'pre' resolves to the latest RC/beta/alpha, and to the latest stable when
+    # no prerelease exists. Between release cycles this job is therefore a
+    # duplicate of the ubuntu '1' entry in the matrix above; that is the price of
+    # not having to re-edit the pin every time a cycle opens.
+    name: Julia prerelease
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: 'pre'
+      - uses: julia-actions/cache@v3
+      - uses: julia-actions/julia-buildpkg@v1
+      - uses: julia-actions/julia-runtest@v1
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
