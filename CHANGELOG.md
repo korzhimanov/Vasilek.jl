@@ -9,6 +9,67 @@ This project has not been released; entries below describe work on `master`.
 
 ### Added
 
+- **The schemes are compared with each other, not only measured separately**
+  (`test/test_comparison.jl`). `benchmark/` times each one in isolation and
+  `test_convergence` establishes that each has the order it claims; neither said
+  which to reach for, and the answer is not a single name. L² error after one
+  traversal at N = 512:
+
+  | scheme | sine | gaussian | square |
+  |---|---|---|---|
+  | `SemiLagrangian` cubic | 2.46e-8 | 3.55e-6 | 2.01e-2 |
+  | `PFC` | 2.30e-7 | 3.30e-5 | 2.65e-2 |
+  | `SemiLagrangian` quadratic | 5.02e-6 | 1.37e-4 | 2.72e-2 |
+  | `LaxWendroff` | 4.68e-5 | 1.28e-3 | 4.53e-2 |
+  | `Godunov`+`VanLeer` | 7.03e-3 | 1.61e-2 | **8.45e-3** |
+  | `Upwind` | 8.08e-3 | 4.11e-2 | 6.32e-2 |
+
+  The ranking is strictly ordered by scheme order on the sine, over five
+  decades — and **inverts on the discontinuity**. `Godunov`+`VanLeer` sits
+  second from the bottom on smooth data, because the limiter clips smooth
+  extrema, and first on the pulse; against the cubic spline it goes from 2.9e5
+  times worse to 0.42 times as bad, a swing of six decades in relative standing.
+  That is Godunov's theorem as a measurement, and it is the most useful single
+  thing to know when choosing a scheme: no ordering of these survives a change
+  of problem class.
+
+  Errors are asserted; wall-clock is not, for the reasons `runbenchmarks.jl`
+  already sets out. The equivalence of `Upwind`, `Godunov(PiecewiseConstant)`
+  and linear `SemiLagrangian` shows up here too, agreeing to 2.9e-14 after 1280
+  steps — the consequence of the shared amplification factor
+  `test_amplification.jl` proves.
+
+- **The collision operators' complexity class is gated.** The one timing
+  assertion in the suite, and it is gateable because it measures a class rather
+  than a duration: `BGK` doubles when N doubles and `Landau1P` quadruples, so
+  the fitted exponents are 1.01 and 1.98 with nothing between them for noise to
+  land on. Three independent trials gave BGK ratios of 2.02 to 2.07 and
+  `Landau1P` 3.85 to 4.02, at times from 4.9 us to 1.5 ms. It catches an
+  accidental O(N²) in `BGK` — a moment recomputed inside the velocity loop, say
+  — which leaves the allocation gate happy and every physics assertion passing.
+
+  The advection kernels are **not** gated this way, which is a measurement
+  rather than an omission: their per-call times are sub-microsecond, and a
+  fourfold size increase on an O(N) kernel measured ratios from 3.29 to 8.00
+  against the 4 it should give.
+
+- **A work–precision report** (`benchmark/workprecision.jl`, advisory, exits 0).
+  Error against the cost of reaching it, per scheme, per problem class, per
+  resolution, with the Pareto frontier at the bottom — the schemes no other
+  scheme beats on both axes. On smooth data that is `Upwind`, `LaxWendroff`,
+  `PFC` and cubic `SemiLagrangian` spanning 0.12 ms to 40 ms and 8.1e-3 to
+  2.5e-8; on the pulse `Godunov`+`VanLeer` joins it and the cubic spline drops
+  off, being both slower and less accurate there than `Godunov`+`VanLeer`. The
+  quadratic spline is dominated on every profile.
+
+  Timing goes through `BenchmarkTools.@belapsed` rather than `@elapsed`, which
+  is what keeps it from measuring the compiler — the mistake caught in
+  `verification/scheme-comparison.jl` a week ago. The report also quantifies its
+  own error bar rather than claiming precision it lacks: `Upwind` and
+  `Godunov(PiecewiseConstant)` are the same scheme, so any gap between their
+  timings is measurement error, and which of them reaches the frontier has
+  already changed between two runs of the script.
+
 - **The suite runs against the Julia prerelease, weekly.** A release candidate
   lands weeks before the release, and that gap is the only window in which an
   upstream change that breaks the package — or that the package turns out to be
