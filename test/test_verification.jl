@@ -331,5 +331,59 @@ end
             println("  non-uniform grid Δε/ε = ", drift)
             @test abs(drift) < 0.06
         end
+
+        @testset "Laser wakefield: the study runs and stays bounded" begin
+            # The README says the wakefield example "runs and is stable", and
+            # nothing asserted either half. This runs the study at **its own
+            # resolution** -- not a coarsened proxy -- and takes about a second,
+            # the plotting having been what made the script slow. That matters:
+            # the coarse version is not the same experiment, reporting a peak
+            # laser field of 0.641 against 0.383 and an energy drift of 6.9%
+            # against 1.2%, so a test built on it would have pinned a different
+            # number and called it the study's.
+            #
+            # **What this does and does not establish.** It is a statement that
+            # the solver runs, stays finite and stays bounded. It is *not* a
+            # statement that the physics is complete: there is no ponderomotive
+            # coupling, the laser never enters the longitudinal push, and the
+            # wake is the slab edges relaxing rather than a laser-driven wave.
+            # See the warning on `wakefield`.
+            #
+            # The consequence for reading these assertions: the wake and energy
+            # numbers come out bit-identical whether the transverse current is
+            # right, wrong by a factor of Δt, or wrong by thirty-two orders of
+            # magnitude, so they constrain the *longitudinal* solver only. The
+            # peak laser field is the one line here that sees the current at
+            # all, and it is where both documented bugs surfaced -- 1.0e22 with
+            # the Δt missing, 44 with the sign flipped, against 0.383 correct.
+            # That bound is the regression net this testset exists to be.
+            r = wakefield()
+
+            drift = (r.ε[end] - r.ε[1])/r.ε[1]
+            peak_laser = maximum(abs, r.ey)
+            peak_wake = maximum(abs, r.ex)
+            println("  Δε/ε = ", drift, "   peak wake = ", peak_wake,
+                    "   peak laser = ", peak_laser)
+
+            @test all(isfinite, r.ey)
+            @test all(isfinite, r.ex)
+            @test all(isfinite, r.n)
+
+            # Bounded, and by a margin that both historical failures cross by
+            # orders of magnitude rather than by a percent.
+            @test peak_laser < 1.0
+            @test peak_laser > 0.1        # and the pulse does arrive on the grid
+
+            @test peak_wake < 0.2         # measured 0.0672
+            @test peak_wake > 0.01        # and the slab does something
+
+            # Measured 1.19%. Held at 2%: this is a bound on an incomplete
+            # model, not a conservation claim.
+            @test abs(drift) < 0.02
+
+            # `PFC` is positivity preserving and the density is its velocity
+            # integral, so this must hold exactly. Measured minimum: 0.0.
+            @test minimum(r.n) ≥ 0.0
+        end
     end
 end

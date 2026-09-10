@@ -2,7 +2,7 @@
 # Deliberately close to what the verification notebooks do, so the two agree.
 
 using Vasilek
-using Vasilek: StrangSplitting
+using Vasilek: StrangSplitting, FDTD1D, PoissonFourier1D
 using NumericalIntegration, FFTW
 
 "Spectral Poisson solve on a uniform x grid, e = -dφ/dx with φ'' = -ρ."
@@ -236,4 +236,137 @@ function oscillation_frequency(t, ε_e; tmin, tmax)
     m = local_extrema(t, ε_e; tmin = tmin, tmax = tmax, maxima = false)
     length(m) ≥ 2 || error("oscillation_frequency needs at least 2 minima in [$tmin, $tmax], found $(length(m))")
     return π/((t[m[end]] - t[m[1]])/(length(m) - 1)), length(m)
+end
+
+# ----------------------------------------------------- laser wakefield
+#
+# The electromagnetic study, extracted from `verification/wakefield.jl` so that
+# the script and the test that asserts its claims run the same code. The script
+# now calls this and plots what comes back; before, there was nothing to call.
+
+"""
+    wakefield(; Δx, Δt_factor, Δp, total_time, ...)
+
+Laser wakefield excitation in a 1D1V plasma slab: `PFC` advection in x and p,
+a spectral Poisson solve for the longitudinal field, and `FDTD1D` for the
+transverse one.
+
+Returns `(; t, x, p, n, ey, ex, ε_e, ε)` -- the density, transverse and
+longitudinal field histories as `Nt × Nx` matrices, and the electrostatic and
+total energy histories.
+
+The defaults reproduce the study exactly, and every caller here uses them: the
+script plots what they produce and the test asserts it. The keywords exist to
+name the study's parameters and make them reachable -- for a resolution sweep,
+or for the ponderomotive work the warning below describes -- and **not** so that
+the test can run something cheaper.
+
+That distinction is the reason the test takes a second rather than a tenth of
+one. A coarsened run is a different experiment, not a faster version of this
+one: doubling `Δx` alone moves the peak laser field from 0.383 to 0.641, and
+doubling `Δx` and `Δp` together gives 0.641 with a 6.95% energy drift against
+1.19%. The peak laser field is the single number that sees the transverse
+current at all, so a proxy that moves it by two thirds would pin its own value
+and call it the study's -- which is precisely the assertion the test exists to
+make. Coarsen for exploration; do not coarsen and then assert.
+
+!!! warning "Known incomplete"
+    There is **no ponderomotive coupling**. The laser never enters the
+    longitudinal push, so the wake this produces is the slab edges relaxing
+    rather than a laser-driven wave -- `peak wake field` and `Δε/ε` come out
+    bit-identical whether the transverse current is right, wrong by `Δt`, or
+    wrong by thirty-two orders of magnitude. Closing that needs the
+    ponderomotive force `−∇(pʸ² + pᶻ²)/2γ` in the momentum advection, which is a
+    modelling decision rather than a repair.
+
+    Anything asserted about the output is therefore a statement that the solver
+    runs and stays bounded, not that the physics is complete. The test says so
+    too, so that a passing run is not read as more than it is.
+
+    Note also that the current is taken through momentum rather than velocity.
+    At `laser_amplitude = 1.0` the motion is relativistic and `1/γ` is not close
+    to unity, with `γ = sqrt(1 + pₓ² + pʸ² + pᶻ²)`.
+"""
+function wakefield(; Δx = 0.1*2π,
+                     Δt_factor = 0.05,
+                     Δp = 0.1,
+                     total_time = 2π*10,
+                     x_min = -5.0*2π,
+                     box_length = 20.0*2π,
+                     plasma_thickness = 10.0*2π,
+                     plasma_temperature = 0.1,
+                     plasma_density = 0.1,
+                     laser_amplitude = 1.0,
+                     laser_duration = 5*2π)
+    Δt = Δt_factor*Δx
+    x = collect(x_min:Δx:(box_length + x_min))
+    p = collect(-laser_amplitude*4:Δp:laser_amplitude*4)
+    Nx, Np = length(x), length(p)
+
+    f = plasma_density/sqrt(2π*plasma_temperature) *
+        (@. exp(-0.5*(p)^2/plasma_temperature)) *
+        (@. 0.5*(tanh(x) - tanh(x - plasma_thickness)))'
+
+    nᵢ = integrate(p, f)          # immobile neutralising ions
+    g = similar(f)
+
+    # PFC holds no arrays, so one value serves every line of both sweeps.
+    advection = PFC(fmin = 0.0, fmax = maximum(f))
+
+    em = FDTD1D.YeeMesh1D{Float64}(Nx - 1)
+    pulse_shape = (y = (t, x) -> exp(-((x - t)/laser_duration)^2)*sin(x - t),
+                   z = (t, x) -> 0.0)
+    advance_fields! = FDTD1D.make_advance_fields(
+        em, Δt/Δx, pulse_shape, Δt, Δx, x_min,
+        FDTD1D.PML(; N = 0, σ_max = 1.0, Δx = Δx, Δt = Δt))
+
+    t = collect(0.0:Δt:total_time)
+    Nt = length(t)
+    n = zeros(Nt, Nx)
+    ey = zeros(Nt, Nx)
+    ex = zeros(Nt, Nx)
+    ε_e = zeros(Nt)
+    ε = zeros(Nt)
+
+    solve_poisson! = PoissonFourier1D.generate_solver(nᵢ, Δx)
+    e = similar(x)
+    n[1, :] = nᵢ
+    solve_poisson!(e, n[1, :] - nᵢ)
+    ex[1, :] = e
+    ey[1, :] = em.ey
+    ε_e[1] = integrate(x, e.^2)
+    ε[1] = integrate(x, integrate(p, @. f*p^2)) + ε_e[1]
+
+    pʸ = zeros(Nx)
+    pᶻ = zeros(Nx)
+
+    for k in 2:Nt
+        for j = 1:Np
+            advect!(view(g, j, :), view(f, j, :), advection, p[j]*Δt/Δx)
+        end
+
+        n[k, :] = integrate(p, g)
+        solve_poisson!(e, n[k, :] - nᵢ)
+
+        pʸ .= pʸ .+ em.ey.*Δt
+        pᶻ .= pᶻ .+ em.ez.*Δt
+
+        # The current owes its own Δt -- `make_advance_fields` adds the argument
+        # straight into `ey` -- and the sign that pairs `∂p/∂t = +e` with
+        # `∂e/∂t = −n·p` into an oscillation rather than exponential growth.
+        # Without the first the peak field reached 1.0e22; with the sign the
+        # other way, 44. See `docs/normalization.md`.
+        advance_fields!(k*Δt, (y = -pʸ.*n[k, :].*Δt, z = -pᶻ.*n[k, :].*Δt))
+
+        for i = 1:Nx
+            advect!(view(f, :, i), view(g, :, i), advection, e[i]*Δt/Δp)
+        end
+
+        ey[k, :] = em.ey
+        ex[k, :] = e
+        ε_e[k] = integrate(x, e.^2)
+        ε[k] = integrate(x, integrate(p, @. f*p^2)) + ε_e[k]
+    end
+
+    return (; t, x, p, n, ey, ex, ε_e, ε)
 end

@@ -44,6 +44,7 @@ VASILEK_EXTENDED=1 julia --project=. -e 'using Pkg; Pkg.test()'
 | nor does that frequency depend on its window | two windows agree within 0.2% | 0.006% |
 | plasma oscillations, uniform grid | \|Δε/ε\| < 0.5% at t = 3000 | 0.38% |
 | plasma oscillations, non-uniform grid | \|Δε/ε\| < 6% at t = 3000 | 4.85% |
+| wakefield runs and stays bounded | fields finite, peak laser field < 1, \|Δε/ε\| < 2%, density ≥ 0 | 0.383, 1.19%, min n = 0 |
 
 A fourth study compares the advection schemes on the physics rather than on a
 shifted sine, and is advisory rather than asserted:
@@ -58,8 +59,13 @@ being two orders of magnitude larger than the damping it is measuring. At 50%
 amplitude the two schemes that lead are exactly the two that drive `f` negative,
 which is why the solvers default to `PFC`.
 
-The wakefield example runs and is stable, but has **no ponderomotive
-coupling**: the laser does not drive the wake. See the note in the script.
+The wakefield example is asserted to run and stay bounded — the last row above —
+but has **no ponderomotive coupling**: the laser does not drive the wake, so
+that row is a statement about the solver rather than about the physics being
+complete. Its wake and energy numbers come out bit-identical whether the
+transverse current is right or wrong by thirty-two orders of magnitude; the
+peak laser field is the only one of them that sees the current, and is where
+both of the historical bugs surfaced. See the note in the script.
 
 Unit conventions are in [docs/normalization.md](docs/normalization.md).
 
