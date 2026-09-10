@@ -370,3 +370,57 @@ function wakefield(; Δx = 0.1*2π,
 
     return (; t, x, p, n, ey, ex, ε_e, ε)
 end
+
+"""
+    growth_rate(t, ε_e; lo, hi)
+
+Instability growth rate `γ` from `ε_e ∝ exp(2γt)`, fitted by least squares over
+the stretch where `ε_e` rises from `lo` to `hi`.
+
+**A plain fit over every sample, unlike [`damping_rate`](@ref).** That is not an
+inconsistency: the unstable root of the cold two-stream dispersion relation is
+*purely imaginary*, so the mode grows without oscillating and `log ε_e` is a
+straight line with no `log cos²` poles to fall into. The Landau mode has a real
+frequency and needs its envelope; this one has none and does not. There are in
+fact no local maxima here to fit through, so `damping_rate` would raise on the
+first call.
+
+**The window is set by amplitude rather than by time**, which is what makes it
+transferable between wavenumbers: the growth rate varies over the branch, so a
+fixed time window covers a different stretch of the exponential at each `k` and
+the fitted value wobbles by several percent with it. Measured at `kv₀ = 0.4`
+over the same run, fitting `t ∈ [8,18]`, `[10,20]`, `[12,22]`, `[14,24]` gives
+9.76%, 5.63%, 4.35% and 0.56% error; the amplitude band gives 1.87% and does the
+same thing at every `k`.
+
+`hi` also has to keep the run inside the solver's validity. The field grows with
+the mode, and the velocity sweep is displaced by `E·Δt`, so a large enough `ε_e`
+breaks `PFC`'s Courant limit in `v` and the run diverges -- measured `ε_e` at
+1.2e161 before `NaN` at `t = 24.1`. Widening the velocity window only postpones
+it, from `t = 24.1` at `±8` to `t = 26.6` at `±16`, which is what identifies the
+Courant limit rather than the boundary as the cause. At the `hi = 5.0` this
+package uses, the velocity Courant number is 0.46 to 0.65.
+"""
+function growth_rate(t, ε_e; lo, hi)
+    i0 = findfirst(≥(lo), ε_e)
+    i1 = findfirst(≥(hi), ε_e)
+    (i0 === nothing || i1 === nothing) &&
+        error("growth_rate: ε_e never spans [$lo, $hi] (range $(extrema(ε_e)))")
+    i1 - i0 ≥ 10 ||
+        error("growth_rate: only $(i1 - i0 + 1) samples between $lo and $hi")
+    band = @view ε_e[i0:i1]
+    # A run that breaches the Courant limit early enough puts a non-finite
+    # sample *inside* the band rather than after it, and `A \ log.(...)` then
+    # returns a `NaN` slope that fails a downstream `isapprox` with nothing to
+    # point at. Diagnose it here, where the cause is still visible. `≤ 0` is
+    # caught with it: `log` of a zero sample would give `-Inf` and the same
+    # silent `NaN`.
+    all(x -> isfinite(x) && x > 0, band) || error(
+        "growth_rate: the fit window t ∈ [$(t[i0]), $(t[i1])] contains a " *
+        "non-positive or non-finite ε_e (first at t = " *
+        "$(t[i0 + findfirst(x -> !(isfinite(x) && x > 0), band) - 1])). " *
+        "The run has diverged into the band being fitted -- shorten it, or " *
+        "lower `hi` so the fit ends before the velocity Courant limit.")
+    A = hcat(ones(i1 - i0 + 1), t[i0:i1])
+    return (A \ log.(band))[2]/2, t[i0], t[i1]
+end

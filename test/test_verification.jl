@@ -45,6 +45,94 @@ function landau_case(k, Nx, vmax, Δt, tmax)
     return t, ε_e, vmax*Δt/Δx
 end
 
+"""
+    γ_cold(a)
+
+Growth rate of the **cold** two-stream instability at `a = kv₀`, for two beams
+of density 1/2 at `±v₀` with `ω_p = 1`.
+
+Derived rather than quoted. The electrostatic dispersion relation is
+
+    1 = ½/(ω − kv₀)² + ½/(ω + kv₀)²
+
+which, with `u = ω²`, is a quadratic:
+
+    u² − (2a² + 1)u + (a⁴ − a²) = 0
+    u± = [(2a² + 1) ± √(8a² + 1)]/2
+
+`u₋ < 0` exactly when `a < 1`, and then `γ = √(−u₋)`. So this case needs no
+plasma dispersion function, no numerical root and no tabulated constant of the
+kind the Landau cases have to carry -- which is what made it worth waiting for
+rather than hard-coding a number. `test_verification.jl` checks the closed form
+against the relation it came from before using it.
+"""
+two_stream_u(a) = ((2a^2 + 1) - sqrt(8a^2 + 1))/2
+γ_cold(a) = sqrt(max(0.0, -two_stream_u(a)))
+
+"The cold dispersion relation itself, for checking `γ_cold` against."
+two_stream_residual(ω, a) = 0.5/(ω - a)^2 + 0.5/(ω + a)^2 - 1
+
+"""
+    two_stream(a; v₀, vt, Δv, vmax, Δt, tmax)
+
+Two counter-streaming warm beams at `±v₀`, perturbed by 0.1% in the `k = a/v₀`
+mode, returning `(t, ε_e)` over one wavelength.
+
+Top level rather than a closure inside the testset, matching `landau_case`.
+That is a readability choice and not a performance one: moving it out was tried
+as a fix for what looked like 50 s of compilation, and changed the runtime not
+at all. The 50 s was a mismeasurement -- the block costs 6.7 s, of which 3.8 s
+is arithmetic, against a testset that already took 1m12 before it was added.
+
+`vmax = 6` rather than the 8 first used. The growth rate is a linear-phase
+measurement, taken before the beams have spread, so it does not see the window
+at all -- measured identical to five digits at `vmax` 5, 6 and 8 -- and the
+narrower grid halves the cost.
+
+!!! note "`tmax = 24.0` sits in a narrow window, and cannot simply be widened"
+    Bounded below by the slowest fit completing and above by the fastest run
+    diverging, with little room between:
+
+      * the `a = 0.8` fit needs `ε_e` to reach `hi = 5.0`, which happens at
+        `t = 22.85`. Below that `growth_rate` raises rather than guessing.
+      * the `a = 0.6` run passes `PFC`'s velocity Courant limit on the way and
+        goes non-finite at `t = 24.2` -- `a = 0.4` at 25.85, `a = 0.8` at 27.7,
+        each after `ε_e` has run away to 1e169 or beyond.
+
+    So the usable range is about `[22.9, 24.2]` and the default takes the top
+    of it, four steps clear of the `a = 0.6` divergence. Moving `tmax` down
+    buys margin against the divergence by spending it against the fit, which is
+    not a trade worth making blind: a fit that fails to complete is the more
+    likely of the two, and both are now loud rather than silent. `growth_rate`
+    raises on a window it cannot span, and raises again on a window containing
+    a non-finite sample -- the case that would otherwise have returned a `NaN`
+    growth rate and failed an `isapprox` with nothing to point at.
+
+    Note that the run is already past the Courant limit well before it diverges:
+    peak `ε_e` reaches 61 at `a = 0.6`, twelve times the `hi` that holds the
+    velocity Courant number at 0.65, so the tail of the run is unphysical even
+    where it is finite. Nothing reads it -- the fit is long over by then.
+"""
+function two_stream(a; v₀ = 3.0, vt = 0.3, Δv = 0.05, vmax = 6.0,
+                       Δt = 0.05, tmax = 24.0)
+    k = a/v₀
+    L = 2π/k
+    Nx = round(Int, L/0.49)
+    Δx = L/Nx
+    x = collect(Δx:Δx:L)
+    v = collect(-vmax:Δv:vmax)
+    t = collect(0.0:Δt:tmax)
+    beams = @. 0.5/sqrt(2π*vt^2)*(exp(-(v - v₀)^2/(2vt^2)) +
+                                  exp(-(v + v₀)^2/(2vt^2)))
+    f₀ = beams * (@. (1.0 + 1e-3*cos(k*x)))'
+    # The harness defaults to `fmax = 1.0`, which a beam this narrow exceeds:
+    # the peak is 0.5/(√(2π)·vt) = 0.665 at vt = 0.3, and passes 1.0 below 0.2.
+    r = vlasov_poisson(x, v, f₀, t;
+            scheme_x = PFCNonUniform(cell_widths(x); fmin = 0.0, fmax = 3.0),
+            scheme_v = PFCNonUniform(cell_widths(v); fmin = 0.0, fmax = 3.0))
+    return t[1:end-1], r.ε_e[1:end-1]
+end
+
 @testset "Extended verification" begin
     if get(ENV, "VASILEK_EXTENDED", "0") != "1"
         @info "extended verification skipped; set VASILEK_EXTENDED=1 to run it"
@@ -330,6 +418,134 @@ end
             drift = (ε[end-1] - ε[1])/ε[1]
             println("  non-uniform grid Δε/ε = ", drift)
             @test abs(drift) < 0.06
+        end
+
+        @testset "Two-stream instability" begin
+            # The first *unstable* case in the suite. Everything else here is a
+            # damped or neutral mode, and a growth rate catches a class of error
+            # that damping cannot: a sign flip in the field push turns damping
+            # into growth and growth into damping, so a suite made only of
+            # damped cases is half-blind to it.
+            #
+            # **The growth rate is derived here, not quoted.** For two cold
+            # beams of density 1/2 at ±v₀ the electrostatic dispersion relation
+            # is
+            #
+            #     1 = ½/(ω − kv₀)² + ½/(ω + kv₀)²
+            #
+            # which, with `a = kv₀` and `u = ω²`, is a quadratic:
+            #
+            #     u² − (2a² + 1)u + (a⁴ − a²) = 0
+            #     u± = [(2a² + 1) ± √(8a² + 1)]/2
+            #
+            # `u₋ < 0` exactly when `a < 1`, and then `γ = √(−u₋)`. So this
+            # needs no plasma dispersion function, no numerical root, and no
+            # tabulated constant of the kind the Landau cases have to carry --
+            # which is what made the case worth waiting for rather than
+            # hard-coding a number.
+
+            @testset "the closed form solves the dispersion relation" begin
+                # Cheap, and it is what lets the rest of this testset be read as
+                # a measurement rather than a comparison against a constant
+                # somebody typed. Measured residual ≤ 1.4e-14.
+                worst = 0.0
+                for a in (0.2, 0.4, 0.6, 0.8, 0.95)
+                    worst = max(worst, abs(two_stream_residual(im*γ_cold(a), a)))
+                end
+                println("  closed form vs dispersion relation: worst |residual| = ", worst)
+                @test worst < 1e-12
+
+                # and it reproduces the two textbook numbers on its own: the
+                # fastest-growing wavenumber sits at a = √(3/8) and the peak
+                # rate at 1/(2√2).
+                @test isapprox(γ_cold(sqrt(3/8)), 1/(2*sqrt(2)); rtol = 1e-12)
+                grid = 0.001:0.001:0.999
+                @test isapprox(grid[argmax(γ_cold.(grid))], sqrt(3/8); atol = 2e-3)
+                # stable above the boundary, exactly
+                @test γ_cold(1.0) == 0.0
+                @test γ_cold(1.5) == 0.0
+            end
+
+
+            @testset "the growth rate follows the dispersion relation" begin
+                # Three wavenumbers, not one -- and `γ(a)` is **non-monotone**,
+                # rising to a peak at a = √(3/8) ≈ 0.612 and falling again, so
+                # reproducing all three is a statement about the branch rather
+                # than about one point. A solver that merely amplified whatever
+                # it was given could not put the maximum in the right place.
+                #
+                # Measured, with the beams at vt = 0.3 and the fit taken over
+                # ε_e rising from 100x its initial value to 5.0:
+                #
+                #   a = kv₀   γ measured   γ cold     error
+                #   0.4       0.30244      0.30819    1.87%
+                #   0.6       0.34229      0.35339    3.14%
+                #   0.8       0.31232      0.31134    0.31%
+                #
+                # Held to 6%, about double the worst. The residue is the beams'
+                # finite temperature, and it moves the right way: at a = 0.6,
+                # widening them to vt = 0.6, 0.5, 0.4, 0.3 gives 3.53%, 2.03%,
+                # 0.92% and 0.11% against the cold value on a fixed time window.
+                measured = Float64[]
+                for a in (0.4, 0.6, 0.8)
+                    t, ε_e = two_stream(a)
+                    γ, t0, t1 = growth_rate(t, ε_e; lo = 100*ε_e[1], hi = 5.0)
+                    push!(measured, γ)
+                    println("  a = kv₀ = ", a, "  γ = ", round(γ; digits = 5),
+                            " vs cold ", round(γ_cold(a); digits = 5),
+                            "  (", round(100*abs(γ - γ_cold(a))/γ_cold(a); digits = 2),
+                            "%, fitted over t ∈ [", round(t0; digits = 2), ", ",
+                            round(t1; digits = 2), "])")
+                    @test isapprox(γ, γ_cold(a); rtol = 0.06)
+                end
+
+                # The shape, independent of the individual tolerances: the
+                # middle wavenumber is the fastest-growing one.
+                @test measured[2] > measured[1]
+                @test measured[2] > measured[3]
+            end
+
+            @testset "and stops at the stability boundary" begin
+                # `γ_cold` is exactly zero for `kv₀ ≥ 1`, and this is the
+                # sharpest assertion available here: it is qualitative, so no
+                # tolerance can launder a failure. A solver with the field sign
+                # reversed, or one amplifying grid noise, grows here.
+                #
+                # Measured over t ≤ 26, as a ratio of peak ε_e to initial:
+                # a = 1.2 gives 1.00 (4.84e-5 decaying to 3.36e-5) and a = 1.6
+                # gives 1.00 (2.02e-5 to 7.02e-6), against 5.9e4 at a = 0.6.
+                for a in (1.2, 1.6)
+                    t, ε_e = two_stream(a; tmax = 26.0)
+                    ratio = maximum(ε_e)/ε_e[1]
+                    println("  a = kv₀ = ", a, " (stable): peak/initial ε_e = ",
+                            round(ratio; digits = 3), ", final/initial = ",
+                            round(ε_e[end]/ε_e[1]; digits = 3))
+                    @test ratio < 1.5
+                    @test ε_e[end] < ε_e[1]        # Landau-damped, not merely flat
+                end
+
+                # `a = 1.0` is the cold boundary itself, and the warm system is
+                # still weakly unstable there -- measured a factor of 4.91 over
+                # the `t ≤ 26` this runs, a crude rate of ln(4.91)/52 ≈ 0.031
+                # against the cold prediction of exactly zero, and an order of
+                # magnitude below the 0.30 to 0.35 of the unstable branch above.
+                # That is the finite-temperature correction, and it is asserted
+                # as *present* rather than papered over: the boundary is sharp
+                # only in the cold limit, and a test claiming otherwise would be
+                # claiming something false about the model being run.
+                #
+                # It is genuine growth rather than a transient, which the single
+                # ratio does not show on its own but a longer run does: 4.91 by
+                # t = 26, 41.8 by t = 40, 1392 by t = 60. Recorded because the
+                # `t = 40` figure is easy to measure and then attach to the
+                # `t ≤ 26` the test actually runs, which is how this comment
+                # read until the ratios were checked against each other.
+                t, ε_e = two_stream(1.0; tmax = 26.0)
+                println("  a = kv₀ = 1.0 (the cold boundary): peak/initial ε_e = ",
+                        round(maximum(ε_e)/ε_e[1]; digits = 2),
+                        "  -- warm beams are still unstable here")
+                @test maximum(ε_e)/ε_e[1] > 2
+            end
         end
 
         @testset "Laser wakefield: the study runs and stays bounded" begin
