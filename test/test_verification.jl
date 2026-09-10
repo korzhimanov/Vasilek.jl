@@ -478,14 +478,28 @@ end
                 # ε_e rising from 100x its initial value to 5.0:
                 #
                 #   a = kv₀   γ measured   γ cold     error
-                #   0.4       0.30244      0.30819    1.87%
-                #   0.6       0.34229      0.35339    3.14%
-                #   0.8       0.31232      0.31134    0.31%
+                #   0.4       0.30244      0.30819   -1.87%
+                #   0.6       0.34229      0.35339   -3.14%
+                #   0.8       0.31232      0.31134   +0.31%
                 #
-                # Held to 6%, about double the worst. The residue is the beams'
-                # finite temperature, and it moves the right way: at a = 0.6,
-                # widening them to vt = 0.6, 0.5, 0.4, 0.3 gives 3.53%, 2.03%,
-                # 0.92% and 0.11% against the cold value on a fixed time window.
+                # Held to 6%, about double the worst. Two of the three sit
+                # below the cold value, which is the direction finite beam
+                # temperature acts in; a = 0.8 sits 0.31% above it, and the
+                # residual ripple discussed below is why. **Sweeping the
+                # temperature at one wavenumber is the clean statement**, and
+                # at a = 0.6 with this same estimator it is monotone with no
+                # crossing:
+                #
+                #   vt      0.60    0.50    0.40    0.30    0.25    0.20    0.15
+                #   error  -7.44%  -5.77%  -4.31%  -3.14%  -2.69%  -2.38%  -2.11%
+                #
+                # An earlier version of this comment quoted 3.53%, 2.03%, 0.92%
+                # and 0.11% from a *fixed time window* of [10, 20], which was
+                # the exploratory estimator and not the one used here. Those
+                # numbers cross zero -- they read +0.40% and +0.56% at vt = 0.2
+                # and 0.15, an overshoot above a cold limit that finite
+                # temperature cannot produce. The crossing was an artefact of
+                # the window; see `growth_rate` for the mechanism.
                 measured = Float64[]
                 for a in (0.4, 0.6, 0.8)
                     t, ε_e = two_stream(a)
@@ -493,7 +507,7 @@ end
                     push!(measured, γ)
                     println("  a = kv₀ = ", a, "  γ = ", round(γ; digits = 5),
                             " vs cold ", round(γ_cold(a); digits = 5),
-                            "  (", round(100*abs(γ - γ_cold(a))/γ_cold(a); digits = 2),
+                            "  (", round(100*(γ - γ_cold(a))/γ_cold(a); digits = 2),
                             "%, fitted over t ∈ [", round(t0; digits = 2), ", ",
                             round(t1; digits = 2), "])")
                     @test isapprox(γ, γ_cold(a); rtol = 0.06)
@@ -503,6 +517,38 @@ end
                 # middle wavenumber is the fastest-growing one.
                 @test measured[2] > measured[1]
                 @test measured[2] > measured[3]
+
+                # A colder beam grows faster, which pins the sign of the
+                # temperature correction with a second run rather than a
+                # comment, and is the assertion that would have caught the
+                # artefact described above -- the superseded fixed-window
+                # estimator put the small-vt end of the sweep on the wrong side
+                # of the cold limit.
+                #
+                # Only the *relative* statement is asserted, and deliberately.
+                # "Every rate lies below γ_cold" is the tidier claim and it is
+                # false: a = 0.8 comes out 0.31% above. The residual ripple
+                # biases either way depending on how much of a beat period the
+                # amplitude band happens to leave unaveraged -- 1.15, 1.51 and
+                # 2.22 periods at these three wavenumbers -- so the sign at any
+                # one of them is not a property to hang a test on. Comparing two
+                # temperatures at the *same* wavenumber holds the band fixed and
+                # leaves only the physics.
+                #
+                # Measured at a = 0.6: γ = 0.32710 at vt = 0.6 against 0.34229
+                # at vt = 0.3, both below the cold 0.35339 -- the cold value is
+                # printed for context and deliberately **not** chained into the
+                # assertion, which would smuggle back the absolute claim this
+                # paragraph just rejected. `γ_wide < measured[2] < γ_cold(0.6)`
+                # reads as one thought and is two: the second half is the sign
+                # at a single wavenumber, which a = 0.8 already shows going the
+                # other way.
+                t_wide, ε_wide = two_stream(0.6; vt = 0.6)
+                γ_wide, _, _ = growth_rate(t_wide, ε_wide; lo = 100*ε_wide[1], hi = 5.0)
+                println("  vt = 0.6 gives γ = ", round(γ_wide; digits = 5),
+                        " against ", round(measured[2]; digits = 5), " at vt = 0.3",
+                        "  (cold ", round(γ_cold(0.6); digits = 5), ")")
+                @test γ_wide < measured[2]
             end
 
             @testset "and stops at the stability boundary" begin

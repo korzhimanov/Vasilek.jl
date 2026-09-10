@@ -7,6 +7,48 @@ This project has not been released; entries below describe work on `master`.
 
 ## [0.2.0] - unreleased
 
+### Fixed
+
+- **The two-stream growth rate appeared to overshoot the cold limit at small
+  beam temperature, and does not.** The sweep quoted alongside the test was
+  measured with a fixed time window of `t ∈ [10, 20]` — the exploratory
+  estimator, not the amplitude band the test actually uses — and it crossed
+  zero, reading +0.40% and +0.56% at `vt` = 0.2 and 0.15. Finite temperature
+  cannot make a beam grow faster than a cold one, so the crossing was an
+  artefact either way; under the estimator in use the sweep is monotone and
+  entirely below the cold value.
+
+  **The mechanism.** `ε_e` is not one exponential. The quadratic behind
+  `γ_cold` has four roots — the growing pair `±iγ` and an oscillating pair
+  `±ω₊` — and an initial perturbation excites all of them. The cross term puts
+  a ripple on `ε_e` at `ω₊`, and its size *relative to* the growing mode falls
+  only as `exp(−γt)`, so it survives any window one can afford. Measured at
+  `a = 0.6`, the instantaneous rate oscillates with period 4.5 against the
+  `2π/ω₊ = 4.626` predicted, swinging between 0.21 and 0.41 about a `γ_cold` of
+  0.353. Changing `vt` changes `γ` slightly, moving the ripple's phase within a
+  fixed window and dragging the fitted rate across the cold value with it.
+
+  Fitting over an integer number of beat periods cuts the spread over start
+  points from 39.6%, 14.4% and 22.3% to 9.0%, 5.6% and 4.8%. The amplitude band
+  already spans 1.15 to 2.22 periods and needs no such help: adding
+  `cos ω₊t`/`sin ω₊t` to the design matrix — still linear, `ω₊` being in closed
+  form — moves its results by at most one point and was not kept.
+
+  Three other explanations were measured and rejected: refining `Δv` moves the
+  result by 1e-5; the driver's renormalisation leaves the effective density at
+  1.0000158, worth 0.0008% on `γ`; and although the second harmonic at
+  `a = 0.4` really is the more unstable of the two (`γ(0.8) = 0.311` against
+  `γ(0.4) = 0.308`), it starts at `O(α²)` and gains 13% over the run against a
+  head start of 1e-6.
+
+  The test now asserts the relative statement — a colder beam grows faster at
+  fixed wavenumber — rather than the tidier "every rate lies below `γ_cold`",
+  which is false: `a = 0.8` comes out 0.31% above. The residual ripple biases
+  either way depending on how much of a beat period the band leaves unaveraged,
+  so the sign at any single wavenumber is not a property worth asserting.
+  Comparing two temperatures at the same wavenumber holds the band fixed and
+  leaves only the physics.
+
 ### Added
 
 - **The two-stream instability** (`test/test_verification.jl`), the first
@@ -32,8 +74,9 @@ This project has not been released; entries below describe work on `master`.
   reproducing all three is a statement about the branch rather than about one
   point: a solver that merely amplified what it was given could not put the
   maximum in the right place. The residue is the beams' finite temperature and
-  moves the right way — widening them to `vt` = 0.6, 0.5, 0.4, 0.3 gives 3.53%,
-  2.03%, 0.92% and 0.11% on a fixed window.
+  moves the right way — widening them at `a = 0.6` gives a monotone approach,
+  −7.44%, −5.77%, −4.31%, −3.14%, −2.69%, −2.38% and −2.11% at `vt` from 0.6
+  down to 0.15.
 
   The sharpest assertion is the **stability boundary**, which is qualitative and
   so cannot be laundered by a tolerance: `γ_cold` is exactly zero for `kv₀ ≥ 1`,

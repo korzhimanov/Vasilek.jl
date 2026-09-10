@@ -393,6 +393,43 @@ over the same run, fitting `t ∈ [8,18]`, `[10,20]`, `[12,22]`, `[14,24]` gives
 9.76%, 5.63%, 4.35% and 0.56% error; the amplitude band gives 1.87% and does the
 same thing at every `k`.
 
+!!! note "Why a fixed window wobbles: `ε_e` is not one exponential"
+    The quadratic in `γ_cold` has **four** roots -- the growing pair `±iγ` and
+    an oscillating pair `±ω₊`, with `ω₊ = √u₊` and
+    `u₊ = [(2a² + 1) + √(8a² + 1)]/2`. An initial perturbation excites all of
+    them, and the cross term between the growing root and the oscillating ones
+    puts a ripple on `ε_e` at `ω₊` whose size **relative to** the growing mode
+    falls only as `exp(−γt)`. So it is still there through any window one can
+    afford to fit over.
+
+    Measured at `a = 0.6`: the instantaneous rate oscillates with period 4.5
+    against the `2π/ω₊ = 4.626` this predicts, swinging between 0.21 and 0.41
+    around a `γ_cold` of 0.353. Fitting over an integer number of beat periods
+    instead of an arbitrary window cuts the spread over start points from
+    39.6%, 14.4% and 22.3% (at `a` = 0.4, 0.6, 0.8) to 9.0%, 5.6% and 4.8%.
+
+    The ripple is worst where `γ` is smallest, since that is what sets how fast
+    it decays away -- which is why `a = 0.4` and `a = 0.9`, at either end of the
+    branch, scatter more than `a = 0.6` and `0.8` near the peak.
+
+    **The amplitude band already handles this**, which is the reason not to do
+    anything cleverer: it spans 1.15 to 2.22 beat periods across the three cases
+    in use, enough to average the ripple. Adding `cos ω₊t` and `sin ω₊t` to the
+    design matrix -- still a linear fit, since `ω₊` is known in closed form --
+    was tried and moves the band results by at most one point (−1.87% to
+    −2.87%, −3.14% to −3.08%, +0.31% to +0.44%). It is not worth the machinery.
+
+    This is what produced the apparent overshoot above `γ_cold` at small beam
+    temperature: `vt` changes `γ` slightly, which moves the beat's phase within
+    a fixed window, and the fitted rate follows it across the cold value. Two
+    other explanations were measured and rejected first -- refining `Δv` moves
+    the result by 1e-5, and the driver's renormalisation leaves the effective
+    density at 1.0000158, worth 0.0008% on `γ`. So was a third: at `a = 0.4` the
+    second harmonic really is more unstable than the fundamental
+    (`γ(0.8) = 0.311` against `γ(0.4) = 0.308`), but it starts at `O(α²)` and
+    gains 13% over the run against a head start of 1e-6, so it contributes
+    nothing here.
+
 `hi` also has to keep the run inside the solver's validity. The field grows with
 the mode, and the velocity sweep is displaced by `E·Δt`, so a large enough `ε_e`
 breaks `PFC`'s Courant limit in `v` and the run diverges -- measured `ε_e` at
