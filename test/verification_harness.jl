@@ -255,8 +255,20 @@ Returns `(; t, x, p, n, ey, ex, ε_e, ε)` -- the density, transverse and
 longitudinal field histories as `Nt × Nx` matrices, and the electrostatic and
 total energy histories.
 
-The defaults reproduce the study exactly; the keywords exist so the test can run
-a coarser, shorter version of the same physics in a couple of seconds.
+The defaults reproduce the study exactly, and every caller here uses them: the
+script plots what they produce and the test asserts it. The keywords exist to
+name the study's parameters and make them reachable -- for a resolution sweep,
+or for the ponderomotive work the warning below describes -- and **not** so that
+the test can run something cheaper.
+
+That distinction is the reason the test takes a second rather than a tenth of
+one. A coarsened run is a different experiment, not a faster version of this
+one: doubling `Δx` alone moves the peak laser field from 0.383 to 0.641, and
+doubling `Δx` and `Δp` together gives 0.641 with a 6.95% energy drift against
+1.19%. The peak laser field is the single number that sees the transverse
+current at all, so a proxy that moves it by two thirds would pin its own value
+and call it the study's -- which is precisely the assertion the test exists to
+make. Coarsen for exploration; do not coarsen and then assert.
 
 !!! warning "Known incomplete"
     There is **no ponderomotive coupling**. The laser never enters the
