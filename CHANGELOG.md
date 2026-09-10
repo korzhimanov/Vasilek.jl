@@ -9,6 +9,29 @@ This project has not been released; entries below describe work on `master`.
 
 ### Added
 
+- **The wakefield study is asserted to run and stay bounded**, and its physics
+  now lives in `wakefield` in `test/verification_harness.jl` rather than inline
+  in the script. The README has said the example "runs and is stable" for as
+  long as it has existed and nothing checked either half — largely because there
+  was nothing for a test to call. The script now plots what the shared driver
+  returns and reproduces its previous output bit-for-bit.
+
+  The test runs the study at **its own resolution**, in about a second, the
+  plotting having been what made the script slow. That is worth insisting on: a
+  coarsened proxy is not the same experiment, reporting a peak laser field of
+  0.641 against 0.383 and an energy drift of 6.9% against 1.2%, so a test built
+  on one would have pinned a different number and called it the study's.
+
+  What it establishes is that the solver runs, stays finite and stays bounded —
+  not that the physics is complete, there being no ponderomotive coupling. The
+  distinction has teeth in how the assertions divide: the wake and energy
+  numbers are bit-identical whether the transverse current is right, wrong by a
+  factor of `Δt`, or wrong by thirty-two orders of magnitude, so they constrain
+  the longitudinal solver only. **The peak laser field is the single line that
+  sees the current**, and is where both documented bugs surfaced — 1.0e22 with
+  the `Δt` missing and 44 with the sign flipped, against 0.383 correct. Bounding
+  it at 1.0 is the regression net; the rest is a smoke test and says so.
+
 - **The splitting and a real scheme are measured together against an analytic
   answer** (`test/VlasovSolver/test_strang_splitting.jl`). Everything there
   hands the splitting an exact spectral shift, which is the right way to
