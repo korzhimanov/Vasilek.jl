@@ -408,6 +408,19 @@ function growth_rate(t, ε_e; lo, hi)
         error("growth_rate: ε_e never spans [$lo, $hi] (range $(extrema(ε_e)))")
     i1 - i0 ≥ 10 ||
         error("growth_rate: only $(i1 - i0 + 1) samples between $lo and $hi")
+    band = @view ε_e[i0:i1]
+    # A run that breaches the Courant limit early enough puts a non-finite
+    # sample *inside* the band rather than after it, and `A \ log.(...)` then
+    # returns a `NaN` slope that fails a downstream `isapprox` with nothing to
+    # point at. Diagnose it here, where the cause is still visible. `≤ 0` is
+    # caught with it: `log` of a zero sample would give `-Inf` and the same
+    # silent `NaN`.
+    all(x -> isfinite(x) && x > 0, band) || error(
+        "growth_rate: the fit window t ∈ [$(t[i0]), $(t[i1])] contains a " *
+        "non-positive or non-finite ε_e (first at t = " *
+        "$(t[i0 + findfirst(x -> !(isfinite(x) && x > 0), band) - 1])). " *
+        "The run has diverged into the band being fitted -- shorten it, or " *
+        "lower `hi` so the fit ends before the velocity Courant limit.")
     A = hcat(ones(i1 - i0 + 1), t[i0:i1])
-    return (A \ log.(ε_e[i0:i1]))[2]/2, t[i0], t[i1]
+    return (A \ log.(band))[2]/2, t[i0], t[i1]
 end

@@ -88,6 +88,30 @@ is arithmetic, against a testset that already took 1m12 before it was added.
 measurement, taken before the beams have spread, so it does not see the window
 at all -- measured identical to five digits at `vmax` 5, 6 and 8 -- and the
 narrower grid halves the cost.
+
+!!! note "`tmax = 24.0` sits in a narrow window, and cannot simply be widened"
+    Bounded below by the slowest fit completing and above by the fastest run
+    diverging, with little room between:
+
+      * the `a = 0.8` fit needs `ε_e` to reach `hi = 5.0`, which happens at
+        `t = 22.85`. Below that `growth_rate` raises rather than guessing.
+      * the `a = 0.6` run passes `PFC`'s velocity Courant limit on the way and
+        goes non-finite at `t = 24.2` -- `a = 0.4` at 25.85, `a = 0.8` at 27.7,
+        each after `ε_e` has run away to 1e169 or beyond.
+
+    So the usable range is about `[22.9, 24.2]` and the default takes the top
+    of it, four steps clear of the `a = 0.6` divergence. Moving `tmax` down
+    buys margin against the divergence by spending it against the fit, which is
+    not a trade worth making blind: a fit that fails to complete is the more
+    likely of the two, and both are now loud rather than silent. `growth_rate`
+    raises on a window it cannot span, and raises again on a window containing
+    a non-finite sample -- the case that would otherwise have returned a `NaN`
+    growth rate and failed an `isapprox` with nothing to point at.
+
+    Note that the run is already past the Courant limit well before it diverges:
+    peak `ε_e` reaches 61 at `a = 0.6`, twelve times the `hi` that holds the
+    velocity Courant number at 0.65, so the tail of the run is unphysical even
+    where it is finite. Nothing reads it -- the fit is long over by then.
 """
 function two_stream(a; v₀ = 3.0, vt = 0.3, Δv = 0.05, vmax = 6.0,
                        Δt = 0.05, tmax = 24.0)
@@ -501,12 +525,21 @@ end
                 end
 
                 # `a = 1.0` is the cold boundary itself, and the warm system is
-                # still weakly unstable there -- measured a factor of 42 over
-                # t ≤ 26, so γ ≈ 0.040 against the cold prediction of exactly
-                # zero. That is the finite-temperature correction, and it is
-                # asserted as *present* rather than papered over: the boundary
-                # is sharp only in the cold limit, and a test claiming otherwise
-                # would be claiming something false about the model being run.
+                # still weakly unstable there -- measured a factor of 4.91 over
+                # the `t ≤ 26` this runs, a crude rate of ln(4.91)/52 ≈ 0.031
+                # against the cold prediction of exactly zero, and an order of
+                # magnitude below the 0.30 to 0.35 of the unstable branch above.
+                # That is the finite-temperature correction, and it is asserted
+                # as *present* rather than papered over: the boundary is sharp
+                # only in the cold limit, and a test claiming otherwise would be
+                # claiming something false about the model being run.
+                #
+                # It is genuine growth rather than a transient, which the single
+                # ratio does not show on its own but a longer run does: 4.91 by
+                # t = 26, 41.8 by t = 40, 1392 by t = 60. Recorded because the
+                # `t = 40` figure is easy to measure and then attach to the
+                # `t ≤ 26` the test actually runs, which is how this comment
+                # read until the ratios were checked against each other.
                 t, ε_e = two_stream(1.0; tmax = 26.0)
                 println("  a = kv₀ = 1.0 (the cold boundary): peak/initial ε_e = ",
                         round(maximum(ε_e)/ε_e[1]; digits = 2),
