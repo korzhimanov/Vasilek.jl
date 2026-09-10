@@ -65,8 +65,13 @@ This project has not been released; entries below describe work on `master`.
   facts together: `M` is built from the conserved moments, so it is the same
   vector at every step, and `f_k − M = (f_0 − M)·exp(−kΔt/τ)` is then an
   algebraic identity rather than an approximation. A fitted rate that missed
-  `1/τ` would mean the moments had moved. Recovered to 1.7e-10, 8.6e-14 and
-  5.1e-15 at τ = 0.5, 1.0 and 2.0.
+  `1/τ` would mean the moments had moved. Recovered to between 1.4e-10 and
+  2.1e-10 at τ = 0.5, 1.0e-13 and 9.4e-13 at τ = 1.0, and 5.1e-15 and 5.8e-14 at
+  τ = 2.0 — ranges rather than values, because the fit takes the logarithm of a
+  difference that has cancelled to a millionth of its operands, so the residue
+  is round-off and tracks the summation order the compiler happens to pick.
+  Toggling `--check-bounds=yes` alone moves the middle column by a factor of
+  eleven. The assertion sits at `rtol = 1e-8`, fifty times the worst of them.
 
 - **The schemes are compared with each other, not only measured separately**
   (`test/test_comparison.jl`). `benchmark/` times each one in isolation and

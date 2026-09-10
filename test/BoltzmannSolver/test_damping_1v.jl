@@ -279,15 +279,33 @@ end
     # failure the testset above catches independently -- so this is a second,
     # sharper reading of the same property.
     #
-    # Measured over 60 steps at Δt = 0.1, fitting log‖f − M‖ against t:
+    # Measured over 60 steps at Δt = 0.1, fitting log‖f − M‖ against t. **These
+    # are ranges, not values, and that is the honest form for them** -- unlike
+    # every other number this file quotes, the residue is not reproducible:
     #
-    #   τ = 0.5   1/τ recovered to 1.7e-10
-    #   τ = 1.0                     8.6e-14
-    #   τ = 2.0                     5.1e-15
+    #   τ = 0.5   1/τ recovered to 1.4e-10 .. 2.1e-10
+    #   τ = 1.0                     1.0e-13 .. 9.4e-13
+    #   τ = 2.0                     5.1e-15 .. 5.8e-14
     #
-    # The τ = 0.5 residue is the deviation reaching 1.5e-6 of its initial size
-    # by the last step, where the logarithm starts to feel round-off; it is the
-    # fit running out of signal, not the operator.
+    # The spread is the point rather than an annoyance. What is being fitted is
+    # `log` of a difference that has cancelled down to a millionth of its
+    # operands, so the residue is round-off amplified by the logarithm, and it
+    # tracks the order in which `integrate` happens to sum -- which the compiler
+    # changes whenever it can or cannot vectorise. Toggling `--check-bounds=yes`
+    # alone, on one machine with nothing else altered, moves the τ = 1.0 figure
+    # from 8.6e-14 to 9.4e-13. Across the eleven CI jobs the three columns span
+    # the ranges above. Quoting one run's digits would be quoting the SIMD width
+    # of whoever measured last.
+    #
+    # None of that touches the assertion: `rtol = 1e-8` is some fifty times the
+    # worst residue seen anywhere, because the identity below is exact and only
+    # the *measurement* of it is noisy.
+    #
+    # Why the fit runs out of signal at τ = 0.5 and not at 2.0: the deviation
+    # falls by `exp(-nsteps·Δt/τ)`, which is exp(-12) = 6.1e-6 of its initial
+    # size at τ = 0.5 against exp(-3) = 0.050 at τ = 2.0. Five decades of
+    # cancellation is five decades of the difference's leading digits gone, so
+    # the residue is worst exactly where the relaxation is fastest.
     v = collect(-10:0.05:10)
     f₀ = @. exp(-(v - 0.5)^2)*(1.0 + 0.3*v^2)
     Δt = 0.1
