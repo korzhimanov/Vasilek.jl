@@ -478,14 +478,17 @@ end
                 # ε_e rising from 100x its initial value to 5.0:
                 #
                 #   a = kv₀   γ measured   γ cold     error
-                #   0.4       0.30244      0.30819    1.87%
-                #   0.6       0.34229      0.35339    3.14%
-                #   0.8       0.31232      0.31134    0.31%
+                #   0.4       0.30244      0.30819   -1.87%
+                #   0.6       0.34229      0.35339   -3.14%
+                #   0.8       0.31232      0.31134   +0.31%
                 #
-                # Held to 6%, about double the worst. Every measured rate is
-                # *below* the cold value, which is the direction finite beam
-                # temperature acts in. Sweeping it at a = 0.6 with this same
-                # estimator gives a monotone approach and no crossing:
+                # Held to 6%, about double the worst. Two of the three sit
+                # below the cold value, which is the direction finite beam
+                # temperature acts in; a = 0.8 sits 0.31% above it, and the
+                # residual ripple discussed below is why. **Sweeping the
+                # temperature at one wavenumber is the clean statement**, and
+                # at a = 0.6 with this same estimator it is monotone with no
+                # crossing:
                 #
                 #   vt      0.60    0.50    0.40    0.30    0.25    0.20    0.15
                 #   error  -7.44%  -5.77%  -4.31%  -3.14%  -2.69%  -2.38%  -2.11%
@@ -533,13 +536,19 @@ end
                 # leaves only the physics.
                 #
                 # Measured at a = 0.6: γ = 0.32710 at vt = 0.6 against 0.34229
-                # at vt = 0.3, both below the cold 0.35339.
+                # at vt = 0.3, both below the cold 0.35339 -- the cold value is
+                # printed for context and deliberately **not** chained into the
+                # assertion, which would smuggle back the absolute claim this
+                # paragraph just rejected. `γ_wide < measured[2] < γ_cold(0.6)`
+                # reads as one thought and is two: the second half is the sign
+                # at a single wavenumber, which a = 0.8 already shows going the
+                # other way.
                 t_wide, ε_wide = two_stream(0.6; vt = 0.6)
                 γ_wide, _, _ = growth_rate(t_wide, ε_wide; lo = 100*ε_wide[1], hi = 5.0)
                 println("  vt = 0.6 gives γ = ", round(γ_wide; digits = 5),
                         " against ", round(measured[2]; digits = 5), " at vt = 0.3",
                         "  (cold ", round(γ_cold(0.6); digits = 5), ")")
-                @test γ_wide < measured[2] < γ_cold(0.6)
+                @test γ_wide < measured[2]
             end
 
             @testset "and stops at the stability boundary" begin
