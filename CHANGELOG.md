@@ -9,6 +9,56 @@ This project has not been released; entries below describe work on `master`.
 
 ### Added
 
+- **The two-stream instability** (`test/test_verification.jl`), the first
+  *unstable* case in the suite. Everything else here is a damped or neutral
+  mode, and a growth rate catches a class of error that damping cannot: a sign
+  flip in the field push turns damping into growth and growth into damping, so a
+  suite made only of damped cases is half-blind to it.
+
+  The test plan deferred this twice on the grounds that a growth rate means
+  either a plasma dispersion function or a hard-coded constant of unknown
+  provenance. That turns out not to apply to the **cold** case, which is why it
+  was worth waiting for. For two beams of density 1/2 at `±v₀` the relation
+  `1 = ½/(ω − kv₀)² + ½/(ω + kv₀)²` is, with `a = kv₀` and `u = ω²`, a
+  quadratic — `u± = [(2a² + 1) ± √(8a² + 1)]/2` — unstable exactly when `a < 1`,
+  with `γ = √(−u₋)`. No special functions, no numerical root, nothing quoted.
+  The test checks the closed form against the relation it came from (residual
+  1.4e-14) and confirms it reproduces `√(3/8)` and `1/(2√2)` on its own before
+  using it.
+
+  Measured at three wavenumbers, with the beams at `vt = 0.3`: γ = 0.30244,
+  0.34229 and 0.31232 against 0.30819, 0.35339 and 0.31134 — 1.87%, 3.14% and
+  0.31%. **`γ(a)` is non-monotone**, peaking at `a = √(3/8) ≈ 0.612`, so
+  reproducing all three is a statement about the branch rather than about one
+  point: a solver that merely amplified what it was given could not put the
+  maximum in the right place. The residue is the beams' finite temperature and
+  moves the right way — widening them to `vt` = 0.6, 0.5, 0.4, 0.3 gives 3.53%,
+  2.03%, 0.92% and 0.11% on a fixed window.
+
+  The sharpest assertion is the **stability boundary**, which is qualitative and
+  so cannot be laundered by a tolerance: `γ_cold` is exactly zero for `kv₀ ≥ 1`,
+  and at `a` = 1.2 and 1.6 the mode decays to 0.053 and 0.000 of its initial
+  energy rather than growing. At `a` = 1.0, the cold boundary itself, the warm
+  system is still weakly unstable — a factor of 4.9 over `t ≤ 26` — and that is
+  asserted as *present* rather than papered over, the boundary being sharp only
+  in the cold limit.
+
+  `growth_rate` fits every sample where `damping_rate` fits an envelope, and the
+  difference is not an inconsistency: the unstable root here is purely
+  imaginary, so the mode grows without oscillating and there are no `log cos²`
+  poles — nor, in fact, any local maxima for `damping_rate` to find. Its window
+  is set by **amplitude** rather than time, which is what makes it transferable
+  across the branch: at `kv₀ = 0.4` a fixed time window gives 9.76%, 5.63%,
+  4.35% and 0.56% depending on where it is put, and the amplitude band gives
+  1.87% at every `k`. The ceiling also keeps the run inside the solver's
+  validity — the field grows with the mode, and a large enough `ε_e` breaks
+  `PFC`'s Courant limit in `v`, measured diverging to 1.2e161 before `NaN` at
+  `t = 24.1`. Widening the velocity window only postpones that, from `t = 24.1`
+  at `±8` to `t = 26.6` at `±16`, which is what identifies the Courant limit
+  rather than the boundary as the cause.
+
+  6.7 s, of which 3.8 s is arithmetic.
+
 - **The wakefield study is asserted to run and stay bounded**, and its physics
   now lives in `wakefield` in `test/verification_harness.jl` rather than inline
   in the script. The README has said the example "runs and is stable" for as

@@ -42,6 +42,8 @@ VASILEK_EXTENDED=1 julia --project=. -e 'using Pkg; Pkg.test()'
 | nor does the frequency fit | two windows agree within 1% | 0.05%, 0.15%, 0.10% |
 | plasma oscillation frequency | ω within 0.2% of Bohm–Gross √(1+3k²), and the cold ωₚ excluded | 0.018%, against 0.57% for cold |
 | nor does that frequency depend on its window | two windows agree within 0.2% | 0.006% |
+| two-stream growth rate, kv₀ = 0.4, 0.6, 0.8 | γ within 6% of the closed-form cold root, and the peak in the right place | 1.87%, 3.14%, 0.31% |
+| two-stream stability boundary, kv₀ = 1.2, 1.6 | no growth where the closed form gives γ = 0 exactly | decays to 0.053, 0.000 |
 | plasma oscillations, uniform grid | \|Δε/ε\| < 0.5% at t = 3000 | 0.38% |
 | plasma oscillations, non-uniform grid | \|Δε/ε\| < 6% at t = 3000 | 4.85% |
 | wakefield runs and stays bounded | fields finite, peak laser field < 1, \|Δε/ε\| < 2%, density ≥ 0 | 0.383, 1.19%, min n = 0 |
