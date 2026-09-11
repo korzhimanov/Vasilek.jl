@@ -10,13 +10,11 @@
 # call, which is why the README's "runs and is stable" went unasserted for as
 # long as it did.
 #
-# KNOWN INCOMPLETE: there is no ponderomotive coupling. The laser never enters
-# the longitudinal push, so the wake below is the slab edges relaxing rather
-# than a laser-driven wave, and `peak wake field` and `Δε/ε` come out
-# bit-identical whether the transverse current is right, wrong by Δt, or wrong
-# by thirty-two orders of magnitude. Closing that needs the ponderomotive force
-# −∇(pʸ² + pᶻ²)/2γ in the momentum advection, which is a modelling decision for
-# the author. See the docstring on `wakefield` for the rest.
+# The laser drives the wake through the ponderomotive force −∂/∂x (pʸ² + pᶻ²)/2
+# in the momentum advection. Until that term was added there was no coupling at
+# all: the laser never entered the longitudinal push, and what this script drew
+# and called a wake was the slab edges relaxing. The comparison against linear
+# theory below is the one the test asserts -- see `linear_wake`.
 
 using Plots
 
@@ -46,7 +44,22 @@ energy = plot(r.t/2π, (r.ε .- r.ε[1])./r.ε[1]; label = "Δε/ε", xlabel = "
 plot!(energy, r.t/2π, r.ε_e./r.ε[1]; label = "electrostatic / ε₀")
 savefig(energy, joinpath(here, "wakefield-energy.png"))
 
+# The wake at the final time against the wake linear theory puts behind the same
+# drive. This is the picture the test makes assertions about: the two agree to
+# 4.4% in amplitude and to 8.9% of the theory's own rms pointwise.
+ref = linear_wake(r.x, r.t, r.Φ, r.nᵢ; temperature = r.plasma_temperature)
+theory = plot(r.x/2π, r.ex[end, :]; label = "eˣ", xlabel = "x/2π",
+              title = "wake at t = $(round(r.t[end]/2π; digits = 1))·2π")
+plot!(theory, r.x/2π, ref; label = "linear theory", linestyle = :dash)
+plot!(theory, r.x/2π, r.Φ[end, :]; label = "Φ (laser)", linestyle = :dot)
+savefig(theory, joinpath(here, "wakefield-theory.png"))
+
+v, _ = pulse_velocity(r.t, r.x, r.Φ; lo = 5.0, hi = 55.0)
+λ, _ = wave_period(r.x, r.ex[end, :]; lo = 8.0, hi = 55.0)
 println("final Δε/ε      = ", (r.ε[end] - r.ε[1])/r.ε[1])
 println("peak wake field = ", maximum(abs, r.ex))
 println("peak laser field= ", maximum(abs, r.ey))
-println("wrote wakefield-{laser,wake,density,energy}.png to ", here)
+println("pulse velocity  = ", v)
+println("wake wavelength = ", λ, "  against ",
+        wake_wavelength(v, r.plasma_density, r.plasma_temperature), " from theory")
+println("wrote wakefield-{laser,wake,density,energy,theory}.png to ", here)

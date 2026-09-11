@@ -7,6 +7,57 @@ This project has not been released; entries below describe work on `master`.
 
 ## [0.2.0] - unreleased
 
+### Added
+
+- **The laser wakefield study drives a wake, and the test measures it against
+  linear theory.** `wakefield` had **no ponderomotive coupling**: the laser
+  never entered the longitudinal push, so `ex` was the slab edges relaxing, and
+  the test could assert nothing beyond "runs and stays bounded". The coupling is
+  the force `−∂Φ/∂x` with `Φ = (pʸ² + pᶻ²)/2` in the momentum advection, added
+  alongside `e` before the sweep.
+
+  The transverse momentum needed no repair, only a name. Nothing depends on `y`
+  or `z` here, so `p⊥ + A⊥` is conserved along a trajectory and the plasma is at
+  rest ahead of the pulse; with `E⊥ = −∂A⊥/∂t` the accumulation that was already
+  there, `p⊥ += E⊥Δt`, *is* the canonical `p⊥ = −A⊥`. Read as a force integral
+  it would be missing `v×B` and the convective term; read as the invariant it is
+  exact, and the docstring now says which.
+
+  **Three things had to be fixed before any of it could be measured.**
+  `laser_amplitude` scaled nothing — the pulse shape was hard-coded to unity and
+  the parameter reached only the momentum grid, so the field was bit-identical at
+  `a₀` = 0.5 and 1.0. The pulse was injected by its tail: the profile was written
+  in `x - t` alone, putting its maximum at `t = x_min + Δx = −30.8`, before the
+  run began, and the 0.383 this study reported as its peak laser field was
+  `exp(−0.96)` of the amplitude it never reached. And `laser_duration = 5·2π` was
+  `k_pσ = 5.7`, which suppresses the wake by seven orders of magnitude: even with
+  a coupling term, that pulse would have driven nothing.
+
+  What is asserted now, at the study's own resolution, is that the wake
+  oscillates at the Bohm–Gross frequency (0.36%), that its wavelength is the one
+  a driver at the measured pulse speed imposes (1.16%), that its phase velocity
+  is that pulse speed — two measurements along two different axes agreeing to
+  0.75% — that its amplitude and pointwise profile match the driven-oscillator
+  solution `linear_wake` integrates on the recorded drive (4.4%, and 8.9% of the
+  theory's own rms), and that it is the laser's: `a₀²` to 0.45%, thirty-two
+  times the unlit control, and seven and a half times larger behind the pulse
+  than ahead of it.
+
+  `linear_wake` is driven by the `Φ` the run recorded rather than by an idealised
+  envelope, so the comparison assumes nothing about the shape the laser arrives
+  with or whether it translates rigidly; it shares no code with the wake it is
+  compared against, `Φ` being the `FDTD1D` side and `ex` the Vlasov push and the
+  Poisson solve. Its `3T` term is load-bearing — dropping the thermal correction
+  alone takes the pointwise agreement from 8.9% to 26% and fails the test.
+
+  The defaults moved with the physics: `laser_duration = 2π` for `k_pσ = 1.13`,
+  `laser_amplitude = 0.3` so that the `1/γ` the non-relativistic `Φ` drops is
+  worth 3.2% rather than the 25% it would be at 1.0, `plasma_temperature = 0.01`
+  to keep the edge sheaths off the measurement, and `total_time = 2π·22` for
+  enough wake to fit through. `Δε/ε` is 8.4% against the 1.2% it was, and that is
+  the point: `ε` omits the transverse motion and the field, so under a laser that
+  does work on the plasma it is supposed to rise.
+
 ### Fixed
 
 - **The two-stream growth rate appeared to overshoot the cold limit at small
