@@ -681,9 +681,19 @@ end
             kmid = findfirst(k -> x[argmax(view(r.Φ, k, :))] ≥ 30.0 &&
                                   r.Φ[k, argmax(view(r.Φ, k, :))] > 0.5*maximum(r.Φ),
                              1:length(t))
+            # Guarded the way the harness guards its own lookups: unguarded,
+            # a run whose pulse never reaches x = 30 at half its peak -- a
+            # shorter `total_time`, a moved slab -- fails as a `MethodError`
+            # inside `view(Φ, nothing, :)` rather than saying what is missing.
+            kmid === nothing &&
+                error("the pulse never reached x = 30 above half its peak Φ; " *
+                      "there is no mid-slab snapshot to compare behind against ahead")
             ipk = argmax(view(r.Φ, kmid, :))
             behind = findall(i -> 5.0 ≤ x[i] ≤ x[ipk] - 2*2π, eachindex(x))
             ahead = findall(i -> x[ipk] + 2*2π ≤ x[i] ≤ 58.0, eachindex(x))
+            (isempty(behind) || isempty(ahead)) &&
+                error("the pulse at x = $(x[ipk]) leaves no room for a two-duration " *
+                      "margin on both sides inside [5, 58]")
             println("  at t = ", round(t[kmid]; digits = 1), " the pulse is at x = ",
                     round(x[ipk]; digits = 1), ": |ex| behind = ",
                     round(maximum(abs, r.ex[kmid, behind]); digits = 6), ", ahead = ",
@@ -749,9 +759,14 @@ end
             # integral, so this must hold exactly. Measured minimum: 0.0.
             @test minimum(r.n) ≥ 0.0
 
-            # `ε` is the longitudinal energy only -- no transverse motion, no
-            # field energy -- so under a laser that does work on the plasma it
-            # is *supposed* to rise, and measures 8.4% here against 1.2% when
+            # `ε` is the longitudinal energy: `∫∫f p² + ∫e²`, kinetic *and*
+            # electrostatic. Both halves matter to what a rise means. Because
+            # the field term is in, a plasma oscillation trading kinetic energy
+            # for field energy leaves `ε` alone, so it is a genuine longitudinal
+            # invariant and not a quantity that sloshes on its own. Because the
+            # transverse motion and the transverse field are out, a laser doing
+            # work on the plasma pushes energy across that boundary and `ε` is
+            # *supposed* to rise -- 8.4% here against the 1.2% it drifted when
             # nothing was coupled. It is a bound against divergence, not a
             # conservation claim, and it is the one number in this testset that
             # predicts nothing.

@@ -55,8 +55,10 @@ This project has not been released; entries below describe work on `master`.
   worth 3.2% rather than the 25% it would be at 1.0, `plasma_temperature = 0.01`
   to keep the edge sheaths off the measurement, and `total_time = 2π·22` for
   enough wake to fit through. `Δε/ε` is 8.4% against the 1.2% it was, and that is
-  the point: `ε` omits the transverse motion and the field, so under a laser that
-  does work on the plasma it is supposed to rise.
+  the point: `ε` is `∫∫f p² + ∫e²`, longitudinal kinetic *and* electrostatic, so
+  a wake trading one for the other leaves it alone — but the transverse motion
+  and the transverse field are outside it, and a laser doing work on the plasma
+  pushes energy across that boundary. It is supposed to rise.
 
 ### Fixed
 

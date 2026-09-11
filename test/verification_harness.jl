@@ -495,18 +495,6 @@ function linear_wake(x, t, Φ, nᵢ; temperature)
 end
 
 """
-    group_velocity(plasma_density)
-
-`v_g = √(1 - ωₚ²/ω₀²)` for the laser in the slab, which in these units -- time
-in `ω₀⁻¹`, density in the critical density -- is `√(1 - n)`.
-
-It is not a detail: the wake is a plasma oscillation *carried* at `v_g`, so its
-spatial period is `2πv_g/ωₚ` and not `2π/ωₚ`. At the 0.1 this study runs, the
-two differ by 5.1% -- larger than the tolerance any of these tests hold to.
-"""
-group_velocity(plasma_density) = sqrt(1 - plasma_density)
-
-"""
     wake_wavelength(v_drive, density, temperature)
 
 The wake's spatial period behind a driver moving at `v_drive`.
@@ -522,13 +510,22 @@ opposite sign to the way it enters a standing oscillation: there it raises the
 frequency at fixed `k`, here the frequency is pinned by the driver and it raises
 `k` instead.
 
-**`v_drive` is measured rather than assumed.** The monochromatic
-`v_g = √(1-n)` is 0.949 at this density and the pulse actually travels at 0.886:
-a driver one cycle long has a bandwidth of order its own carrier, so no single
-`ω₀` group velocity describes it, and at these tolerances the difference is not
-absorbable. Taking it from [`pulse_velocity`](@ref) leaves the closed form above
-as the claim and the driver as an input to it -- which is the honest division,
-the wake being the part this package computes.
+**`v_drive` is measured rather than assumed, and there is no closed form to
+reach for instead.** The obvious candidate is the monochromatic group velocity
+`v_g = √(1 - n)`, which is 0.949 at this density; the pulse actually travels at
+0.886, because a driver one cycle long has a bandwidth of order its own carrier
+and no single `ω₀` describes it. That gap is not absorbable at these
+tolerances, and the arithmetic is worth writing down because `√(1-n)` is a
+tempting thing to substitute: it gives `λ = 18.533` against a measured 17.460,
+an error of 6.14% against the `rtol = 0.03` the test holds `λ` to -- more than
+double the tolerance, so the assertion fails rather than drifting. A
+`group_velocity` helper computing `√(1-n)` used to sit above this function,
+unused and recommending exactly that substitution; it was deleted rather than
+documented, there being no caller it could serve.
+
+Taking `v_drive` from [`pulse_velocity`](@ref) leaves the closed form above as
+the claim and the driver as an input to it -- which is the honest division, the
+wake being the part this package computes.
 """
 wake_wavelength(v_drive, density, temperature) =
     2π*sqrt(v_drive^2 - 3*temperature)/sqrt(density)
