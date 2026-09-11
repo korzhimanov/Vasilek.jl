@@ -46,7 +46,11 @@ VASILEK_EXTENDED=1 julia --project=. -e 'using Pkg; Pkg.test()'
 | two-stream stability boundary, kv₀ = 1.2, 1.6 | no growth where the closed form gives γ = 0 exactly | decays to 0.053, 0.000 |
 | plasma oscillations, uniform grid | \|Δε/ε\| < 0.5% at t = 3000 | 0.38% |
 | plasma oscillations, non-uniform grid | \|Δε/ε\| < 6% at t = 3000 | 4.85% |
-| wakefield runs and stays bounded | fields finite, peak laser field < 1, \|Δε/ε\| < 2%, density ≥ 0 | 0.383, 1.19%, min n = 0 |
+| the laser wakefield is a plasma wave | ω within 2% of Bohm–Gross √(ωₚ² + 3Tk²) | 0.36% |
+| its wavelength is the driver's | λ within 3% of 2π√(v² − 3T)/ωₚ, at the measured pulse speed | 1.16% |
+| it is phase-locked to the pulse | ω/k within 2% of the pulse velocity, measured independently | 0.75% |
+| its size is the one linear theory gives | peak within 10% of `linear_wake`, pointwise rms under 15% | 4.4%, 8.9% |
+| and it is the laser that made it | amplitude ∝ a₀² within 8%; ≥10× the unlit control; ≥4× behind the pulse over ahead | 0.45%, 32×, 7.5× |
 
 A fourth study compares the advection schemes on the physics rather than on a
 shifted sine, and is advisory rather than asserted:
@@ -61,13 +65,21 @@ being two orders of magnitude larger than the damping it is measuring. At 50%
 amplitude the two schemes that lead are exactly the two that drive `f` negative,
 which is why the solvers default to `PFC`.
 
-The wakefield example is asserted to run and stay bounded — the last row above —
-but has **no ponderomotive coupling**: the laser does not drive the wake, so
-that row is a statement about the solver rather than about the physics being
-complete. Its wake and energy numbers come out bit-identical whether the
-transverse current is right or wrong by thirty-two orders of magnitude; the
-peak laser field is the only one of them that sees the current, and is where
-both of the historical bugs surfaced. See the note in the script.
+The wakefield example was asserted only to run and stay bounded until recently,
+because that was all it could support: it had **no ponderomotive coupling**, so
+the laser never entered the longitudinal push and the wake it drew was the slab
+edges relaxing. Its numbers came out bit-identical whether the transverse
+current was right or wrong by thirty-two orders of magnitude. The coupling —
+the force `−∂(pʸ² + pᶻ²)/2∂x` in the momentum advection — is now there, and the
+five rows above measure the wake it produces against linear wakefield theory
+rather than against a bound.
+
+Two approximations remain, and the defaults are chosen to stay inside them
+rather than to be impressive: the ponderomotive potential is the
+non-relativistic one and the transverse current is taken through momentum
+rather than velocity, both of which are corrections of relative order `p⊥²`.
+At `a₀ = 0.3` that is 3.2%. The transverse momentum itself is exact — it is the
+canonical `p⊥ = −A⊥`, not a force integral. See the docstring on `wakefield`.
 
 Unit conventions are in [docs/normalization.md](docs/normalization.md).
 

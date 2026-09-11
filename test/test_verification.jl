@@ -594,58 +594,186 @@ end
             end
         end
 
-        @testset "Laser wakefield: the study runs and stays bounded" begin
-            # The README says the wakefield example "runs and is stable", and
-            # nothing asserted either half. This runs the study at **its own
-            # resolution** -- not a coarsened proxy -- and takes about a second,
-            # the plotting having been what made the script slow. That matters:
-            # the coarse version is not the same experiment, reporting a peak
-            # laser field of 0.641 against 0.383 and an energy drift of 6.9%
-            # against 1.2%, so a test built on it would have pinned a different
-            # number and called it the study's.
+        @testset "Laser wakefield: the laser drives a plasma wave" begin
+            # This testset used to assert that the study "runs and stays
+            # bounded", because that was all there was to assert: `wakefield`
+            # had no ponderomotive coupling, so the laser never entered the
+            # longitudinal push and `ex` was the slab edges relaxing. The wake
+            # and energy numbers came out bit-identical whether the transverse
+            # current was right, wrong by a factor of `Δt`, or wrong by
+            # thirty-two orders of magnitude -- a test that cannot see the laser
+            # is not a test of a laser wakefield.
             #
-            # **What this does and does not establish.** It is a statement that
-            # the solver runs, stays finite and stays bounded. It is *not* a
-            # statement that the physics is complete: there is no ponderomotive
-            # coupling, the laser never enters the longitudinal push, and the
-            # wake is the slab edges relaxing rather than a laser-driven wave.
-            # See the warning on `wakefield`.
-            #
-            # The consequence for reading these assertions: the wake and energy
-            # numbers come out bit-identical whether the transverse current is
-            # right, wrong by a factor of Δt, or wrong by thirty-two orders of
-            # magnitude, so they constrain the *longitudinal* solver only. The
-            # peak laser field is the one line here that sees the current at
-            # all, and it is where both documented bugs surfaced -- 1.0e22 with
-            # the Δt missing, 44 with the sign flipped, against 0.383 correct.
-            # That bound is the regression net this testset exists to be.
+            # What follows measures the wake against linear wakefield theory
+            # instead. The claims are in four groups, and they fail
+            # independently: that a plasma wave is there at all (frequency,
+            # wavelength), that the *laser* made it (phase locking, causality,
+            # the `a₀²` law, the unlit control), that it is the right size
+            # (amplitude and pointwise profile against `linear_wake`), and that
+            # the solver stayed sane while doing it.
             r = wakefield()
+            n₀, T = r.plasma_density, r.plasma_temperature
+            ωₚ = sqrt(n₀)
+            x, t = r.x, r.t
 
-            drift = (r.ε[end] - r.ε[1])/r.ε[1]
-            peak_laser = maximum(abs, r.ey)
-            peak_wake = maximum(abs, r.ex)
-            println("  Δε/ε = ", drift, "   peak wake = ", peak_wake,
-                    "   peak laser = ", peak_laser)
+            # The slab interior at the final time: inside `[0, 10·2π]`, clear of
+            # the sheaths the two edges carry. The control run below puts those
+            # at 2.2e-3 within two units of each edge and 2.8e-4 in here, which
+            # is the 3% floor under every comparison in this testset.
+            window = findall(i -> 8.0 ≤ x[i] ≤ 55.0, eachindex(x))
 
+            # ---- the driver, measured, not assumed
+            v, nv = pulse_velocity(t, x, r.Φ; lo = 5.0, hi = 55.0)
+
+            # ---- a plasma wave is there
+            λ, nλ = wave_period(x, r.ex[end, :]; lo = 8.0, hi = 55.0)
+            k = 2π/λ
+            i₂₅ = argmin(abs.(x .- 25.0))
+            # Start the time series two pulse durations after the pulse passed
+            # this point, which the `Φ` history dates rather than the defaults.
+            t₀ = t[argmax(view(r.Φ, :, i₂₅))] + 2*2π
+            period, nper = wave_period(t, r.ex[:, i₂₅]; lo = t₀, hi = t[end])
+            ω = 2π/period
+
+            # The wake oscillates at the plasma frequency, Bohm--Gross included:
+            # measured 0.32116 against `√(ωₚ² + 3Tk²)` = 0.32230, which is
+            # 0.35%, and against the cold ωₚ = 0.31623, which is 1.56%. The warm
+            # value is the better fit and is the one asserted, but the two are
+            # only 1.9% apart and the measurement moves by 0.5% with the probe
+            # point, so -- unlike the standing oscillation above, which resolves
+            # the correction at 0.018% against 0.57% -- this run is not entitled
+            # to claim the cold value is excluded. It is asserted against the
+            # right theory; it does not discriminate between the two.
+            ω_bg = sqrt(ωₚ^2 + 3*T*k^2)
+            println("  pulse v = ", round(v; digits = 4), " ($nv samples)",
+                    "   λ = ", round(λ; digits = 3), " ($nλ zeros)",
+                    " against ", round(wake_wavelength(v, n₀, T); digits = 3),
+                    "   ω = ", round(ω; digits = 5), " ($nper zeros)",
+                    " against Bohm-Gross ", round(ω_bg; digits = 5),
+                    " (cold ωₚ = ", round(ωₚ; digits = 5), ")")
+            @test isapprox(ω, ω_bg; rtol = 0.02)
+
+            # The wavelength is the driver's own: a wave that keeps station with
+            # something moving at `v` has `ω(k) = kv`, which against Bohm--Gross
+            # gives `2π√(v² - 3T)/ωₚ`. Measured 17.460 against 17.260, 1.16%,
+            # and stable to 0.07% across the windows [8,42], [8,55] and [5,58].
+            @test isapprox(λ, wake_wavelength(v, n₀, T); rtol = 0.03)
+
+            # ---- the laser made it
+            #
+            # Phase locking is the statement here that cannot come from the
+            # slab: the wave's own phase velocity `ω/k`, from two independent
+            # measurements along two different axes, is the speed of the pulse.
+            # Measured 0.8925 against 0.8858, 0.75%.
+            #
+            # Note that the pulse travels at 0.886 and the monochromatic
+            # `√(1-n)` is 0.949. A one-cycle driver has no single group
+            # velocity, which is why `wake_wavelength` is handed a measurement.
+            @test isapprox(ω/k, v; rtol = 0.02)
+
+            # Behind the pulse and not ahead of it. The margin is two pulse
+            # durations, where the drive is down to 1e-4 of its peak -- at one
+            # margin the window is still inside the pulse, the Gaussian being as
+            # wide as the wake is long. Measured 7.5, and the field that is
+            # ahead is not all precursor: the Poisson solve is instantaneous, so
+            # the charge bunches behind do reach forward, and the unlit control
+            # puts 5.2e-4 of the 1.3e-3 there without any laser at all.
+            kmid = findfirst(k -> x[argmax(view(r.Φ, k, :))] ≥ 30.0 &&
+                                  r.Φ[k, argmax(view(r.Φ, k, :))] > 0.5*maximum(r.Φ),
+                             1:length(t))
+            # Guarded the way the harness guards its own lookups: unguarded,
+            # a run whose pulse never reaches x = 30 at half its peak -- a
+            # shorter `total_time`, a moved slab -- fails as a `MethodError`
+            # inside `view(Φ, nothing, :)` rather than saying what is missing.
+            kmid === nothing &&
+                error("the pulse never reached x = 30 above half its peak Φ; " *
+                      "there is no mid-slab snapshot to compare behind against ahead")
+            ipk = argmax(view(r.Φ, kmid, :))
+            behind = findall(i -> 5.0 ≤ x[i] ≤ x[ipk] - 2*2π, eachindex(x))
+            ahead = findall(i -> x[ipk] + 2*2π ≤ x[i] ≤ 58.0, eachindex(x))
+            (isempty(behind) || isempty(ahead)) &&
+                error("the pulse at x = $(x[ipk]) leaves no room for a two-duration " *
+                      "margin on both sides inside [5, 58]")
+            println("  at t = ", round(t[kmid]; digits = 1), " the pulse is at x = ",
+                    round(x[ipk]; digits = 1), ": |ex| behind = ",
+                    round(maximum(abs, r.ex[kmid, behind]); digits = 6), ", ahead = ",
+                    round(maximum(abs, r.ex[kmid, ahead]); digits = 6))
+            @test maximum(abs, r.ex[kmid, behind]) >
+                  4*maximum(abs, r.ex[kmid, ahead])
+
+            # ---- the right size, against linear theory
+            #
+            # `linear_wake` integrates the driven plasma oscillator on the `Φ`
+            # this run recorded. It shares no code with the wake it is compared
+            # against: `Φ` is the `FDTD1D` side, `ex` is the Vlasov push and the
+            # Poisson solve, and the ODE is the only thing claiming they agree.
+            ref = linear_wake(x, t, r.Φ, r.nᵢ; temperature = T)
+            amp = maximum(abs, r.ex[end, window])
+            amp_ref = maximum(abs, ref[window])
+            rms = sqrt(sum((r.ex[end, window] .- ref[window]).^2)/sum(ref[window].^2))
+            println("  wake amplitude = ", round(amp; digits = 6), " against ",
+                    round(amp_ref; digits = 6), " from linear theory (",
+                    round(100*(amp/amp_ref - 1); digits = 2), "%), pointwise rms ",
+                    round(rms; digits = 4))
+
+            @test isapprox(amp, amp_ref; rtol = 0.10)   # measured 4.4% under
+
+            # Pointwise, not just in amplitude: the profiles agree to 8.9% of
+            # the theory's own rms over the window, which is phase as well as
+            # size. Dropping the `3T` term from `linear_wake` -- the thermal
+            # correction alone, worth 1.7% on the frequency -- takes this to
+            # 0.26 and fails, so the tolerance is not loose enough to pass a
+            # reference with the physics wrong. It shows up here rather than in
+            # the amplitude, which that same change moves by 6%.
+            @test rms < 0.15
+
+            # ---- and it is the laser's, at the laser's own scaling
+            #
+            # The wake of a ponderomotive drive goes as the intensity, so
+            # halving the amplitude quarters it. Measured ratio 3.98 against 4,
+            # which is 0.45% -- and it is the one claim here that a compensating
+            # error in the drive and in the response cannot fake, since it holds
+            # the plasma fixed and moves only the laser.
+            half = wakefield(laser_amplitude = 0.15)
+            ratio = amp/maximum(abs, half.ex[end, window])
+            println("  amplitude ratio at half the laser = ", round(ratio; digits = 4))
+            @test isapprox(ratio, 4.0; rtol = 0.08)
+
+            # The control: the same run with the laser off. This is what the old
+            # testset was measuring without knowing it -- the slab edges
+            # relaxing -- and the wake is 32 times it. Before the ponderomotive
+            # term the ratio here would have been 1.
+            dark = wakefield(laser_amplitude = 0.0)
+            println("  wake with the laser off = ",
+                    round(maximum(abs, dark.ex[end, window]); digits = 6),
+                    ", lit/unlit = ",
+                    round(amp/maximum(abs, dark.ex[end, window]); digits = 1))
+            @test amp > 10*maximum(abs, dark.ex[end, window])
+
+            # ---- and the solver stayed sane
             @test all(isfinite, r.ey)
             @test all(isfinite, r.ex)
             @test all(isfinite, r.n)
 
-            # Bounded, and by a margin that both historical failures cross by
-            # orders of magnitude rather than by a percent.
-            @test peak_laser < 1.0
-            @test peak_laser > 0.1        # and the pulse does arrive on the grid
-
-            @test peak_wake < 0.2         # measured 0.0672
-            @test peak_wake > 0.01        # and the slab does something
-
-            # Measured 1.19%. Held at 2%: this is a bound on an incomplete
-            # model, not a conservation claim.
-            @test abs(drift) < 0.02
-
-            # `PFC` is positivity preserving and the density is its velocity
+            # `PFC` is positivity preserving and the density is its momentum
             # integral, so this must hold exactly. Measured minimum: 0.0.
             @test minimum(r.n) ≥ 0.0
+
+            # `ε` is the longitudinal energy: `∫∫f p² + ∫e²`, kinetic *and*
+            # electrostatic. Both halves matter to what a rise means. Because
+            # the field term is in, a plasma oscillation trading kinetic energy
+            # for field energy leaves `ε` alone, so it is a genuine longitudinal
+            # invariant and not a quantity that sloshes on its own. Because the
+            # transverse motion and the transverse field are out, a laser doing
+            # work on the plasma pushes energy across that boundary and `ε` is
+            # *supposed* to rise -- 8.4% here against the 1.2% it drifted when
+            # nothing was coupled. It is a bound against divergence, not a
+            # conservation claim, and it is the one number in this testset that
+            # predicts nothing.
+            println("  Δε/ε = ", round((r.ε[end] - r.ε[1])/r.ε[1]; digits = 4),
+                    "   peak |p⊥| = ", round(sqrt(2*maximum(r.Φ)); digits = 4),
+                    "   min n = ", minimum(r.n))
+            @test 0 < (r.ε[end] - r.ε[1])/r.ε[1] < 0.2
         end
     end
 end
