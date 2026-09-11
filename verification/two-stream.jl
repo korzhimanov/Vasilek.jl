@@ -9,62 +9,19 @@
 # in the field push turns damping into growth and growth into damping, so a
 # suite made only of damped cases is half-blind to it.
 #
-# `two_stream`, `γ_cold` and friends mirror the definitions in
-# `test/test_verification.jl` rather than living in `test/verification_harness.jl`
-# -- the same choice `landau_case` makes there, and for the same reason: they are
-# the *setup* for one problem, not a piece of the shared driver. `vlasov_poisson`,
-# `cell_widths` and `growth_rate` are the parts that are shared, and come from the
-# harness below so that this script and the test measure the same solver.
+# `two_stream`, `γ_cold` and the rest come from `test/verification_harness.jl`,
+# not from a copy here. They were copied once, and the copy carried `tmax = 24.0`
+# without the paragraph explaining that it sits in a window of about [22.9,
+# 24.2] -- bounded below by the slowest fit completing and above by the fastest
+# run diverging. A bare number that cannot move, with nothing saying so, is
+# worse than the duplication it came from. Shared for the reason `wakefield` is
+# shared: the script and the test that asserts its claims run the same setup.
 
 using Plots
 
 include(joinpath(@__DIR__, "..", "test", "verification_harness.jl"))
 
 here = @__DIR__
-
-"""
-    γ_cold(a)
-
-Growth rate of the cold two-stream instability at `a = kv₀`, for two beams of
-density 1/2 at `±v₀` with `ω_p = 1`. The electrostatic dispersion relation
-
-    1 = ½/(ω − kv₀)² + ½/(ω + kv₀)²
-
-is, with `u = ω²`, a quadratic `u² − (2a² + 1)u + (a⁴ − a²) = 0`, and `u₋ < 0`
-exactly when `a < 1` -- then `γ = √(−u₋)`. Closed form, so this needs no
-tabulated constant of the kind the Landau cases carry.
-"""
-two_stream_u(a) = ((2a^2 + 1) - sqrt(8a^2 + 1))/2
-γ_cold(a) = sqrt(max(0.0, -two_stream_u(a)))
-
-"The cold dispersion relation itself, for checking `γ_cold` against."
-two_stream_residual(ω, a) = 0.5/(ω - a)^2 + 0.5/(ω + a)^2 - 1
-
-"""
-    two_stream(a; v₀, vt, Δv, vmax, Δt, tmax)
-
-Two counter-streaming warm beams at `±v₀`, perturbed by 0.1% in the `k = a/v₀`
-mode, returning `(t, ε_e)` over one wavelength.
-"""
-function two_stream(a; v₀ = 3.0, vt = 0.3, Δv = 0.05, vmax = 6.0,
-                       Δt = 0.05, tmax = 24.0)
-    k = a/v₀
-    L = 2π/k
-    Nx = round(Int, L/0.49)
-    Δx = L/Nx
-    x = collect(Δx:Δx:L)
-    v = collect(-vmax:Δv:vmax)
-    t = collect(0.0:Δt:tmax)
-    beams = @. 0.5/sqrt(2π*vt^2)*(exp(-(v - v₀)^2/(2vt^2)) +
-                                  exp(-(v + v₀)^2/(2vt^2)))
-    f₀ = beams * (@. (1.0 + 1e-3*cos(k*x)))'
-    # The harness defaults to `fmax = 1.0`, which a beam this narrow exceeds:
-    # the peak is 0.5/(√(2π)·vt) = 0.665 at vt = 0.3, and passes 1.0 below 0.2.
-    r = vlasov_poisson(x, v, f₀, t;
-            scheme_x = PFCNonUniform(cell_widths(x); fmin = 0.0, fmax = 3.0),
-            scheme_v = PFCNonUniform(cell_widths(v); fmin = 0.0, fmax = 3.0))
-    return t[1:end-1], r.ε_e[1:end-1]
-end
 
 # Sanity check before trusting the closed form for the rest of the script.
 worst = maximum(a -> abs(two_stream_residual(im*γ_cold(a), a)), (0.2, 0.4, 0.6, 0.8, 0.95))
@@ -84,9 +41,15 @@ for (a, color) in zip(measured_a, (:steelblue, :crimson, :seagreen))
     push!(measured_γ, γ)
     plot!(growth, t, ε_e; label = "a = $a  (γ = $(round(γ; digits = 3)))",
           color = color, linewidth = 1.8)
+    # `exp(2γΔt)`, not `exp(γΔt)`: `growth_rate` returns the rate of the field
+    # *amplitude*, defined by `ε_e ∝ exp(2γt)`, which is the convention that
+    # lets it be compared with `γ_cold` directly. Drawn with one γ the dashed
+    # line peeled a decade below the curve it is supposed to lie along by the
+    # end of the window -- 6.1x, 11.6x and 18.0x at these three wavenumbers --
+    # so the plot showed a correct fit failing.
     i0 = argmin(abs.(t .- t0))
     tt = range(t0, t1; length = 50)
-    plot!(growth, tt, ε_e[i0] .* exp.(γ .* (tt .- t0));
+    plot!(growth, tt, ε_e[i0] .* exp.(2 .* γ .* (tt .- t0));
           linestyle = :dash, color = color, label = "")
 end
 savefig(growth, joinpath(here, "two-stream-growth.png"))

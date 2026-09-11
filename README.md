@@ -16,7 +16,7 @@ As for now, the following functionality has been implemented:
 
 ## Verification
 
-Three runnable studies live in `verification/`. They execute directly and write
+Four runnable studies live in `verification/`. They execute directly and write
 their figures beside themselves, and they are written in Literate.jl comment
 form so they can also be rendered:
 
@@ -24,6 +24,7 @@ form so they can also be rendered:
 julia --project=verification verification/landau-damping-1d1v.jl
 julia --project=verification verification/plasma-oscillations-1d1v.jl
 julia --project=verification verification/wakefield.jl
+julia --project=verification verification/two-stream.jl
 ```
 
 Their headline claims are asserted by the test suite rather than left in prose.
@@ -52,7 +53,7 @@ VASILEK_EXTENDED=1 julia --project=. -e 'using Pkg; Pkg.test()'
 | its size is the one linear theory gives | peak within 10% of `linear_wake`, pointwise rms under 15% | 4.4%, 8.9% |
 | and it is the laser that made it | amplitude ∝ a₀² within 8%; ≥10× the unlit control; ≥4× behind the pulse over ahead | 0.45%, 32×, 7.5× |
 
-A fourth study compares the advection schemes on the physics rather than on a
+A fifth study compares the advection schemes on the physics rather than on a
 shifted sine, and is advisory rather than asserted:
 
 ```bash
