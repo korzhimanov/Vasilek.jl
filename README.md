@@ -56,11 +56,13 @@ closed form remains as its zero-temperature limit and is checked as such.
 | two-stream stability boundary, kv₀ = 1.2, 1.6 | no growth, where cold and warm theory both give γ = 0 | decays to 0.053, 0.000 |
 | plasma oscillations, uniform grid | \|Δε/ε\| < 0.5% at t = 3000 | 0.38% |
 | plasma oscillations, non-uniform grid | \|Δε/ε\| < 6% at t = 3000 | 4.85% |
-| the laser wakefield is a plasma wave | ω within 2% of Bohm–Gross √(ωₚ² + 3Tk²) | 0.36% |
-| its wavelength is the driver's | λ within 3% of 2π√(v² − 3T)/ωₚ, at the measured pulse speed | 1.16% |
-| it is phase-locked to the pulse | ω/k within 2% of the pulse velocity, measured independently | 0.75% |
-| its size is the one linear theory gives | peak within 10% of `linear_wake`, pointwise rms under 15% | 4.4%, 8.9% |
-| and it is the laser that made it | amplitude ∝ a₀² within 8%; ≥10× the unlit control; ≥4× behind the pulse over ahead | 0.45%, 32×, 7.5× |
+| the laser wakefield is a plasma wave | ω within 2% of Bohm–Gross √(ωₚ² + 3Tk²) | 0.23% |
+| the driver travels at the grid's group velocity | pulse speed within 2% of `vg_pulse`, at two resolutions | 0.73%, 1.51% |
+| and refining moves it toward the continuum | \|v − √(1−n)\| falls when Δx is halved | 0.9487 − 0.8858 → − 0.9261 |
+| its wavelength is the driver's | λ within 3% of 2π√(v² − 3T)/ωₚ, for the measured *and* the predicted driver | 0.37%, 1.12% |
+| it is phase-locked to the pulse | ω/k within 2% of the pulse velocity, measured independently | 0.58% |
+| its size is the one linear theory gives | peak within 10% of `linear_wake`, pointwise rms under 15% | 6.4%, 6.4% |
+| and it is the laser that made it | amplitude ∝ a₀² within 8%; ≥10× the unlit control; ≥4× behind the pulse over ahead | 3.3%, 36×, 9.4× |
 
 A fifth study compares the advection schemes on the physics rather than on a
 shifted sine, and is advisory rather than asserted:
@@ -81,8 +83,18 @@ the laser never entered the longitudinal push and the wake it drew was the slab
 edges relaxing. Its numbers came out bit-identical whether the transverse
 current was right or wrong by thirty-two orders of magnitude. The coupling —
 the force `−∂(pʸ² + pᶻ²)/2∂x` in the momentum advection — is now there, and the
-five rows above measure the wake it produces against linear wakefield theory
-rather than against a bound.
+rows above measure the wake it produces against linear wakefield theory rather
+than against a bound.
+
+The study runs at twenty cells per laser wavelength, and that is a physics
+choice rather than a taste. At the ten it used before, the Yee dispersion
+relation puts the driver's group velocity 4.5% below `√(1−n)`: the pulse arrives
+late and the wake keeps station with it, so the wake's phase velocity is wrong
+by the same amount — `γ_φ ≈ 2.2` where the physics gives 3.0. None of the
+assertions about the wake's *frequency* could see that, and the comparison
+against `linear_wake` cannot either, since that reference is driven by the `Φ`
+of the run it is checking. It took a closed form for the driver, `vg_pulse`, and
+a second resolution.
 
 Two approximations remain, and the defaults are chosen to stay inside them
 rather than to be impressive: the ponderomotive potential is the

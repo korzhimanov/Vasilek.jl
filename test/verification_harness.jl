@@ -329,6 +329,50 @@ function em_omega(k, density, Δx, Δt)
 end
 
 """
+    vg_discrete(ω, density, Δx, Δt)
+
+Group velocity `dω/dk` of [`em_omega`](@ref), differentiated rather than
+estimated:
+
+    v_g = (K/W)·cos(kΔx/2)/cos(ωΔt/2),    W = (2/Δt)sin(ωΔt/2), K = √(W² - n)
+
+The continuum answer is `√(1 - n/ω²)`, and the two are not close on a coarse
+grid: at ten cells per vacuum wavelength and `n = 0.1` this gives 0.906 against
+0.949. Both factors matter and they pull the same way -- `cos(kΔx/2)` is the
+Yee stencil running out of resolution, `K/W` is the plasma.
+"""
+function vg_discrete(ω, density, Δx, Δt)
+    W = 2/Δt*sin(ω*Δt/2)
+    W^2 > density || error("vg_discrete: ω = $ω is at or below the cutoff for n = $density")
+    K = sqrt(W^2 - density)
+    K*Δx/2 ≤ 1 || error("vg_discrete: ω = $ω does not propagate on a grid this coarse")
+    return (K/W)*cos(asin(K*Δx/2))/cos(ω*Δt/2)
+end
+
+"""
+    vg_pulse(density, Δx, Δt; duration, ω₀ = 1.0)
+
+Group velocity of [`vg_discrete`](@ref) averaged over the spectrum of a pulse
+with envelope `exp(-(ξ/duration)²)`, whose intensity spectrum is
+`exp(-(ω - ω₀)²·duration²/2)`.
+
+**The averaging is the small correction, and saying so is the point.** A pulse
+one cycle long looks like it should have no single group velocity, and that
+reading was once used to explain why the wakefield study's driver travelled at
+0.886 against a continuum `√(1-n)` of 0.949. It does not: the same average over
+the *continuum* `v_g` moves it from 0.9487 to 0.9438, half a percent. The other
+six percent was the grid, which is what [`vg_discrete`](@ref) accounts for.
+
+Measured against the study's own driver: 0.8993 predicted against 0.8858
+measured at ten cells per wavelength, 0.9329 against 0.9261 at twenty.
+"""
+function vg_pulse(density, Δx, Δt; duration, ω₀ = 1.0)
+    ωs = range(0.4*ω₀, 1.6*ω₀; length = 2001)
+    w = @. exp(-(ωs - ω₀)^2*duration^2/2)
+    return sum(w .* vg_discrete.(ωs, density, Δx, Δt))/sum(w)
+end
+
+"""
     wakefield(; Δx, Δt_factor, Δp, total_time, ...)
 
 Laser wakefield excitation in a 1D1V plasma slab: `PFC` advection in x and p,
@@ -387,11 +431,32 @@ wake 2.8% of the cold wave-breaking field `√n`. At the `1.0` that stood here
 before those are 25% and 31%, and neither the ponderomotive potential nor the
 current is the right expression any more.
 
+# `Δx` resolves the *laser*, and twenty cells is the floor
+
+`Δx = 0.05·2π` is twenty cells per vacuum wavelength. It was ten, and ten is not
+a resolution this model can be read at: the Yee dispersion relation
+[`em_omega`](@ref) puts the driver's group velocity 4.5% below `√(1 - n)` there,
+so the pulse arrives late and the wake it writes has a phase velocity wrong by
+the same amount -- `γ_φ ≈ 2.2` against the 3.0 the physics gives, which is the
+difference between two different statements about trapping and dephasing.
+Measured across the two, at a cost of 30% more wall clock:
+
+    cells/λ₀   pulse speed   wake phase velocity   λ       predicted v_g
+    10         0.8858        0.8925                17.460  0.8993
+    20         0.9261        0.9207                18.010  0.9329
+
+The wake's *frequency* is insensitive to this -- 19.564 against 19.561 for the
+period -- which is what makes the error easy to miss: every assertion about the
+oscillation passes at either resolution, and only the ones about the wavelength
+and the pulse speed move. Nothing here is converged in `Δx` to better than a few
+percent even now; `test_verification.jl` asserts the trend rather than pretending
+otherwise.
+
 Otherwise the defaults are the study's own parameters -- the script plots what
 they produce, the test asserts it -- and they are not to be coarsened for speed:
 a coarsened run is a different experiment, not a faster version of this one.
 """
-function wakefield(; Δx = 0.1*2π,
+function wakefield(; Δx = 0.05*2π,
                      Δt_factor = 0.05,
                      Δp = 0.02,
                      total_time = 2π*22,
@@ -568,22 +633,22 @@ opposite sign to the way it enters a standing oscillation: there it raises the
 frequency at fixed `k`, here the frequency is pinned by the driver and it raises
 `k` instead.
 
-**`v_drive` is measured rather than assumed, and there is no closed form to
-reach for instead.** The obvious candidate is the monochromatic group velocity
-`v_g = √(1 - n)`, which is 0.949 at this density; the pulse actually travels at
-0.886, because a driver one cycle long has a bandwidth of order its own carrier
-and no single `ω₀` describes it. That gap is not absorbable at these
-tolerances, and the arithmetic is worth writing down because `√(1-n)` is a
-tempting thing to substitute: it gives `λ = 18.533` against a measured 17.460,
-an error of 6.14% against the `rtol = 0.03` the test holds `λ` to -- more than
-double the tolerance, so the assertion fails rather than drifting. A
-`group_velocity` helper computing `√(1-n)` used to sit above this function,
-unused and recommending exactly that substitution; it was deleted rather than
-documented, there being no caller it could serve.
+**`v_drive` is the driver's group velocity on the grid, not `√(1 - n)`.** This
+docstring used to say there was no closed form to reach for: the continuum
+`√(1 - n)` is 0.949 at this density while the pulse travelled at 0.886, and the
+gap was put down to a one-cycle driver having a bandwidth of order its own
+carrier. That explanation was wrong, and measurably so. Averaging the continuum
+group velocity over the pulse's own spectrum moves it from 0.9487 to 0.9438 --
+half a percent, not six. The rest was the Yee grid: at the ten cells per
+wavelength that study ran, [`vg_pulse`](@ref) gives 0.8993 against the 0.8858
+measured, and halving `Δx` moves the measurement to 0.9261 against a predicted
+0.9329. A missing six percent in the driver is a wake whose phase velocity is
+wrong by six percent, which is `γ_φ ≈ 2.2` where the physics says 3.0.
 
-Taking `v_drive` from [`pulse_velocity`](@ref) leaves the closed form above as
-the claim and the driver as an input to it -- which is the honest division, the
-wake being the part this package computes.
+So the honest division is not "measure the driver, predict the wake" but
+"predict both": [`vg_pulse`](@ref) is a closed form for the driver, this is one
+for the wake it writes, and [`pulse_velocity`](@ref) measures the first
+independently so the two can be compared rather than assumed.
 """
 wake_wavelength(v_drive, density, temperature) =
     2π*sqrt(v_drive^2 - 3*temperature)/sqrt(density)

@@ -569,8 +569,28 @@ end
             # is the 3% floor under every comparison in this testset.
             window = findall(i -> 8.0 ≤ x[i] ≤ 55.0, eachindex(x))
 
-            # ---- the driver, measured, not assumed
+            # ---- the driver, measured *and* predicted
+            #
+            # It used to be only measured, on the grounds that a one-cycle
+            # driver has no single group velocity and there was nothing to
+            # predict it with. `vg_pulse` is that closed form -- the group
+            # velocity of the *discrete* dispersion relation, averaged over the
+            # pulse's own spectrum -- and it turns the driver from an input of
+            # this testset into one more thing under test.
+            #
+            # Measured 0.9261 against 0.9329, which is 0.73%. Held to 2%, the
+            # same tolerance as the phase-locking claim below, because the
+            # residue is of the same kind: `pulse_velocity` fits the position of
+            # a peak that is quantised to Δx and slips by half a carrier
+            # wavelength whenever the envelope's maximum crosses a crest.
+            Δx_run, Δt_run = x[2] - x[1], t[2] - t[1]
             v, nv = pulse_velocity(t, x, r.Φ; lo = 5.0, hi = 55.0)
+            v_theory = vg_pulse(n₀, Δx_run, Δt_run; duration = 2π)
+            println("  driver: measured ", round(v; digits = 4), " vs vg_pulse ",
+                    round(v_theory; digits = 4),
+                    " (", round(100*(v - v_theory)/v_theory; digits = 2), "%)",
+                    ", continuum √(1-n) = ", round(sqrt(1 - n₀); digits = 4))
+            @test isapprox(v, v_theory; rtol = 0.02)
 
             # ---- a plasma wave is there
             λ, nλ = wave_period(x, r.ex[end, :]; lo = 8.0, hi = 55.0)
@@ -583,14 +603,19 @@ end
             ω = 2π/period
 
             # The wake oscillates at the plasma frequency, Bohm--Gross included:
-            # measured 0.32116 against `√(ωₚ² + 3Tk²)` = 0.32230, which is
-            # 0.35%, and against the cold ωₚ = 0.31623, which is 1.56%. The warm
+            # measured 0.32121 against `√(ωₚ² + 3Tk²)` = 0.32195, which is
+            # 0.23%, and against the cold ωₚ = 0.31623, which is 1.58%. The warm
             # value is the better fit and is the one asserted, but the two are
-            # only 1.9% apart and the measurement moves by 0.5% with the probe
+            # only 1.8% apart and the measurement moves by 0.5% with the probe
             # point, so -- unlike the standing oscillation above, which resolves
             # the correction at 0.018% against 0.57% -- this run is not entitled
             # to claim the cold value is excluded. It is asserted against the
             # right theory; it does not discriminate between the two.
+            #
+            # This is also the one number here that does *not* move with
+            # resolution: 0.32116 at half the cells against 0.32121 here. The
+            # frequency is set by the plasma, which both grids resolve; it is the
+            # wavelength and the driver's speed that the laser's grid controls.
             ω_bg = sqrt(ωₚ^2 + 3*T*k^2)
             println("  pulse v = ", round(v; digits = 4), " ($nv samples)",
                     "   λ = ", round(λ; digits = 3), " ($nλ zeros)",
@@ -602,29 +627,42 @@ end
 
             # The wavelength is the driver's own: a wave that keeps station with
             # something moving at `v` has `ω(k) = kv`, which against Bohm--Gross
-            # gives `2π√(v² - 3T)/ωₚ`. Measured 17.460 against 17.260, 1.16%,
-            # and stable to 0.07% across the windows [8,42], [8,55] and [5,58].
+            # gives `2π√(v² - 3T)/ωₚ`. Measured 18.010 against 18.076 from the
+            # measured driver, 0.37%, and stable to 0.4% across the windows
+            # [8,42], [8,55] and [5,58].
             @test isapprox(λ, wake_wavelength(v, n₀, T); rtol = 0.03)
+
+            # And against the *predicted* driver, which closes the loop: no
+            # quantity measured in this run enters the right-hand side, so the
+            # wavelength is now a prediction from the grid parameters and the
+            # plasma alone. Measured 18.010 against 18.214, 1.12% -- larger than
+            # the 0.37% above, as it must be, since it carries the driver's own
+            # 0.73% as well.
+            @test isapprox(λ, wake_wavelength(v_theory, n₀, T); rtol = 0.03)
 
             # ---- the laser made it
             #
             # Phase locking is the statement here that cannot come from the
             # slab: the wave's own phase velocity `ω/k`, from two independent
             # measurements along two different axes, is the speed of the pulse.
-            # Measured 0.8925 against 0.8858, 0.75%.
+            # Measured 0.9207 against 0.9261, 0.58%.
             #
-            # Note that the pulse travels at 0.886 and the monochromatic
-            # `√(1-n)` is 0.949. A one-cycle driver has no single group
-            # velocity, which is why `wake_wavelength` is handed a measurement.
+            # Both sit below the continuum `√(1-n)` = 0.9487, and the gap is the
+            # grid rather than the physics -- `vg_pulse` predicts 0.9329 here.
+            # At half the resolution the same three numbers read 0.8925, 0.8858
+            # and 0.8993: the phase locking holds just as well while the thing
+            # being locked to is six percent slow. That is why the driver is now
+            # asserted against a closed form as well, and why the study runs at
+            # twenty cells per wavelength.
             @test isapprox(ω/k, v; rtol = 0.02)
 
             # Behind the pulse and not ahead of it. The margin is two pulse
             # durations, where the drive is down to 1e-4 of its peak -- at one
             # margin the window is still inside the pulse, the Gaussian being as
-            # wide as the wake is long. Measured 7.5, and the field that is
+            # wide as the wake is long. Measured 9.4, and the field that is
             # ahead is not all precursor: the Poisson solve is instantaneous, so
             # the charge bunches behind do reach forward, and the unlit control
-            # puts 5.2e-4 of the 1.3e-3 there without any laser at all.
+            # leaves a wake of 3.4e-4 without any laser at all.
             kmid = findfirst(k -> x[argmax(view(r.Φ, k, :))] ≥ 30.0 &&
                                   r.Φ[k, argmax(view(r.Φ, k, :))] > 0.5*maximum(r.Φ),
                              1:length(t))
@@ -663,24 +701,39 @@ end
                     round(100*(amp/amp_ref - 1); digits = 2), "%), pointwise rms ",
                     round(rms; digits = 4))
 
-            @test isapprox(amp, amp_ref; rtol = 0.10)   # measured 4.4% under
+            @test isapprox(amp, amp_ref; rtol = 0.10)   # measured 6.4% under
 
-            # Pointwise, not just in amplitude: the profiles agree to 8.9% of
+            # Pointwise, not just in amplitude: the profiles agree to 6.4% of
             # the theory's own rms over the window, which is phase as well as
             # size. Dropping the `3T` term from `linear_wake` -- the thermal
             # correction alone, worth 1.7% on the frequency -- takes this to
-            # 0.26 and fails, so the tolerance is not loose enough to pass a
+            # 0.32 and fails, so the tolerance is not loose enough to pass a
             # reference with the physics wrong. It shows up here rather than in
-            # the amplitude, which that same change moves by 6%.
+            # the amplitude, which that same change moves by 4%, well inside the
+            # 10% above.
             @test rms < 0.15
 
             # ---- and it is the laser's, at the laser's own scaling
             #
             # The wake of a ponderomotive drive goes as the intensity, so
-            # halving the amplitude quarters it. Measured ratio 3.98 against 4,
-            # which is 0.45% -- and it is the one claim here that a compensating
+            # halving the amplitude quarters it. Measured ratio 4.13 against 4,
+            # which is 3.3% -- and it is the one claim here that a compensating
             # error in the drive and in the response cannot fake, since it holds
             # the plasma fixed and moves only the laser.
+            #
+            # **The pair is 0.3 and 0.15 because further down the ladder the
+            # measurement stops being about the laser.** Continuing the sweep:
+            #
+            #   cells/λ₀   a₀ = 0.3   0.15      0.075     0.3/0.15   0.15/0.075
+            #   20         0.012366   0.002993  0.000788  4.13       3.80
+            #   10         0.008900   0.002235  0.000671  3.98       3.33
+            #
+            # The unlit control leaves a wake of 3.4e-4 -- the slab edges
+            # relaxing -- which is 3% of the a₀ = 0.3 amplitude and 43% of the
+            # a₀ = 0.075 one, so the bottom rung is measuring the sheaths as much
+            # as the laser and its ratio drifts accordingly. The few percent left
+            # at the top of the ladder is not attributed here; it is smaller than
+            # the spread between resolutions, which is the honest bound on it.
             half = wakefield(laser_amplitude = 0.15)
             ratio = amp/maximum(abs, half.ex[end, window])
             println("  amplitude ratio at half the laser = ", round(ratio; digits = 4))
@@ -688,7 +741,7 @@ end
 
             # The control: the same run with the laser off. This is what the old
             # testset was measuring without knowing it -- the slab edges
-            # relaxing -- and the wake is 32 times it. Before the ponderomotive
+            # relaxing -- and the wake is 36 times it. Before the ponderomotive
             # term the ratio here would have been 1.
             dark = wakefield(laser_amplitude = 0.0)
             println("  wake with the laser off = ",
@@ -713,14 +766,56 @@ end
             # invariant and not a quantity that sloshes on its own. Because the
             # transverse motion and the transverse field are out, a laser doing
             # work on the plasma pushes energy across that boundary and `ε` is
-            # *supposed* to rise -- 8.4% here against the 1.2% it drifted when
-            # nothing was coupled. It is a bound against divergence, not a
-            # conservation claim, and it is the one number in this testset that
-            # predicts nothing.
+            # *supposed* to rise -- 13.7% here against the 1.2% it drifted when
+            # nothing was coupled, and against 8.4% at half this resolution,
+            # where the wake it drives is 39% smaller. It is a bound against
+            # divergence, not a conservation claim, and it is the one number in
+            # this testset that predicts nothing.
             println("  Δε/ε = ", round((r.ε[end] - r.ε[1])/r.ε[1]; digits = 4),
                     "   peak |p⊥| = ", round(sqrt(2*maximum(r.Φ)); digits = 4),
                     "   min n = ", minimum(r.n))
             @test 0 < (r.ε[end] - r.ε[1])/r.ε[1] < 0.2
+
+            # ---- and the driver's error is the grid's, which refining shows
+            #
+            # Everything above is one resolution, and one resolution cannot
+            # distinguish "the driver moves at 0.93" from "the driver moves at
+            # 0.95 and this grid is 2% slow". Refining is what separates them,
+            # and it is the reason this study runs at twenty cells per
+            # wavelength rather than the ten it used to.
+            #
+            #   cells/λ₀   measured v   vg_pulse   error    λ        Δε/ε
+            #   10         0.8858       0.8993     -1.51%   17.460   0.084
+            #   20         0.9261       0.9329     -0.73%   18.010   0.137
+            #
+            # Two statements, and they are different. The first is that each
+            # measurement matches the closed form *for its own grid*: the
+            # discrepancy is the estimator, not the physics. The second is that
+            # the sequence moves toward the continuum √(1-n) = 0.9487 rather
+            # than toward wherever the coarse grid happened to sit -- which is
+            # what says the closed form is the right one and not a curve fitted
+            # to one run.
+            #
+            # The coarse run costs 4 s. Nothing else in this testset is repeated
+            # at it: the wake's *frequency* barely moves (0.32116 against
+            # 0.32121), and the comparison against `linear_wake` cannot see the
+            # grid at all, because that reference is driven by the `Φ` of the run
+            # it is checking -- both sides shift together. That is a strength for
+            # what it does test and a blind spot for this, and it is why the
+            # driver needs a closed form of its own.
+            coarse = wakefield(Δx = 0.1*2π)
+            Δx_c, Δt_c = coarse.x[2] - coarse.x[1], coarse.t[2] - coarse.t[1]
+            v_c, _ = pulse_velocity(coarse.t, coarse.x, coarse.Φ; lo = 5.0, hi = 55.0)
+            v_c_theory = vg_pulse(n₀, Δx_c, Δt_c; duration = 2π)
+            λ_c, _ = wave_period(coarse.x, coarse.ex[end, :]; lo = 8.0, hi = 55.0)
+            println("  at ", round(Int, 2π/Δx_c), " cells/λ₀: v = ", round(v_c; digits = 4),
+                    " vs vg_pulse ", round(v_c_theory; digits = 4),
+                    " (", round(100*(v_c - v_c_theory)/v_c_theory; digits = 2), "%)",
+                    ", λ = ", round(λ_c; digits = 3),
+                    "   against ", round(Int, 2π/Δx_run), " cells: ",
+                    round(v; digits = 4), ", ", round(λ; digits = 3))
+            @test isapprox(v_c, v_c_theory; rtol = 0.02)
+            @test abs(v - sqrt(1 - n₀)) < abs(v_c - sqrt(1 - n₀))
         end
     end
 end

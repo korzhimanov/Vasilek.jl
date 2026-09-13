@@ -7,6 +7,48 @@ This project has not been released; entries below describe work on `master`.
 
 ## [0.2.0] - unreleased
 
+### Fixed
+
+- **The laser in the wakefield study was travelling six percent slow, and the
+  explanation on file was wrong.** `wake_wavelength` said there was no closed
+  form to predict the driver with, because a one-cycle pulse "has a bandwidth of
+  order its own carrier and no single ω₀ describes it" — the measured 0.886
+  against a continuum `√(1-n)` of 0.949 was put down to that.
+
+  Measured, the bandwidth is worth half a percent: averaging the continuum group
+  velocity over the pulse's own spectrum gives 0.9438 against 0.9487. The other
+  six percent was the Yee grid at ten cells per wavelength. `vg_pulse` — the
+  group velocity of the *discrete* relation, averaged over the same spectrum —
+  predicts 0.8993 there, against 0.8858 measured; at twenty cells it predicts
+  0.9329 against 0.9261.
+
+  So `Δx` halves, to twenty cells per laser wavelength, at 30% more wall clock.
+  It matters because the wake keeps station with the driver: a driver six
+  percent slow is a wake whose phase velocity is six percent wrong, `γ_φ ≈ 2.2`
+  against 3.0, which is a different statement about trapping and dephasing.
+
+  Nothing in the testset could see it. The wake's frequency is set by the
+  plasma, not the laser's grid, and moves by 0.02% between the two resolutions;
+  the comparison against `linear_wake` is blind by construction, since that
+  reference is driven by the `Φ` of the run it is checking, so both sides shift
+  together. What was needed was a closed form for the driver and a second
+  resolution, and the testset now has both: the pulse speed is asserted against
+  `vg_pulse` at each grid, and refining is asserted to move it toward the
+  continuum.
+
+  Re-measured at the new default: ω 0.23% from Bohm–Gross (was 0.36%), λ 0.37%
+  from the measured driver and 1.12% from the predicted one, phase locking
+  0.58%, amplitude 6.4% under linear theory with pointwise rms 6.4%, the `a₀²`
+  ratio 4.13, the unlit control 36× down, `Δε/ε` 13.7%. The wake itself is 39%
+  larger than the coarse grid gave — it was the most resolution-sensitive number
+  in the study and nothing had been comparing it across grids.
+
+  The `a₀²` ladder gained a rung and lost a claim: continuing to `a₀ = 0.075`
+  gives ratios of 3.80 and 3.33 at the two resolutions, because the unlit
+  control's 3.4e-4 is 43% of that wake. The law is tested where the signal
+  dominates, and the few percent left at the top is recorded rather than
+  explained.
+
 ### Added
 
 - **The dispersion relation of an electromagnetic wave in plasma is asserted**
