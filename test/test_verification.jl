@@ -352,6 +352,122 @@ end
             @test maximum(A₁[lo₂:hi₂]) > 10*maximum(A₂[lo₂:hi₂])
         end
 
+        @testset "The Vlasov-Poisson flow is reversible, and what breaks it" begin
+            # `test_strang_splitting.jl` measures reversibility on a rigid
+            # rotation with the field switched off. This is the same statement
+            # for the self-consistent system: Vlasov--Poisson is invariant under
+            # `(t, v) → (-t, -v)` with `E` unchanged, so running forward,
+            # flipping the velocity axis, running forward again and flipping
+            # back must return the initial state. Strang splitting is symmetric
+            # and preserves that exactly; what does not is the scheme's own
+            # dissipation, which has no time reverse.
+            #
+            # The flip is `f[end:-1:1, :]` on a velocity grid symmetric about
+            # zero -- asserted below, since on any other grid it would be off by
+            # a fraction of a cell and the test would measure that instead.
+            k = 0.5
+            L = 2*(2π/k)
+            function round_trip(Nx, Δv, Δt, T, α; scheme = nothing)
+                Δx = L/Nx
+                x = collect(Δx:Δx:L)
+                v = collect(-6:Δv:6)
+                @assert v[1] == -v[end] && iseven(length(v) - 1)
+                t = collect(0.0:Δt:T)
+                f₀ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. (1.0 + α*cos(k*x)))'
+                flip(f) = f[end:-1:1, :]
+                fwd = vlasov_poisson(x, v, f₀, t; scheme_x = scheme, scheme_v = scheme,
+                                     invariants = true)
+                back = flip(vlasov_poisson(x, v, flip(fwd.f), t;
+                                           scheme_x = scheme, scheme_v = scheme).f)
+                # the driver renormalises what it is handed, so the comparison is
+                # against `f₀` at the normalisation the round trip came back with
+                ref = f₀ .* (sum(back)/sum(f₀))
+                return (; err = maximum(abs, back .- ref)/maximum(f₀),
+                          fmin = minimum(fwd.fmin[1:end-1]),
+                          l2 = (fwd.l2[end-1] - fwd.l2[1])/fwd.l2[1])
+            end
+
+            @testset "at small amplitude it converges away at the scheme's order" begin
+                # Nothing is irreversible about the equations, so the round-trip
+                # error is the scheme's dissipation and has to vanish with the
+                # grid. `PFC` is third order, so halving should cut it by eight.
+                # Measured at α = 0.05 over T = 20: 1.97e-3, 3.44e-4, 4.85e-5 at
+                # Nx = 64, 128 and 256 -- ratios 5.7 and 7.1. The last level
+                # costs 22 s and is left out; the two below cost two seconds.
+                coarse = round_trip(64, 0.1, 0.05, 20.0, 0.05)
+                fine = round_trip(128, 0.05, 0.025, 20.0, 0.05)
+                println("  α = 0.05: round trip ", round(coarse.err; sigdigits = 3),
+                        " -> ", round(fine.err; sigdigits = 3),
+                        "  (x", round(coarse.err/fine.err; digits = 1),
+                        ", third order would give 8)")
+                @test fine.err < coarse.err/4
+                @test fine.err < 1e-3
+            end
+
+            @testset "at large amplitude the grid loses it, and refining does not help" begin
+                # The same measurement at α = 0.5, where the flow folds the
+                # distribution into filaments finer than Δv within a few plasma
+                # periods. Past that the information needed to run the film
+                # backwards is not on the grid any more, and the round trip
+                # returns 16% of the peak whatever the resolution: measured
+                # 1.64e-1 at Nx = 64 against 1.56e-1 at 128, a factor of 1.05
+                # where the linear case gains 5.7.
+                #
+                # This is the honest counterweight to the testset above. The
+                # scheme is third order and the splitting is symmetric, and
+                # neither buys reversibility in a run that has made structure
+                # below the mesh -- which is what every nonlinear run in this
+                # suite is doing by the time it is interesting.
+                coarse = round_trip(64, 0.1, 0.05, 20.0, 0.5)
+                fine = round_trip(128, 0.05, 0.025, 20.0, 0.5)
+                println("  α = 0.5:  round trip ", round(coarse.err; sigdigits = 3),
+                        " -> ", round(fine.err; sigdigits = 3),
+                        "  (x", round(coarse.err/fine.err; digits = 2), ")")
+                @test coarse.err > 0.1
+                @test coarse.err/fine.err < 1.5
+            end
+
+            @testset "and the schemes that keep it are the ones that go negative" begin
+                # Ranked by round-trip error at α = 0.5, with what each scheme
+                # costs to get there:
+                #
+                #   scheme                 round trip   min f       ΔL²/L²
+                #   LaxWendroff            8.50e-2      -9.44e-2    -0.005
+                #   SemiLagrangian cubic   1.06e-1      -5.82e-2    -0.004
+                #   PFC                    1.64e-1      +5.21e-10   -0.047
+                #   Upwind                 3.32e-1      +3.10e-09   -0.210
+                #
+                # The ordering is the one `verification/scheme-comparison.jl`
+                # reports on the damping rate, arrived at through a completely
+                # different quantity: the two schemes that best preserve the
+                # flow are the two that are not monotone, and they pay for it by
+                # driving `f` to -16% of its peak. Reversibility and positivity
+                # are the same trade-off seen from two sides, and `PFC` is the
+                # default because a negative distribution has no entropy.
+                results = Dict{String,Any}()
+                for (name, scheme) in (("LaxWendroff", LaxWendroff()),
+                                       ("SemiLagrangian cubic", SemiLagrangian(CubicSpline())),
+                                       ("PFC", PFC(fmin = 0.0, fmax = 1.0)),
+                                       ("Upwind", Upwind()))
+                    r = round_trip(64, 0.1, 0.05, 20.0, 0.5; scheme = scheme)
+                    results[name] = r
+                    println("  ", rpad(name, 22), "round trip ", rpad(round(r.err; sigdigits = 3), 9),
+                            " min f = ", rpad(round(r.fmin; sigdigits = 3), 11),
+                            " ΔL²/L² = ", round(r.l2; digits = 3))
+                end
+                @test results["LaxWendroff"].err < results["PFC"].err
+                @test results["SemiLagrangian cubic"].err < results["PFC"].err
+                @test results["Upwind"].err > 2*results["PFC"].err
+                # and the price, which is why the default is the slower one
+                @test results["LaxWendroff"].fmin < -0.05
+                @test results["SemiLagrangian cubic"].fmin < -0.05
+                @test results["PFC"].fmin ≥ 0.0
+                # upwind keeps positivity and loses the physics instead: a fifth
+                # of the L² norm, four times what PFC dissipates
+                @test results["Upwind"].l2 < 4*results["PFC"].l2
+            end
+        end
+
         @testset "Strong Landau damping: the damping stops and reverses" begin
             # The `α = 0.5` case, which the notebook has run since 2021 and
             # compared "by eye" against Fig. 6(a) of Filbet, Sonnendrücker and

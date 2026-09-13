@@ -188,7 +188,10 @@ function vlasov_poisson(x, v, f₀, t;
         h === nothing || (h[end] = h[end-1])
     end
     E_modes === nothing || (E_modes[end, :] = E_modes[end-1, :])
-    return (; ε_e, ε, mass, momentum, l2, entropy, fmin, E_modes)
+    # `f` comes back too. It costs nothing -- the array exists either way -- and
+    # it is the only way to ask a question about the distribution rather than
+    # about a moment of it, which is what the reversibility test needs.
+    return (; ε_e, ε, mass, momentum, l2, entropy, fmin, E_modes, f)
 end
 
 # --------------------------------------------------------- mode fitting

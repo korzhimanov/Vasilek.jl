@@ -9,6 +9,35 @@ This project has not been released; entries below describe work on `master`.
 
 ### Added
 
+- **Time reversal of the self-consistent system** (`test/test_verification.jl`).
+  `test_strang_splitting.jl` measures reversibility on a rigid rotation with the
+  field switched off; this is the same statement for Vlasov–Poisson, which is
+  invariant under `(t, v) → (-t, -v)` with `E` unchanged. Run forward, flip the
+  velocity axis, run forward again, flip back: an exact scheme returns the
+  initial state, and what a real one loses is its own dissipation.
+
+  Three measurements, and the second is the interesting one:
+
+  * at α = 0.05 the round-trip error is 1.97e-3, 3.44e-4 and 4.85e-5 as the grid
+    halves — ratios 5.7 and 7.1 against the 8 that `PFC`'s third order predicts,
+    so the irreversibility is the scheme's and it converges away;
+  * at α = 0.5 it is 0.164 and stays 0.156 when the grid is halved, a factor of
+    1.05. By then the flow has folded the distribution into filaments finer than
+    Δv, and the information needed to run the film backwards is not on the mesh
+    to be refined. Every nonlinear run in this suite is in that regime by the
+    time it is interesting;
+  * ranked by round trip at α = 0.5: LaxWendroff 0.085, cubic SemiLagrangian
+    0.106, PFC 0.164, Upwind 0.332 — and the first two get there by driving `f`
+    to −0.094 and −0.058 against a peak of 0.6, where PFC stays at +5e-10 and
+    Upwind pays a fifth of its L² norm instead. Reversibility and positivity are
+    the same trade-off from two sides, arrived at here through a quantity that
+    has nothing to do with the damping rate `verification/scheme-comparison.jl`
+    ranks them by.
+
+  `vlasov_poisson` now returns `f` as well. It costs nothing — the array exists
+  either way — and it is the only way to ask a question about the distribution
+  rather than about a moment of it.
+
 - **Strong Landau damping is measured against the literature instead of
   eyeballed.** The `α = 0.5` case has been in the notebook since 2021 with the
   text "the quantitative coincidence is almost perfect" against Fig. 6(a) of
