@@ -49,6 +49,8 @@ closed form remains as its zero-temperature limit and is checked as such.
 | and the runs are linear enough for that to be the right target | bounce phase under 2 in every fitting window | 1.70, 0.45, 0.21 |
 | the damping fit does not depend on its window | two windows agree within 3% | 0.19%, 0.05%, 0.36% |
 | nor does the frequency fit | two windows agree within 1% | 0.066%, 0.146%, 0.100% |
+| strong Landau damping, α = 0.5 | γ₁ in the literature's −0.281…−0.292 and γ₂ in its 0.0770…0.0858; refining moves γ₂ toward them | 0.2863, 0.0789 |
+| and the non-uniform velocity grid agrees | both rates within 2% of the uniform grid at the same Δt | 0.04%, 0.6% |
 | a drifting plasma damps the same way | boosted mode matches the rest-frame one once the Doppler phase is removed, and the fitted rates agree | 1.5e-3, 8.0e-3 rad, 0.133% |
 | trapping stops the damping on the bounce time | ω_B·t₀ between 6.5 and 8.5 at four amplitudes, and t₀ ∝ α^(−1/2) | 7.09–8.01, slope −0.557 |
 | each mode recurs at its own 2π/(kΔv) | within a plasma period, for the seeded mode and the harmonic it generates | 128.6 vs 125.7, 64.3 vs 62.8 |

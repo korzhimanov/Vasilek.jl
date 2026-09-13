@@ -351,4 +351,6 @@ xlabel!("ωₚt")
 ylabel!("εₑ/(mωₚvₜₕ³/e²)")
 savefig(figure("landau-damping-1d1v-05"))
 #
-# There is no analytical solution for strong landau damping. However the result can be compared to what has been obtained by other simulations. Our parameters are essentially the same as in the simulations performed in [Filbet et al. J. Comp. Phys. 172, 166-187 (2001)](https://doi.org/10.1006/jcph.2001.6818). So we can compare the curve presented above with the one plotted at Fig. 6(a) of this paper. It can be easily seen that the quantitative coincidence is almost perfect.
+# There is no analytical solution for strong Landau damping, so the comparison is against the literature. Our parameters are essentially the same as in [Filbet et al. J. Comp. Phys. 172, 166-187 (2001)](https://doi.org/10.1006/jcph.2001.6818), and the curve above is the one plotted in its Fig. 6(a): the field damps, the resonant particles trap, and it grows again.
+#
+# That comparison used to be made by eye. It is now two numbers, asserted in `test/test_verification.jl` on a finer grid than this figure uses: the field decays at 0.2863 over the four maxima of the decay proper and grows at 0.0789 over the eight of the regrowth, against a literature that reports −0.281 to −0.292 for the first and 0.0770 to 0.08584 for the second. Both rates depend on the window — γ₁ reads 0.38 over three maxima and 0.23 over five, because the envelope is not an exponential — and refining the grid moves γ₂ from 0.0716 to 0.0814, toward the published value.
