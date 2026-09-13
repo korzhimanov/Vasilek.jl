@@ -46,7 +46,7 @@ savefig(energy, joinpath(here, "wakefield-energy.png"))
 
 # The wake at the final time against the wake linear theory puts behind the same
 # drive. This is the picture the test makes assertions about: the two agree to
-# 4.4% in amplitude and to 8.9% of the theory's own rms pointwise.
+# 6.4% in amplitude and to 6.4% of the theory's own rms pointwise.
 ref = linear_wake(r.x, r.t, r.Φ, r.nᵢ; temperature = r.plasma_temperature)
 theory = plot(r.x/2π, r.ex[end, :]; label = "eˣ", xlabel = "x/2π",
               title = "wake at t = $(round(r.t[end]/2π; digits = 1))·2π")
@@ -56,10 +56,18 @@ savefig(theory, joinpath(here, "wakefield-theory.png"))
 
 v, _ = pulse_velocity(r.t, r.x, r.Φ; lo = 5.0, hi = 55.0)
 λ, _ = wave_period(r.x, r.ex[end, :]; lo = 8.0, hi = 55.0)
+Δx, Δt = r.x[2] - r.x[1], r.t[2] - r.t[1]
+v_theory = vg_pulse(r.plasma_density, Δx, Δt; duration = 2π)
 println("final Δε/ε      = ", (r.ε[end] - r.ε[1])/r.ε[1])
 println("peak wake field = ", maximum(abs, r.ex))
 println("peak laser field= ", maximum(abs, r.ey))
-println("pulse velocity  = ", v)
+println("resolution      = ", round(2π/Δx; digits = 1), " cells per laser wavelength")
+println("pulse velocity  = ", v, "  against ", v_theory,
+        " from the discrete dispersion relation (continuum ",
+        sqrt(1 - r.plasma_density), ")")
 println("wake wavelength = ", λ, "  against ",
-        wake_wavelength(v, r.plasma_density, r.plasma_temperature), " from theory")
+        wake_wavelength(v, r.plasma_density, r.plasma_temperature),
+        " from the measured driver, ",
+        wake_wavelength(v_theory, r.plasma_density, r.plasma_temperature),
+        " from the predicted one")
 println("wrote wakefield-{laser,wake,density,energy,theory}.png to ", here)
