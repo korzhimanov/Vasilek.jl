@@ -9,6 +9,63 @@ This project has not been released; entries below describe work on `master`.
 
 ### Added
 
+- **The kinetic dispersion relation is solved rather than tabulated**
+  (`test/dispersion.jl`). The plasma dispersion function is written as
+  `Z(ζ) = i√π·erfcx(-iζ)`, i.e. through the *entire* Faddeeva function, so one
+  expression covers the whole plane: the Cauchy integral that defines `Z`
+  converges only above the real axis, and every root worth finding — damped
+  Landau modes, growing beam modes — lives off it. On top of that sit the
+  Maxwellian susceptibility, a secant root finder, `landau_root(k)` and
+  `two_stream_warm(a; vt)`.
+
+  `test/test_dispersion.jl` holds it to identities and independent quadratures
+  rather than to stored numbers: `Z` against its own Cauchy integral where that
+  integral converges (3.5e-15), `Z′` against a central difference (9.3e-11,
+  which is the difference's truncation and not the identity's), the
+  susceptibility against a trapezoid that never calls `Z` (1.3e-14). The three
+  Landau roots this suite carried as constants are now the fixture rather than
+  the target, and the solver reproduces every digit they quoted.
+
+  `SpecialFunctions` is a test-and-verification dependency for `erfcx`; the
+  package itself still depends on four packages.
+
+- **The two-stream case is measured against warm beams.** The runs have
+  Maxwellian beams at `vt = 0.3` and were compared against the cold closed form,
+  which at that temperature is off by up to 7.44% — most of a 6% tolerance spent
+  on a known approximation. Against `two_stream_warm` the same three
+  measurements read −0.39%, −1.95% and +0.10%, and the tolerance is now 3%.
+
+  `a = 1.0`, the cold stability boundary, turns from a qualitative case into the
+  sharpest one in the testset. The cold form predicts exactly zero there and the
+  old assertion could only say "something grows" (a factor of 4.91 over t ≤ 26);
+  the warm root predicts 0.09823 and the run gives 0.09510, which is 3.19%. It
+  costs a longer run — `tmax = 80` to bring `ε_e` up to the same amplitude band
+  every other case uses, against a divergence at t = 86.3 — and is held to 8%
+  because the beat ripple `growth_rate` documents is worst where `γ` is
+  smallest: over `hi` ∈ {1, 2, 3, 5} the fit moves between −6.08% and −3.19%.
+
+  The temperature comparison at `a = 0.6` is now absolute as well as relative:
+  γ falls 4.4% between `vt = 0.3` and `vt = 0.6` where warm theory predicts
+  4.4%, and each run is separately within 3% of its own root.
+
+### Fixed
+
+- **"Finite temperature cannot make a beam grow faster than a cold one" is
+  false**, and it was load-bearing: it is why the +0.31% overshoot at
+  `a = 0.8` was attributed to the beat ripple rather than to physics, and why a
+  sweep in `vt` that crossed the cold value was treated as an artefact of the
+  estimator. The warm root crosses *above* the cold one between `a = 0.75` and
+  `a = 0.8`, and past `a = 1` the cold branch is identically zero while warm
+  beams still grow — which the same testset had been measuring all along, at
+  `a = 1.0`, without the two statements being put side by side. Against the warm
+  root the `a = 0.8` measurement is +0.10% and there is nothing left to explain.
+
+  The estimator's ripple is real and the note in `growth_rate` about it stands;
+  what changed is that it is no longer asked to account for a discrepancy that
+  belongs to the theory the measurement was being compared against.
+
+### Added
+
 - **The laser wakefield study drives a wake, and the test measures it against
   linear theory.** `wakefield` had **no ponderomotive coupling**: the laser
   never entered the longitudinal push, so `ex` was the slab edges relaxing, and

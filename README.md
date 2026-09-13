@@ -35,16 +35,25 @@ so that a default `Pkg.test()` stays instant:
 VASILEK_EXTENDED=1 julia --project=. -e 'using Pkg; Pkg.test()'
 ```
 
+The analytic side of those claims is computed rather than quoted:
+`test/dispersion.jl` solves the kinetic dispersion relation through the plasma
+dispersion function, which gives the Landau roots at any `k` — they used to be
+three constants typed into the test file — and the growth rate of *warm*
+counter-streaming beams, which is what the runs contain. The cold two-stream
+closed form remains as its zero-temperature limit and is checked as such.
+
 | claim | asserted | measured |
 |---|---|---|
-| Landau damping rate, k = 0.3, 0.4, 0.5 | γ within 3% of the tabulated root | 0.42%, 0.51%, 1.45% |
-| Landau real frequency, same three k | ω within 1% of the tabulated root | 0.25%, 0.36%, 0.14% |
+| Landau damping rate, k = 0.3, 0.4, 0.5 | γ within 3% of the root of the kinetic dispersion relation | 0.43%, 0.51%, 1.45% |
+| Landau real frequency, same three k | ω within 1% of the same root | 0.25%, 0.36%, 0.14% |
 | the damping fit does not depend on its window | two windows agree within 3% | 1.45%, 0.44%, 0.43% |
 | nor does the frequency fit | two windows agree within 1% | 0.05%, 0.15%, 0.10% |
 | plasma oscillation frequency | ω within 0.2% of Bohm–Gross √(1+3k²), and the cold ωₚ excluded | 0.018%, against 0.57% for cold |
 | nor does that frequency depend on its window | two windows agree within 0.2% | 0.006% |
-| two-stream growth rate, kv₀ = 0.4, 0.6, 0.8 | γ within 6% of the closed-form cold root, and the peak in the right place | 1.87%, 3.14%, 0.31% |
-| two-stream stability boundary, kv₀ = 1.2, 1.6 | no growth where the closed form gives γ = 0 exactly | decays to 0.053, 0.000 |
+| two-stream growth rate, kv₀ = 0.4, 0.6, 0.8 | γ within 3% of the warm kinetic root, and the peak in the right place | 0.39%, 1.95%, 0.10% |
+| the same beams at twice the temperature | γ(vt = 0.6) below γ(vt = 0.3), each within 3% of its own warm root | −4.4% measured against −4.4% predicted |
+| two-stream at the cold boundary, kv₀ = 1.0 | γ within 8% of the warm root, where the cold form gives exactly zero | 3.19% |
+| two-stream stability boundary, kv₀ = 1.2, 1.6 | no growth, where cold and warm theory both give γ = 0 | decays to 0.053, 0.000 |
 | plasma oscillations, uniform grid | \|Δε/ε\| < 0.5% at t = 3000 | 0.38% |
 | plasma oscillations, non-uniform grid | \|Δε/ε\| < 6% at t = 3000 | 4.85% |
 | the laser wakefield is a plasma wave | ω within 2% of Bohm–Gross √(ωₚ² + 3Tk²) | 0.36% |

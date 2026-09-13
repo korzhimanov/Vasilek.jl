@@ -9,16 +9,26 @@
 
 include(joinpath(@__DIR__, "verification_harness.jl"))
 
-"""
-Roots of the Landau dispersion relation for a Maxwellian, `(γ, ω_r)` by `kλ_D`.
-
-These are the tabulated values, not the `π/(8√2)u³exp(-u²/2)` asymptotic the
-notebooks quote -- that gives 0.1145 at k = 0.5 and is not accurate there, and
-measuring against it once suggested a 31% error where there is none.
-"""
-const LANDAU_ROOTS = Dict(0.3 => (0.01262, 1.15985),
-                          0.4 => (0.06613, 1.28506),
-                          0.5 => (0.15336, 1.41566))
+# The Landau roots are **computed**, by `landau_root` in `test/dispersion.jl`,
+# which the harness includes. This file used to carry three of them as typed-in
+# constants; those constants now live in `test_dispersion.jl`, where the solver
+# is checked against them rather than the other way round, and where they are
+# the only stored numbers in a file otherwise made of identities.
+#
+# What this buys immediately is that `k` is no longer confined to the three
+# values somebody tabulated. It also settles an old note here, which said the
+# `π/(8√2)u³exp(-u²/2)` asymptotic the notebooks plot "gives 0.1145 at k = 0.5
+# and is not accurate there". Three things at once, and only the conclusion was
+# right: 0.1145 is that formula at `u = ω/k = 2.83`, where the notebooks
+# evaluate it at `u = 1/k = 2` and get 0.3006; 0.3006 is not a `γ` but the decay
+# rate of the *energy*, which is `2γ`; and as such it is 2% from the 0.30672 the
+# real root gives, not 31% from anything. An asymptotic compared against the
+# wrong quantity is how a 2% formula looked like a 31% error.
+"`(γ, ω_r)` of the least damped Landau mode at `k`, in the order this file reads them."
+function landau_rate(k)
+    root = landau_root(k)
+    return -imag(root), real(root)
+end
 
 """
     landau_case(k, Nx, vmax, Δt, tmax)
@@ -83,17 +93,19 @@ end
 
             for (k, Nx, vmax, Δt, tmax, window, alt) in cases
                 t, ε_e, courant = landau_case(k, Nx, vmax, Δt, tmax)
-                γa, ωa = LANDAU_ROOTS[k]
+                γa, ωa = landau_rate(k)
 
                 γ, npeaks = damping_rate(t, ε_e; tmin = window[1], tmax = window[2])
                 ω, nmins  = oscillation_frequency(t, ε_e; tmin = window[1], tmax = window[2])
 
                 println("  k = ", k, "  (Courant ", round(courant; digits = 3),
                         ", resonance at v = ", round(ωa/k; digits = 2), ")")
-                println("      γ = ", rpad(round(γ; digits = 5), 8), " vs ", γa,
+                println("      γ = ", rpad(round(γ; digits = 5), 8), " vs ",
+                        round(γa; digits = 5),
                         "  (", round(100*abs(γ - γa)/γa; digits = 2), "%, ",
                         npeaks, " maxima)")
-                println("      ω = ", rpad(round(ω; digits = 5), 8), " vs ", ωa,
+                println("      ω = ", rpad(round(ω; digits = 5), 8), " vs ",
+                        round(ωa; digits = 5),
                         "  (", round(100*abs(ω - ωa)/ωa; digits = 2), "%, ",
                         nmins, " minima)")
 
@@ -164,7 +176,7 @@ end
             # rather than scattering about it.
             k = 0.5
             L = 2*(2π/k)
-            γa = LANDAU_ROOTS[k][1]
+            γa = landau_rate(k)[1]
             errors = Float64[]
             dissipation = Float64[]
             for (Nx, Δv, Δt) in ((32, 0.2, 0.16), (64, 0.1, 0.08), (128, 0.05, 0.04))
@@ -355,6 +367,17 @@ end
             # tabulated constant of the kind the Landau cases have to carry --
             # which is what made the case worth waiting for rather than
             # hard-coding a number.
+            #
+            # **The beams this runs are warm, and the comparison is now against
+            # warm theory.** `γ_cold` stays as the `vt → 0` limit -- checked as
+            # such in `test_dispersion.jl` -- but it is not what the simulation
+            # is held to any more. `two_stream_warm` solves the same relation
+            # with Maxwellian beams instead of delta functions, and the
+            # difference is not cosmetic: at the `vt = 0.3` these runs use the
+            # cold form is off by up to 7.44% where the warm root is off by
+            # 2.01%, which is the whole tolerance budget. The one place it
+            # changes a *conclusion* rather than a number is `a = 0.8`; see
+            # below.
 
             @testset "the closed form solves the dispersion relation" begin
                 # Cheap, and it is what lets the rest of this testset be read as
@@ -381,48 +404,50 @@ end
 
             @testset "the growth rate follows the dispersion relation" begin
                 # Three wavenumbers, not one -- and `γ(a)` is **non-monotone**,
-                # rising to a peak at a = √(3/8) ≈ 0.612 and falling again, so
-                # reproducing all three is a statement about the branch rather
-                # than about one point. A solver that merely amplified whatever
-                # it was given could not put the maximum in the right place.
+                # rising to a peak near a = √(3/8) ≈ 0.612 (exactly there for
+                # the cold branch, close to it for the warm one) and falling
+                # again, so reproducing all three is a statement about the
+                # branch rather than about one point. A solver that merely
+                # amplified whatever it was given could not put the maximum in
+                # the right place.
                 #
                 # Measured, with the beams at vt = 0.3 and the fit taken over
                 # ε_e rising from 100x its initial value to 5.0:
                 #
-                #   a = kv₀   γ measured   γ cold     error
-                #   0.4       0.30244      0.30819   -1.87%
-                #   0.6       0.34229      0.35339   -3.14%
-                #   0.8       0.31232      0.31134   +0.31%
+                #   a = kv₀   γ measured   γ warm     error    γ cold     error
+                #   0.4       0.30244      0.30362   -0.39%    0.30819   -1.87%
+                #   0.6       0.34229      0.34909   -1.95%    0.35339   -3.14%
+                #   0.8       0.31232      0.31201   +0.10%    0.31134   +0.31%
                 #
-                # Held to 6%, about double the worst. Two of the three sit
-                # below the cold value, which is the direction finite beam
-                # temperature acts in; a = 0.8 sits 0.31% above it, and the
-                # residual ripple discussed below is why. **Sweeping the
-                # temperature at one wavenumber is the clean statement**, and
-                # at a = 0.6 with this same estimator it is monotone with no
-                # crossing:
+                # Held to 3% against the warm root, about 1.5x the worst. The
+                # cold column is printed alongside because the two disagree by
+                # more than the tolerance and it is worth seeing which one the
+                # solver follows.
                 #
-                #   vt      0.60    0.50    0.40    0.30    0.25    0.20    0.15
-                #   error  -7.44%  -5.77%  -4.31%  -3.14%  -2.69%  -2.38%  -2.11%
-                #
-                # An earlier version of this comment quoted 3.53%, 2.03%, 0.92%
-                # and 0.11% from a *fixed time window* of [10, 20], which was
-                # the exploratory estimator and not the one used here. Those
-                # numbers cross zero -- they read +0.40% and +0.56% at vt = 0.2
-                # and 0.15, an overshoot above a cold limit that finite
-                # temperature cannot produce. The crossing was an artefact of
-                # the window; see `growth_rate` for the mechanism.
+                # **`a = 0.8` is not an overshoot.** It reads +0.31% above the
+                # cold value, and an earlier version of this comment attributed
+                # that to the beat ripple on the grounds that finite temperature
+                # cannot make a beam grow faster than a cold one. That premise
+                # is false near the band edge: the warm rate crosses above the
+                # cold one between a = 0.75 and a = 0.8, and beyond a = 1 the
+                # cold branch is identically zero while warm beams are still
+                # unstable -- which this very testset measures below. Against
+                # the warm root the same measurement is +0.10%, and nothing
+                # needs explaining away.
                 measured = Float64[]
                 for a in (0.4, 0.6, 0.8)
                     t, ε_e = two_stream(a)
                     γ, t0, t1 = growth_rate(t, ε_e; lo = 100*ε_e[1], hi = 5.0)
+                    γw = two_stream_warm(a)
                     push!(measured, γ)
                     println("  a = kv₀ = ", a, "  γ = ", round(γ; digits = 5),
-                            " vs cold ", round(γ_cold(a); digits = 5),
-                            "  (", round(100*(γ - γ_cold(a))/γ_cold(a); digits = 2),
-                            "%, fitted over t ∈ [", round(t0; digits = 2), ", ",
-                            round(t1; digits = 2), "])")
-                    @test isapprox(γ, γ_cold(a); rtol = 0.06)
+                            " vs warm ", round(γw; digits = 5),
+                            " (", round(100*(γ - γw)/γw; digits = 2), "%)",
+                            ", cold ", round(γ_cold(a); digits = 5),
+                            " (", round(100*(γ - γ_cold(a))/γ_cold(a); digits = 2),
+                            "%), fitted over t ∈ [", round(t0; digits = 2), ", ",
+                            round(t1; digits = 2), "]")
+                    @test isapprox(γ, γw; rtol = 0.03)
                 end
 
                 # The shape, independent of the individual tolerances: the
@@ -430,45 +455,44 @@ end
                 @test measured[2] > measured[1]
                 @test measured[2] > measured[3]
 
-                # A colder beam grows faster, which pins the sign of the
-                # temperature correction with a second run rather than a
-                # comment, and is the assertion that would have caught the
-                # artefact described above -- the superseded fixed-window
-                # estimator put the small-vt end of the sweep on the wrong side
-                # of the cold limit.
+                # Temperature at fixed wavenumber, where the effect is
+                # unambiguous: at a = 0.6 the warm branch falls monotonically
+                # with vt (0.35337 at 0.02, 0.34909 at 0.3, 0.33381 at 0.6 --
+                # `test_dispersion.jl` asserts the monotonicity), and the runs
+                # follow it. Measured γ = 0.32710 at vt = 0.6 against 0.34229 at
+                # vt = 0.3, a drop of 4.4% where theory predicts 4.4%.
                 #
-                # Only the *relative* statement is asserted, and deliberately.
-                # "Every rate lies below γ_cold" is the tidier claim and it is
-                # false: a = 0.8 comes out 0.31% above. The residual ripple
-                # biases either way depending on how much of a beat period the
-                # amplitude band happens to leave unaveraged -- 1.15, 1.51 and
-                # 2.22 periods at these three wavenumbers -- so the sign at any
-                # one of them is not a property to hang a test on. Comparing two
-                # temperatures at the *same* wavenumber holds the band fixed and
-                # leaves only the physics.
-                #
-                # Measured at a = 0.6: γ = 0.32710 at vt = 0.6 against 0.34229
-                # at vt = 0.3, both below the cold 0.35339 -- the cold value is
-                # printed for context and deliberately **not** chained into the
-                # assertion, which would smuggle back the absolute claim this
-                # paragraph just rejected. `γ_wide < measured[2] < γ_cold(0.6)`
-                # reads as one thought and is two: the second half is the sign
-                # at a single wavenumber, which a = 0.8 already shows going the
-                # other way.
+                # Both halves are asserted now. The relative one -- a colder
+                # beam grows faster -- is the statement that survives any error
+                # common to the two runs. The absolute one is possible only
+                # because the target moved with the temperature: against the
+                # cold value this run is 7.44% out, which is why the old comment
+                # could compare the two runs with each other but not either with
+                # theory.
                 t_wide, ε_wide = two_stream(0.6; vt = 0.6)
                 γ_wide, _, _ = growth_rate(t_wide, ε_wide; lo = 100*ε_wide[1], hi = 5.0)
+                γw_wide = two_stream_warm(0.6; vt = 0.6)
                 println("  vt = 0.6 gives γ = ", round(γ_wide; digits = 5),
-                        " against ", round(measured[2]; digits = 5), " at vt = 0.3",
-                        "  (cold ", round(γ_cold(0.6); digits = 5), ")")
+                        " vs warm ", round(γw_wide; digits = 5),
+                        " (", round(100*(γ_wide - γw_wide)/γw_wide; digits = 2), "%)",
+                        ", against ", round(measured[2]; digits = 5), " at vt = 0.3",
+                        "  (cold, for both, ", round(γ_cold(0.6); digits = 5), ")")
                 @test γ_wide < measured[2]
+                @test isapprox(γ_wide, γw_wide; rtol = 0.03)
             end
 
             @testset "and stops at the stability boundary" begin
-                # `γ_cold` is exactly zero for `kv₀ ≥ 1`, and this is the
-                # sharpest assertion available here: it is qualitative, so no
+                # Both forms of the theory make the cases below stable, and they
+                # do it at different places: `γ_cold` is exactly zero for
+                # `kv₀ ≥ 1`, while the warm band edge at vt = 0.3 sits between
+                # a = 1.0 and a = 1.05 -- `two_stream_warm` returns 0.09823 at
+                # 1.0 and 0.0 at 1.05. a = 1.2 and 1.6 are therefore stable by
+                # both, which is what makes them the qualitative cases: no
                 # tolerance can launder a failure. A solver with the field sign
                 # reversed, or one amplifying grid noise, grows here.
-                #
+                @test two_stream_warm(1.2) == 0.0
+                @test two_stream_warm(1.6) == 0.0
+
                 # Measured over t ≤ 26, as a ratio of peak ε_e to initial:
                 # a = 1.2 gives 1.00 (4.84e-5 decaying to 3.36e-5) and a = 1.6
                 # gives 1.00 (2.02e-5 to 7.02e-6), against 5.9e4 at a = 0.6.
@@ -482,27 +506,38 @@ end
                     @test ε_e[end] < ε_e[1]        # Landau-damped, not merely flat
                 end
 
-                # `a = 1.0` is the cold boundary itself, and the warm system is
-                # still weakly unstable there -- measured a factor of 4.91 over
-                # the `t ≤ 26` this runs, a crude rate of ln(4.91)/52 ≈ 0.031
-                # against the cold prediction of exactly zero, and an order of
-                # magnitude below the 0.30 to 0.35 of the unstable branch above.
-                # That is the finite-temperature correction, and it is asserted
-                # as *present* rather than papered over: the boundary is sharp
-                # only in the cold limit, and a test claiming otherwise would be
-                # claiming something false about the model being run.
+                # `a = 1.0` is the cold boundary itself, where the cold form
+                # predicts exactly nothing and the warm one predicts 0.09823.
+                # It used to be asserted as *growth of some kind*, a factor of
+                # 4.91 over t ≤ 26, because a rate could not be compared against
+                # anything: the only theory in the file said zero. With the warm
+                # root it becomes the sharpest case in this testset -- a number
+                # against a number, in a regime where the two theories differ by
+                # infinity rather than by percent.
                 #
-                # It is genuine growth rather than a transient, which the single
-                # ratio does not show on its own but a longer run does: 4.91 by
-                # t = 26, 41.8 by t = 40, 1392 by t = 60. Recorded because the
-                # `t = 40` figure is easy to measure and then attach to the
-                # `t ≤ 26` the test actually runs, which is how this comment
-                # read until the ratios were checked against each other.
-                t, ε_e = two_stream(1.0; tmax = 26.0)
-                println("  a = kv₀ = 1.0 (the cold boundary): peak/initial ε_e = ",
-                        round(maximum(ε_e)/ε_e[1]; digits = 2),
-                        "  -- warm beams are still unstable here")
-                @test maximum(ε_e)/ε_e[1] > 2
+                # Measured γ = 0.09510 against 0.09823, which is 3.19%, fitted
+                # over t ∈ [45.6, 78.3]. The band is the same `[100ε₀, 5.0]`
+                # every other case uses; `tmax = 80` is what it takes to reach
+                # 5.0 at a tenth of the growth rate, and the run goes non-finite
+                # at t = 86.3, so the margin is six time units rather than the
+                # four steps the `a = 0.6` case gets at `tmax = 24`.
+                #
+                # Held to 8% rather than the 3% above, and the reason is in
+                # `growth_rate`: the beat between the growing root and the
+                # oscillating pair decays as exp(-γt) relative to the mode, so
+                # it is worst where γ is smallest, and γ here is a third of the
+                # branch maximum. Measured over `hi` ∈ {1, 2, 3, 5} the fit
+                # moves from -6.08% to -3.19%; 8% covers that spread with room.
+                t, ε_e = two_stream(1.0; tmax = 80.0)
+                γ, t0, t1 = growth_rate(t, ε_e; lo = 100*ε_e[1], hi = 5.0)
+                γw = two_stream_warm(1.0)
+                println("  a = kv₀ = 1.0 (the cold boundary): γ = ", round(γ; digits = 5),
+                        " vs warm ", round(γw; digits = 5),
+                        " (", round(100*(γ - γw)/γw; digits = 2), "%), cold says 0",
+                        ", fitted over t ∈ [", round(t0; digits = 1), ", ",
+                        round(t1; digits = 1), "]")
+                @test isapprox(γ, γw; rtol = 0.08)
+                @test all(isfinite, ε_e)
             end
         end
 
