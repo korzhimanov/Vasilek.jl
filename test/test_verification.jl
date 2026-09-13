@@ -31,26 +31,61 @@ function landau_rate(k)
 end
 
 """
-    landau_case(k, Nx, vmax, Δt, tmax)
+    trapping_phase(α, γ, T)
+
+Bounce phase a resonant particle accumulates before the mode damps away,
+`∫₀ᵀ ω_B dt` with `ω_B = √(kE) = √α` falling as `exp(-γt)` with the field:
+
+    Φ_B = (√α/γ)·(1 - exp(-γT))
+
+**This is the number that says whether a "linear" Landau run is linear.** The
+usual statement is O'Neil's `γ ≫ ω_B`, and by that measure none of the cases
+below qualify -- but `ω_B` is not constant, and a mode that damps before the
+first bounce never traps anything however small `γ` is. The phase is what
+combines the two, and it is calibrated: the local damping rate departs from the
+analytic one at `Φ_B ≈ 3.5` and crosses zero at `Φ_B ≈ 7.3`, measured in the
+trapping testset below.
+
+Measured for the three cases here, at `α = 1e-3`: 0.21, 0.45 and 1.70. For the
+`α = 0.01` this suite used at `k = 0.3`, over its old window: 3.7 -- which is
+where the damping had started to stop, and the reason that case read 0.42% *low*
+where every other measurement in the suite reads high.
+"""
+trapping_phase(α, γ, T) = sqrt(α)/γ*(1 - exp(-γ*T))
+
+"""
+    landau_case(k, Nx, vmax, Δt, tmax; α = 1e-3)
 
 A single-mode Landau run: two wavelengths of `k` across the box, a Maxwellian
-perturbed by 1%, returning `(t, ε_e)`.
+perturbed by `α`, returning `(t, ε_e)`.
+
+**`α = 1e-3`, not the 1e-2 this suite started with.** The mode is meant to be
+linear, and at 1% it is not: see [`trapping_phase`](@ref) and the trapping
+testset. Dropping the amplitude costs nothing in signal -- the fit runs through
+the maxima of a quantity that spans decades either way -- and it moves the
+`k = 0.3` measurement from 0.42% below the analytic rate to 0.71% above it,
+which is where the other two sit and where numerical dissipation puts them.
 
 **The grid is not free.** The velocity window has to contain the resonance at
 `v = ω_r/k` -- 2.83, 3.21 and 3.87 for the three cases below -- because that is
 where the damping comes from; and the window then fixes the time step, since the
 fastest row runs at `max|v|·Δt/Δx` and `PFCNonUniform` is a finite-volume scheme
 with a Courant limit of 1. Widening the window to reach a resonance therefore
-costs a smaller `Δt`, not just more velocity points. Every case below runs
-between 0.64 and 0.82.
+costs a smaller `Δt`, not just more velocity points.
+
+The number returned and printed as the Courant figure is `max|v|·Δt/Δx`, which
+runs between 0.64 and 0.82 here. The *sweeps* run at half of it: Strang takes
+two x half-steps per step, so the displacement per call is `vΔt/2` and the real
+figure is 0.32 to 0.41. The conservative number is the one to reason with when
+widening a velocity window, which is why it is the one shown.
 """
-function landau_case(k, Nx, vmax, Δt, tmax)
+function landau_case(k, Nx, vmax, Δt, tmax; α = 1e-3)
     L = 2*(2π/k)
     Δx = L/Nx
     x = collect(Δx:Δx:L)
     v = collect(-vmax:0.1:vmax)
     t = collect(0.0:Δt:tmax)
-    f₀ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. (1.0 + 0.01*cos(k*x)))'
+    f₀ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. (1.0 + α*cos(k*x)))'
     ε_e = vlasov_poisson(x, v, f₀, t).ε_e
     return t, ε_e, vmax*Δt/Δx
 end
@@ -73,33 +108,44 @@ end
             # is held to 3%. Measured:
             #
             #   k     γ                       ω_r
-            #   0.3   0.01257  (0.42%)        1.15696  (0.25%)
-            #   0.4   0.06646  (0.51%)        1.28042  (0.36%)
-            #   0.5   0.15558  (1.45%)        1.41372  (0.14%)
+            #   0.3   0.01271  (0.71%)        1.15895  (0.08%)
+            #   0.4   0.06685  (1.09%)        1.28415  (0.07%)
+            #   0.5   0.15506  (1.11%)        1.41372  (0.14%)
+            #
+            # All three sit *above* the analytic rate now, and that is the point
+            # of the amplitude change: the residue is numerical dissipation,
+            # which can only add damping. At `α = 1e-2` the k = 0.3 case read
+            # 0.42% below instead -- trapping pulling one way while dissipation
+            # pulled the other, and the agreement was the two cancelling. See
+            # [`trapping_phase`](@ref) and the trapping testset.
             #
             # `window` is the fitting stretch: after the initial transient, and
             # before the mode reaches the floor where recurrence and round-off
-            # take over. That floor is what sets `tmax`, and it arrives *earlier
-            # in units of e-foldings* the weaker the damping is -- at k = 0.3 the
-            # mode has only decayed by a factor of three by t = 50, and fitting
-            # past that reports γ = 0.0099, 22% low. The local rate between
-            # consecutive maxima is flat at 0.0128 through t ≈ 35 and does not
-            # move when Δx, Δv and Δt are all halved, so that is the estimator
-            # running out of signal, not the physics changing.
-            #                    k    Nx  vmax   Δt   tmax  window        alt window
-            cases = ((0.5,  64,  4.0, 0.08, 70.0, (6.0, 30.0),  (8.0, 28.0)),
-                     (0.4,  80,  5.0, 0.05, 60.0, (8.0, 45.0),  (10.0, 40.0)),
-                     (0.3, 108,  6.0, 0.05, 60.0, (10.0, 50.0), (12.0, 45.0)))
+            # take over. At k = 0.3 the damping is slow enough that the window
+            # can run to t = 90 -- thirty maxima -- which at α = 1e-2 would have
+            # been deep into the trapped regime.
+            #                    k    Nx  vmax   Δt    tmax   window        alt window
+            cases = ((0.5,  64,  4.0, 0.08,  70.0, (6.0, 30.0),  (8.0, 28.0)),
+                     (0.4,  80,  5.0, 0.05,  60.0, (8.0, 45.0),  (10.0, 40.0)),
+                     (0.3, 108,  6.0, 0.05, 100.0, (10.0, 90.0), (12.0, 80.0)))
 
             for (k, Nx, vmax, Δt, tmax, window, alt) in cases
                 t, ε_e, courant = landau_case(k, Nx, vmax, Δt, tmax)
                 γa, ωa = landau_rate(k)
 
+                # The run has to be linear for the analytic rate to be the right
+                # target, and that is a property of the amplitude and the window
+                # together rather than of either alone. Measured 0.21, 0.45 and
+                # 1.70 for the three cases; the damping visibly departs at 3.5.
+                Φ_B = trapping_phase(1e-3, γa, window[2])
+                @test Φ_B < 2.0
+
                 γ, npeaks = damping_rate(t, ε_e; tmin = window[1], tmax = window[2])
                 ω, nmins  = oscillation_frequency(t, ε_e; tmin = window[1], tmax = window[2])
 
                 println("  k = ", k, "  (Courant ", round(courant; digits = 3),
-                        ", resonance at v = ", round(ωa/k; digits = 2), ")")
+                        ", resonance at v = ", round(ωa/k; digits = 2),
+                        ", bounce phase ", round(Φ_B; digits = 2), ")")
                 println("      γ = ", rpad(round(γ; digits = 5), 8), " vs ",
                         round(γa; digits = 5),
                         "  (", round(100*abs(γ - γa)/γa; digits = 2), "%, ",
@@ -116,7 +162,10 @@ end
                 # This is the assertion that would have caught the old fit: the
                 # per-sample version moved by 2.3% when its start was nudged one
                 # step, because it began on a null. Through the maxima the two
-                # windows here agree to 0.43%, 0.44% and 1.45%.
+                # windows here agree to 0.36%, 0.05% and 0.19% -- tighter than
+                # the 0.43%, 0.44% and 1.45% of the 1% runs, the k = 0.3 case by
+                # a factor of eight, because what moved that one between windows
+                # was trapping rather than the estimator.
                 γ_alt, _ = damping_rate(t, ε_e; tmin = alt[1], tmax = alt[2])
                 spread = abs(γ - γ_alt)/γ
                 println("      window sensitivity: γ = ", round(γ_alt; digits = 5),
@@ -136,10 +185,9 @@ end
                 # 1% sits in a wide gap. Below it is the estimator's own floor:
                 # a null is located only to within Δt, so two windows disagree
                 # by about Δt/span whatever the physics does, which is 0.4% at
-                # k = 0.5. Measured here 0.10%, 0.15% and 0.05%, with a sweep
-                # over further windows reaching 0.35%. Above it is the failure
-                # being tested for: losing one null of ten rescales the spacing
-                # by 10/9, i.e. by 11%.
+                # k = 0.5. Measured here 0.100%, 0.146% and 0.066%. Above it is
+                # the failure being tested for: losing one null of ten rescales
+                # the spacing by 10/9, i.e. by 11%.
                 ω_alt, _ = oscillation_frequency(t, ε_e; tmin = alt[1], tmax = alt[2])
                 ω_spread = abs(ω - ω_alt)/ω
                 println("      window sensitivity: ω = ", round(ω_alt; digits = 5),
@@ -147,6 +195,161 @@ end
                         round(100*ω_spread; digits = 3), "%")
                 @test ω_spread < 0.01
             end
+        end
+
+        @testset "Trapping stops the damping, on the bounce time" begin
+            # The linear cases above are linear because their amplitude was
+            # chosen to make them so. This is the same solver at amplitudes
+            # where it is not, and it is a physics test rather than a caveat:
+            # the arrest of Landau damping by trapped particles is O'Neil's
+            # result, and reproducing *when* it happens is a statement about the
+            # nonlinear term that no damped-mode test can make.
+            #
+            # The local rate between maxima two apart, at k = 0.3, α = 1e-2:
+            #
+            #   t      8     19    30    41    52    62    73    84    95
+            #   γ      .0127 .0130 .0127 .0119 .0092 .0048 .0000 -.0035 -.0054
+            #
+            # It does not merely stop -- it goes negative, which is the field
+            # growing again as the trapped population sloshes. At α = 1e-3 the
+            # same column is flat at 0.0123 to 0.0129 all the way to t = 95.
+            #
+            # **The scaling is the assertion.** ω_B = √(kE₀) = √α here, so the
+            # arrest time should go as α^(-1/2), and the accumulated phase
+            # ω_B·t at which it happens should not move at all. Measured:
+            #
+            #   α       0.005   0.01    0.02    0.04
+            #   t₀      113.2   73.5    50.5    35.4
+            #   t₀√α    8.01    7.35    7.14    7.09
+            #
+            # A factor of eight in amplitude moves the arrest by 3.2, where
+            # α^(-1/2) predicts 2.83; the residue is ω_B falling as the field
+            # damps, which is what `trapping_phase` accounts for and why the
+            # last column drifts down rather than sitting flat.
+            function arrest_time(α; k = 0.3, tmax)
+                L = 2*(2π/k)
+                Δx = L/108
+                x = collect(Δx:Δx:L)
+                v = collect(-6:0.1:6)
+                t = collect(0.0:0.05:tmax)
+                f₀ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. (1.0 + α*cos(k*x)))'
+                ε_e = vlasov_poisson(x, v, f₀, t).ε_e
+                p = local_extrema(t, ε_e; tmin = 5.0, tmax = tmax - 1, maxima = true)
+                ts, rates = Float64[], Float64[]
+                for j in 3:2:length(p)
+                    i0, i1 = p[j-2], p[j]
+                    push!(ts, 0.5*(t[i0] + t[i1]))
+                    push!(rates, -log(ε_e[i1]/ε_e[i0])/(2*(t[i1] - t[i0])))
+                end
+                j = findfirst(≤(0.0), rates)
+                j === nothing && error("the damping never stopped at α = $α within t ≤ $tmax")
+                # linear interpolation between the last positive rate and the first
+                # non-positive one, so the answer is not quantised to the spacing
+                # of the maxima
+                return ts[j-1] + (ts[j] - ts[j-1])*rates[j-1]/(rates[j-1] - rates[j]), rates
+            end
+
+            scan = [(α, first(arrest_time(α; tmax = tmax)))
+                    for (α, tmax) in ((0.005, 130.0), (0.01, 90.0),
+                                      (0.02, 65.0), (0.04, 45.0))]
+            for (α, t₀) in scan
+                println("  α = ", rpad(α, 6), " damping stops at t = ", rpad(round(t₀; digits = 1), 6),
+                        "  ω_B·t₀ = ", round(t₀*sqrt(α); digits = 2))
+                # The bounce phase at the arrest is the invariant statement, and
+                # it is what calibrates the guard the linear cases use.
+                @test 6.5 < t₀*sqrt(α) < 8.5
+            end
+
+            # And the power law itself, fitted rather than eyeballed: log t₀
+            # against log α has slope -0.56 over this range, against the -0.5 a
+            # constant ω_B would give.
+            X = [log(α) for (α, _) in scan]
+            Y = [log(t₀) for (_, t₀) in scan]
+            n = length(X)
+            slope = (n*sum(X.*Y) - sum(X)*sum(Y))/(n*sum(X.^2) - sum(X)^2)
+            println("  fitted d(log t₀)/d(log α) = ", round(slope; digits = 3),
+                    "  (α^(-1/2) would give -0.5)")
+            @test -0.7 < slope < -0.45
+
+            # The linear runs are on the other side of this: at α = 1e-3 and the
+            # k = 0.3 window the bounce phase is 1.70, where the departure sets
+            # in at 3.5 and the arrest at 7.3.
+            @test trapping_phase(1e-3, landau_rate(0.3)[1], 90.0) < 2.0
+            @test trapping_phase(1e-2, landau_rate(0.3)[1], 50.0) > 3.0
+        end
+
+        @testset "Each mode recurs at its own 2π/(kΔv)" begin
+            # Recurrence is a property of Δv, and `test_free_streaming.jl`
+            # measures it exactly -- with no field. Here it is measured in the
+            # self-consistent run, mode by mode, because the total `ε_e` cannot
+            # tell two modes apart and that has misled this repository before:
+            # the Landau notebook shows ε_e rising again at t ≈ 62 and explains
+            # it as the seeded mode returning at "π/(kΔv)". It is not. The
+            # seeded k = 0.5 mode returns at 2π/(kΔv) = 125.7, twice as late;
+            # what arrives at 62 is the *second harmonic*, which the run
+            # generates nonlinearly and which recurs at 2π/(2kΔv) = 62.8.
+            #
+            # Measured on the notebook's own grid, to t = 140:
+            #
+            #   mode     |E| at t=0   floor      peak       at t     T_R
+            #   k = 0.5  1.99e-2      1.75e-8    1.03e-2    128.6    125.7
+            #   k = 1.0  2.63e-17     --         7.78e-5    64.3     62.8
+            #
+            # The harmonic starts at round-off -- it is not seeded -- and around
+            # its recurrence it is 25 times the seeded mode, which around the
+            # seeded mode's own recurrence is 116 times it. In `ε_e` both are
+            # the same bump.
+            x = collect(π/8:π/8:8π)
+            v = collect(-4:0.1:4)
+            t = collect(0.0:0.1:140.0)
+            k = 0.5
+            f₀ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. (1.0 + 0.01*cos(k*x)))'
+            r = vlasov_poisson(x, v, f₀, t; modes = (k, 2k))
+            A₁, A₂ = abs.(r.E_modes[:, 1]), abs.(r.E_modes[:, 2])
+
+            for (label, A, T_R) in (("k = 0.5", A₁, 2π/(k*0.1)),
+                                    ("k = 1.0", A₂, 2π/(2k*0.1)))
+                lo = findfirst(≥(0.6*T_R), t)
+                hi = something(findfirst(≥(1.25*T_R), t), length(t))
+                i = argmax(view(A, lo:hi)) + lo - 1
+                println("  ", label, ": |E| peaks at t = ", round(t[i]; digits = 1),
+                        " against T_R = ", round(T_R; digits = 1),
+                        "  (", round(A[i]; sigdigits = 3), " from ",
+                        round(A[1]; sigdigits = 3), ")")
+                # Within one plasma period of the grid's own recurrence time.
+                # The lag is real and physical -- the returning ballistic term
+                # has to drive the field back up, which takes a fraction of a
+                # period -- so it is bounded rather than asserted away.
+                @test abs(t[i] - T_R) < 2π/1.4
+            end
+
+            # The seeded mode comes back with half the amplitude it started
+            # with, which is the scheme's dissipation over 1257 steps rather
+            # than anything about the recurrence. Measured 0.520.
+            @test A₁[argmax(A₁[findfirst(≥(100.0), t):end]) +
+                      findfirst(≥(100.0), t) - 1]/A₁[1] > 0.4
+
+            # And the statement the notebook got wrong: at the time of the first
+            # rise in ε_e, it is the harmonic and not the seeded mode.
+            #
+            # Compared over an envelope rather than at an instant, deliberately.
+            # Each mode oscillates at its own frequency and passes through deep
+            # nulls, so a point sample of the ratio swings between 20 and 520
+            # across three time units without anything physical changing. The
+            # peak over the window is the quantity the recurrence is about.
+            # Measured over t ∈ [58, 72]: 3.08e-6 against 7.78e-5, a factor 25.
+            lo, hi = findfirst(≥(58.0), t), findfirst(≥(72.0), t)
+            peak₁, peak₂ = maximum(A₁[lo:hi]), maximum(A₂[lo:hi])
+            println("  over t ∈ [58, 72]: max|E_k| = ", round(peak₁; sigdigits = 3),
+                    ", max|E_2k| = ", round(peak₂; sigdigits = 3),
+                    ", ratio ", round(peak₂/peak₁; digits = 1))
+            @test peak₂ > 10*peak₁
+
+            # The other way round at the seeded mode's own recurrence, which is
+            # what makes the pair a statement rather than an observation.
+            # Measured over t ∈ [120, 135]: 1.03e-2 against 8.92e-5, a factor 116.
+            lo₂, hi₂ = findfirst(≥(120.0), t), findfirst(≥(135.0), t)
+            @test maximum(A₁[lo₂:hi₂]) > 10*maximum(A₂[lo₂:hi₂])
         end
 
         @testset "Landau damping converges under refinement" begin

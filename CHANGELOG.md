@@ -9,6 +9,47 @@ This project has not been released; entries below describe work on `master`.
 
 ### Fixed
 
+- **The "linear" Landau case at k = 0.3 was not linear, and the agreement it
+  reported was two errors cancelling.** At the 1% perturbation this suite used,
+  the local damping rate leaves the analytic value at t ≈ 35, reaches zero at
+  t ≈ 73 and goes *negative* after that: the field grows again as trapped
+  particles slosh. The fit ran to t = 50, inside that, and came out 0.42%
+  **below** the analytic rate — the only measurement in the suite that sat low,
+  where numerical dissipation can only push high.
+
+  The note on file said the flattening was "the estimator running out of signal,
+  not the physics changing", and offered as evidence that it does not move when
+  Δx, Δv and Δt are halved. That is evidence for the opposite: a numerical
+  artefact moves under refinement and physics does not.
+
+  At α = 1e-3 the same column is flat to t = 95, the window widens to [10, 90]
+  with thirty maxima, and the measurement reads 0.71% *above* — as do the other
+  two, which is what a dissipative scheme should do. The three cases now run at
+  α = 1e-3 and are 0.71%, 1.09% and 1.11% on γ, 0.08%, 0.07% and 0.14% on ω,
+  with window spreads of 0.19%, 0.05% and 0.36% (they were up to 1.45%).
+
+  `trapping_phase` is the guard, asserted per case: `(√α/γ)(1 - exp(-γT))`, the
+  bounce phase accumulated before the mode damps away. It is calibrated by the
+  new trapping testset rather than assumed — the damping departs at 3.5 and
+  stops at 7.3 — and the three cases sit at 0.21, 0.45 and 1.70 where the old
+  k = 0.3 setup sat at 3.7.
+
+- **The recurrence in the Landau notebook is the second harmonic's, not the
+  seeded mode's.** The text explained the rise in `ε_e` at t ≈ 62 as the mode
+  returning at "π/(kΔv)". The right expression is `2π/(kΔv)` = 125.7; what
+  arrives at 62.8 is the k = 1 harmonic, generated nonlinearly, recurring at
+  half the time because its wavenumber is twice as large.
+
+  `vlasov_poisson` gained a `modes` keyword for this — complex field amplitudes
+  per mode, since `ε_e` sums the box and cannot tell two modes apart. Asserted:
+  the seeded mode peaks at t = 128.6 against 125.7 and comes back with 52% of
+  its amplitude, the harmonic at 64.3 against 62.8 from a floor of 2.6e-17, and
+  at t = 64 the harmonic is 42 times the mode that was seeded. The notebook runs
+  to t = 140 now so that both recurrences are inside it, plots them separately,
+  and takes its theory curve from `landau_root` — the asymptotic it plotted
+  before is a rate for the energy, 2γ, which is why it looked right against
+  `ε_e` while being twice γ.
+
 - **The laser in the wakefield study was travelling six percent slow, and the
   explanation on file was wrong.** `wake_wavelength` said there was no closed
   form to predict the driver with, because a one-cycle pulse "has a bandwidth of

@@ -5,6 +5,13 @@ using FFTW
 
 using Vasilek
 using Vasilek: StrangSplitting
+
+# The Landau roots, computed. This file used to plot the asymptotic
+# `π/(8√2)u³exp(-u²/2)` instead, which is not the damping rate of the field: with
+# the `u = 1/k` below it is 0.3006 at k = 0.5, and what it approximates is the
+# decay rate of the *energy*, 2γ = 0.30672. Plotted against ε_e it looked right,
+# and it was right, for a reason nothing here stated.
+include(joinpath(@__DIR__, "..", "test", "dispersion.jl"))
 # Run directly, or render with Literate.jl. Figures are written beside this
 # script; under Weave they were captured by the renderer, which is why the
 # .jmd version produced nothing when executed as a script.
@@ -41,7 +48,7 @@ end;
 #
 # For simulations below we choose: $k = 0.5$, $\tilde n = 0.01$
 #
-# Simulations are performed on a uniform grid $x \in (\frac{\pi}{8},8\pi)$, $\Delta x = \frac{\pi}{8}$, $v \in (-4,4)$, $\Delta v = 0.1$, $t \in (0, 70)$, $\Delta t = 0.1$
+# Simulations are performed on a uniform grid $x \in (\frac{\pi}{8},8\pi)$, $\Delta x = \frac{\pi}{8}$, $v \in (-4,4)$, $\Delta v = 0.1$, $t \in (0, 140)$, $\Delta t = 0.1$. The run goes to 140 rather than 70 so that both recurrence times, $2\pi/(k\Delta v) = 125.7$ for the seeded mode and half that for its second harmonic, fall inside it.
 #
 x = collect(π/8:π/8:8π)
 Δx = vcat([x[2]-x[1]], 0.5*(x[3:end] - x[1:end-2]), [x[end]-x[end-1]])
@@ -62,7 +69,7 @@ f0 *= Ni/N0;
 
 f = copy(f0)
 
-t = collect(0.0:0.1:70.0)
+t = collect(0.0:0.1:140.0)
 n = t * n0'
 
 ε = similar(t)
@@ -113,24 +120,35 @@ run()
 #
 # where $E$ is an electric filed normalized to $\frac{m\omega_p v_{\rm th}}{e}$.
 #
-# We expect it to damp with the rate defined by the following expression:
+# The field damps at the Landau rate $\gamma$, so its energy damps at $2\gamma$. The rate is the imaginary part of the root of the kinetic dispersion relation, computed here rather than taken from the asymptotic $\frac{\pi}{8\sqrt{2}}k^{-3}\exp(-\frac{1}{2k^2})$ this file used to plot: at $k = 0.5$ that expression gives 0.3006, which is close to $2\gamma = 0.30672$ and nowhere near $\gamma$ itself.
 #
-# $$
-# \gamma = \frac{\pi}{8\sqrt{2}}k^{-3}\exp\left(-\frac{1}{2k^2}\right)
-# $$
-#
-u = 1/0.5
-γ = π/(8*√2)*u^3*exp(-0.5*u^2)
-ε_th = ε_e[9]*exp.(-γ*(t.-t[9]))
+γ = -imag(landau_root(0.5))
+ε_th = ε_e[9]*exp.(-2γ*(t.-t[9]))
 
 plot(t, ε_e, yscale=:log10, label="simulated")
-plot!(t, ε_th, yscale=:log10, label="theoretical")
+plot!(t, ε_th, yscale=:log10, label="exp(-2γt), γ = $(round(γ; digits=5))")
 ylims!(1e-13,1)
 xlabel!("ωₚt")
 ylabel!("εₑ/(mωₚvₜₕ³/e²)")
 savefig(figure("landau-damping-1d1v-01"))
 #
-# Here we see the great coincidence between simulations and the theory. We also see a well-known effect of oscillations recursion due to numerical artifact caused by finite resolution of veolcity space. It has been shown that the recursion time is of the order of $\pi/(k\Delta v)$ where $\Delta v$ is the velocity resolution. In our case this statement gives $t_{recur} \sim 62$ which is also in good coincidence with simulation results.
+# The damping follows the analytic rate until the mode reaches a floor and comes back up around $t \approx 62$. That rise is the recurrence caused by the finite velocity resolution — but **not of the mode that was seeded**. A mode of wavenumber $k$ on a grid of spacing $\Delta v$ recurs at $2\pi/(k\Delta v)$, which is 125.7 here; what returns at 62.8 is the second harmonic, $k = 1$, which the run generates nonlinearly and which recurs at half the time. The total $\varepsilon_e$ cannot tell them apart, so the next figure separates them.
+#
+# (This file previously quoted $\pi/(k\Delta v)$ for the recurrence time. That expression gives the right number, 62.8, for the wrong mode.)
+#
+# The density is stored per time step, so each mode's amplitude is one projection away.
+#
+mode_of(A, kk) = [2*abs(sum((A[j, :] .- ni).*cis.(-kk.*x)))/length(x) for j = 1:size(A, 1)]
+plot(t, mode_of(n, 0.5), yscale=:log10, label="k = 0.5 (seeded)")
+plot!(t, mode_of(n, 1.0), yscale=:log10, label="k = 1.0 (harmonic)")
+vline!([2π/(0.5*0.1)], linestyle=:dash, color=:steelblue, label="2π/(kΔv)")
+vline!([2π/(1.0*0.1)], linestyle=:dash, color=:darkorange, label="2π/(2kΔv)")
+ylims!(1e-12, 1e-1)
+xlabel!("ωₚt")
+ylabel!("|nₖ|")
+savefig(figure("landau-damping-1d1v-06"))
+#
+# Both curves oscillate at their own frequency and pass through deep nulls, so read the envelopes rather than any instant. `test/test_verification.jl` asserts both recurrence times — the seeded mode peaks at $t = 128.6$ against 125.7, the harmonic at 64.3 against 62.8 — and that each mode dominates around its own: the harmonic by a factor 25 near $t \approx 64$, the seeded mode by 116 near $t \approx 128$.
 #
 # We also can check the dispersion relation for Laingmuir oscillations in warm plasma. We expect that the frequency will be equal to
 #
