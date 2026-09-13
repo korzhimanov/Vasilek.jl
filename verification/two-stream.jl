@@ -26,6 +26,9 @@ here = @__DIR__
 # Sanity check before trusting the closed form for the rest of the script.
 worst = maximum(a -> abs(two_stream_residual(im*γ_cold(a), a)), (0.2, 0.4, 0.6, 0.8, 0.95))
 println("closed form vs dispersion relation: worst |residual| = ", worst)
+println("warm band edge at vt = 0.3 lies between a = 1.0 (γ = ",
+        round(two_stream_warm(1.0); digits = 5), ") and a = 1.05 (γ = ",
+        two_stream_warm(1.05), ")")
 
 # ---- growth curves for the three wavenumbers the test asserts, with the
 # fitted exponential overlaid on the window `growth_rate` actually used.
@@ -54,26 +57,39 @@ for (a, color) in zip(measured_a, (:steelblue, :crimson, :seagreen))
 end
 savefig(growth, joinpath(here, "two-stream-growth.png"))
 
-# ---- the growth rate against the closed form over the whole branch: γ(a) is
-# non-monotone, peaking at a = √(3/8) and reaching zero at the stability
-# boundary a = 1 -- reproducing that shape is a statement about the dispersion
+# ---- the growth rate against the closed forms over the whole branch: γ(a) is
+# non-monotone, peaking near a = √(3/8) and reaching zero at the stability
+# boundary -- reproducing that shape is a statement about the dispersion
 # relation, not about one point on it.
+#
+# Two curves, because they are not the same curve. The cold one is elementary
+# and stops dead at a = 1; the warm one is the root of the same relation for the
+# Maxwellian beams this study actually runs, and it is what the test asserts
+# against. They cross near a = 0.77 and part company entirely past a = 1, where
+# warm beams are still unstable -- which is why the measured point at a = 1.0
+# sits on a curve the cold form says should not exist.
 avals = 0.001:0.002:1.25
-dispersion = plot(avals, γ_cold.(avals); label = "γ_cold(a)  (closed form)",
+warm = two_stream_warm.(avals)
+dispersion = plot(avals, γ_cold.(avals); label = "γ_cold(a)  (cold limit)",
                    xlabel = "a = kv₀", ylabel = "γ",
                    title = "Two-stream growth rate vs wavenumber",
                    linewidth = 2.2, color = :steelblue, size = (700, 460))
+plot!(dispersion, avals, warm; label = "γ_warm(a)  (vt = 0.3)",
+      linewidth = 2.2, color = :darkorange)
 scatter!(dispersion, collect(measured_a), measured_γ;
          label = "measured (vt = 0.3)", markersize = 6, color = :crimson)
 vline!(dispersion, [sqrt(3/8)]; linestyle = :dot, color = :gray,
-       label = "a = √(3/8) (peak)")
+       label = "a = √(3/8) (cold peak)")
 vline!(dispersion, [1.0]; linestyle = :dashdot, color = :black,
-       label = "a = 1 (stability boundary)")
+       label = "a = 1 (cold stability boundary)")
 savefig(dispersion, joinpath(here, "two-stream-dispersion.png"))
 
-println("a, γ measured, γ cold, error")
+println("a, γ measured, γ warm, error, γ cold, error")
 for (a, γ) in zip(measured_a, measured_γ)
-    println("  ", a, "  ", round(γ; digits = 5), "  ", round(γ_cold(a); digits = 5),
+    w = two_stream_warm(a)
+    println("  ", a, "  ", round(γ; digits = 5),
+            "  ", round(w; digits = 5), "  (", round(100*(γ - w)/w; digits = 2), "%)",
+            "  ", round(γ_cold(a); digits = 5),
             "  (", round(100*(γ - γ_cold(a))/γ_cold(a); digits = 2), "%)")
 end
 println("wrote two-stream-{growth,dispersion}.png to ", here)

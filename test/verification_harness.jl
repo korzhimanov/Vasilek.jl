@@ -5,6 +5,11 @@ using Vasilek
 using Vasilek: StrangSplitting, FDTD1D, PoissonFourier1D
 using NumericalIntegration, FFTW
 
+# The kinetic dispersion relation: `landau_root`, `two_stream_warm` and the
+# pieces they are built from. Separate file because nothing in it runs a
+# simulation, and `test_dispersion.jl` exercises it without the Strang loop.
+include(joinpath(@__DIR__, "dispersion.jl"))
+
 "Spectral Poisson solve on a uniform x grid, e = -dφ/dx with φ'' = -ρ."
 function make_poisson(x)
     Δx = x[2] - x[1]
@@ -717,6 +722,15 @@ plasma dispersion function, no numerical root and no tabulated constant of the
 kind the Landau cases have to carry -- which is what made it worth waiting for
 rather than hard-coding a number. `test_verification.jl` checks the closed form
 against the relation it came from before using it.
+
+**This is the `vt → 0` limit, not the case the runs are held to.** The beams in
+[`two_stream`](@ref) are Maxwellian at `vt = 0.3`, where the cold rate is off by
+up to 7.44%; [`two_stream_warm`](@ref) solves the same relation for warm beams
+and is what the assertions compare against. The two meet to 0.006% at
+`vt = 0.02`, which `test_dispersion.jl` asserts, and they part company in sign
+as well as size near the band edge: above `a ≈ 0.77` the warm rate is the larger
+of the two, and above `a = 1` the cold branch is zero while warm beams still
+grow.
 """
 two_stream_u(a) = ((2a^2 + 1) - sqrt(8a^2 + 1))/2
 γ_cold(a) = sqrt(max(0.0, -two_stream_u(a)))
@@ -764,6 +778,13 @@ narrower grid halves the cost.
     peak `ε_e` reaches 61 at `a = 0.6`, twelve times the `hi` that holds the
     velocity Courant number at 0.65, so the tail of the run is unphysical even
     where it is finite. Nothing reads it -- the fit is long over by then.
+
+    **`a = 1.0` is a different regime and takes `tmax = 80`.** There the cold
+    rate is zero and the warm one is 0.098, a third of the branch maximum, so
+    `ε_e` needs 78 time units to cross the same amplitude band the other cases
+    cross in twenty. Its divergence is correspondingly later -- measured at
+    t = 86.3 -- which is why the two numbers can coexist: the window is narrow
+    at each `a`, not globally.
 """
 function two_stream(a; v₀ = 3.0, vt = 0.3, Δv = 0.05, vmax = 6.0,
                        Δt = 0.05, tmax = 24.0)

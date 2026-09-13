@@ -5,6 +5,7 @@ using LinearAlgebra
 @testset "Test everything" begin
     include("test_aqua.jl")
     include("test_readme.jl")
+    include("test_dispersion.jl")
     include("test_golden.jl")
     include("test_amplification.jl")
     include("test_convergence.jl")
