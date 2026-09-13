@@ -85,7 +85,10 @@ Strang-split Vlasov–Poisson on a static grid.
 Returns a NamedTuple with `ε_e` (electric energy) and `ε` (total energy)
 histories. With `invariants = true` it also returns the `mass`, `momentum`,
 `l2` and `entropy` histories -- the conserved quantities that are *not* the
-energy, and that nothing asserted until now.
+energy, and that nothing asserted until now. `modes = (k₁, k₂, …)` adds
+`E_modes`, an `Nt × length(modes)` matrix of complex field amplitudes from
+[`mode_amplitude`](@ref), which is what separates a mode from its harmonics
+where `ε_e` cannot.
 
 **The invariants use the cell-width sum `Σ f ΔvΔx`, not `integrate`.** That is
 the quadrature the schemes actually conserve: `PFC` is a flux form, so what
@@ -108,7 +111,8 @@ arguments so that the same driver can measure what the physics costs under a
 so that a refinement study can hold the scheme fixed while moving the grid.
 """
 function vlasov_poisson(x, v, f₀, t;
-                        scheme_x = nothing, scheme_v = nothing, invariants = false)
+                        scheme_x = nothing, scheme_v = nothing, invariants = false,
+                        modes = ())
     Δx = cell_widths(x)
     Δv = cell_widths(v)
     sx = scheme_x === nothing ? PFCNonUniform(Δx; fmin = 0.0, fmax = 1.0) : scheme_x
@@ -143,6 +147,12 @@ function vlasov_poisson(x, v, f₀, t;
     # being unusable on a nonlinear run. Tracked because the comparison study
     # would otherwise rank a non-positive scheme first without saying so.
     fmin     = invariants ? similar(t) : nothing
+    # Per-mode field amplitudes, when asked for. `ε_e` sums every mode in the
+    # box, which is fine while one of them dominates and misleading the moment
+    # another does -- the recurrence of the second harmonic arrives at half the
+    # time the seeded mode's does, and in `ε_e` it is indistinguishable from the
+    # seeded mode coming back early.
+    E_modes  = isempty(modes) ? nothing : zeros(ComplexF64, length(t), length(modes))
 
     for k in 1:length(t)-1
         Δt = t[k+1] - t[k]
@@ -153,6 +163,11 @@ function vlasov_poisson(x, v, f₀, t;
             return e*Δt
         end
         StrangSplitting.make_time_step_2d!((g, f), (vΔt, eΔt), (advect_x!, advect_v!))
+        if E_modes !== nothing
+            for (j, km) in enumerate(modes)
+                E_modes[k, j] = mode_amplitude(e, x, km)
+            end
+        end
         ε_e[k] = integrate(x, e.^2)
         @. tmp = f*v^2
         ε[k] = integrate(x, integrate(v, tmp)) + ε_e[k]
@@ -172,7 +187,8 @@ function vlasov_poisson(x, v, f₀, t;
     for h in (ε_e, ε, mass, momentum, l2, entropy, fmin)
         h === nothing || (h[end] = h[end-1])
     end
-    return (; ε_e, ε, mass, momentum, l2, entropy, fmin)
+    E_modes === nothing || (E_modes[end, :] = E_modes[end-1, :])
+    return (; ε_e, ε, mass, momentum, l2, entropy, fmin, E_modes)
 end
 
 # --------------------------------------------------------- mode fitting
@@ -183,6 +199,20 @@ end
 #
 # so both the damping rate and the real frequency are recoverable from it --
 # but only if the `cos²` is handled rather than ignored.
+
+"""
+    mode_amplitude(e, x, k)
+
+Complex amplitude of the `exp(ikx)` component of `e` on the uniform grid `x`,
+normalised so that `e = A·cos(kx)` returns `A`.
+
+`ε_e` is the only field diagnostic the driver kept until now, and it is a sum
+over every mode in the box. That is enough while one mode dominates and
+actively misleading when a second one arrives: the recurrence of a nonlinearly
+generated harmonic lands at `2π/(mkΔv)`, i.e. earlier than the seeded mode's own
+by the harmonic number, and in `ε_e` the two are the same bump.
+"""
+mode_amplitude(e, x, k) = 2*sum(e[j]*cis(-k*x[j]) for j in eachindex(x))/length(x)
 
 """
     local_extrema(t, y; tmin, tmax, maxima)
