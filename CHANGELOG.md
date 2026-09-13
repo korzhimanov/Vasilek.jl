@@ -9,6 +9,30 @@ This project has not been released; entries below describe work on `master`.
 
 ### Added
 
+- **Strong Landau damping is measured against the literature instead of
+  eyeballed.** The `α = 0.5` case has been in the notebook since 2021 with the
+  text "the quantitative coincidence is almost perfect" against Fig. 6(a) of
+  Filbet, Sonnendrücker and Bertrand (2001) — a comparison nothing could check.
+  It is the standard nonlinear benchmark and is quoted by two numbers:
+  Cheng and Knorr (1976) give γ₁ = −0.281 and γ₂ = 0.084, later work −0.292 with
+  0.0815 and −0.2918 with 0.08584.
+
+  Measured on 128 × 241 with Δt = 0.025: γ₁ = 0.2863 over the four maxima of the
+  decay proper, γ₂ = 0.0789 over the eight of the regrowth. Both windows are
+  conventions and the testset says so with numbers: γ₁ reads 0.3786 over three
+  maxima and 0.2281 over five, because the envelope steepens and then flattens
+  into the trapping plateau, so a straight line through it depends on how much
+  of the curve is inside the window.
+
+  Refinement is what makes the agreement more than a coincidence of one grid:
+  γ₂ goes 0.0716 → 0.0789 → 0.0814 as Δx, Δv and Δt halve, toward the published
+  value rather than away from it.
+
+  The non-uniform velocity grid — the notebook's, and the only path this suite
+  has toward an adaptive mesh — reproduces both rates to 0.04% and 0.6%. It had
+  been asserted only through an energy drift on a *linear* run, where the
+  distribution never approaches the sharp gradients its limiter exists for.
+
 - **Galilean invariance of the Landau run** (`test/test_verification.jl`). Every
   Vlasov–Poisson case in this suite starts from a distribution symmetric in `v`,
   so the mean velocity is zero throughout and the drifting half of the solver
