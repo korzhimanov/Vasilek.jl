@@ -7,6 +7,29 @@ This project has not been released; entries below describe work on `master`.
 
 ## [0.2.0] - unreleased
 
+### Added
+
+- **Galilean invariance of the Landau run** (`test/test_verification.jl`). Every
+  Vlasov–Poisson case in this suite starts from a distribution symmetric in `v`,
+  so the mean velocity is zero throughout and the drifting half of the solver
+  has never been exercised — the same blind spot `test_damping_1v.jl` found in
+  `BGK`, where the mean-velocity computation had never run on data with a mean
+  velocity.
+
+  A boost by `u` carries `f(x,v,t) → f(x-ut, v-u, t)` and `E(x,t) → E(x-ut,t)`,
+  so the mode's history should be the same complex function times `exp(-ikut)`.
+  Nothing in the discretisation is Galilean invariant — the grid does not move
+  and the boosted Maxwellian sits on it asymmetrically — so the agreement is a
+  measurement: over the eleven maxima in the fitting window, amplitudes within
+  1.5e-3 and phases within 8.0e-3 rad, with fitted rates 0.133% apart and
+  frequencies identical to the estimator's resolution. Without the Doppler
+  correction the phase differs by up to 2.88 rad, which is what says the
+  correction is doing work.
+
+  Compared at the maxima rather than pointwise: both `|E_k|` and `ε_e` pass
+  through deep nulls, and the first version of this test reported a 900%
+  discrepancy that was entirely two nulls landing a time step apart.
+
 ### Fixed
 
 - **The "linear" Landau case at k = 0.3 was not linear, and the agreement it

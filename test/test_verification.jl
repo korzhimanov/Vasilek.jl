@@ -352,11 +352,97 @@ end
             @test maximum(A₁[lo₂:hi₂]) > 10*maximum(A₂[lo₂:hi₂])
         end
 
+        @testset "A drifting plasma damps the same way, Doppler-shifted" begin
+            # Every Vlasov--Poisson case in this suite starts from a
+            # distribution symmetric in `v`, so `u = 0` throughout and the
+            # drifting half of the solver is never exercised. That is exactly
+            # the blind spot `test_damping_1v.jl` found in `BGK`, where the
+            # mean-velocity computation had never run on data with a mean
+            # velocity; here it would hide an error in the `v` sweep that
+            # cancels between `+v` and `-v`, or a resonance found by symmetry
+            # rather than by physics.
+            #
+            # The statement is Galilean invariance. Boosting by `u` carries
+            #
+            #     f(x, v, t) → f(x - ut, v - u, t),   E(x, t) → E(x - ut, t)
+            #
+            # so the field is the same solution translated: `|E_k|` is
+            # unchanged, the damping rate is unchanged, and the only difference
+            # is a phase `exp(-ikut)` on the mode. Nothing in the *discretisation*
+            # is Galilean invariant -- the grid does not move, and the boosted
+            # Maxwellian sits on it asymmetrically -- so the agreement below is
+            # a measurement rather than an identity.
+            #
+            # Measured at the 11 maxima of `|E_k|` in the fitting window, with
+            # `u = 0.5` against `u = 0`:
+            #
+            #   amplitude ratio     within 1.5e-3
+            #   phase               within 8.0e-3 rad
+            #   fitted γ            0.133% apart
+            #   fitted ω            identical to the estimator's resolution
+            #
+            # Compared at the maxima, and deliberately: both `|E_k|` and `ε_e`
+            # pass through deep nulls, where a relative difference of anything
+            # is meaningless. The first attempt at this test compared them
+            # pointwise and reported 900% -- entirely from two nulls landing a
+            # time step apart.
+            k, α, u = 0.5, 1e-3, 0.5
+            L = 2*(2π/k)
+            Δx = L/64
+            x = collect(Δx:Δx:L)
+            v = collect(-6:0.1:6)       # wide enough for the boosted resonance at 3.33
+            t = collect(0.0:0.05:40.0)
+            drifting(u) = vlasov_poisson(x, v,
+                1/sqrt(2π)*(@. exp(-0.5*(v - u)^2)) * (@. (1.0 + α*cos(k*x)))',
+                t; modes = (k,))
+            rest, boosted = drifting(0.0), drifting(u)
+
+            # The Doppler factor is taken out here; the assertion is that what
+            # remains is the same complex history.
+            A₀ = rest.E_modes[:, 1]
+            A_u = boosted.E_modes[:, 1] .* cis.(k*u .* t)
+            peaks = local_extrema(t, abs.(A₀); tmin = 5.0, tmax = 30.0, maxima = true)
+            amp = maximum(abs(abs(A_u[i])/abs(A₀[i]) - 1) for i in peaks)
+            phase = maximum(abs(angle(A_u[i]/A₀[i])) for i in peaks)
+            println("  boosted by u = ", u, ", over ", length(peaks), " maxima: amplitude ",
+                    round(amp; sigdigits = 3), ", phase ", round(phase; sigdigits = 3), " rad")
+            @test amp < 5e-3
+            @test phase < 2e-2
+
+            # And the rates, which is the same statement read through the
+            # estimators the rest of this file uses.
+            γ₀, _ = damping_rate(t, rest.ε_e; tmin = 6.0, tmax = 30.0)
+            γ_u, _ = damping_rate(t, boosted.ε_e; tmin = 6.0, tmax = 30.0)
+            ω₀, _ = oscillation_frequency(t, rest.ε_e; tmin = 6.0, tmax = 30.0)
+            ω_u, _ = oscillation_frequency(t, boosted.ε_e; tmin = 6.0, tmax = 30.0)
+            println("  γ = ", round(γ₀; digits = 5), " at rest, ", round(γ_u; digits = 5),
+                    " boosted (", round(100*abs(γ_u - γ₀)/γ₀; digits = 3), "%)",
+                    "   ω = ", round(ω₀; digits = 5), " and ", round(ω_u; digits = 5))
+            @test isapprox(γ_u, γ₀; rtol = 5e-3)
+            @test isapprox(ω_u, ω₀; rtol = 1e-3)
+
+            # Teeth: the Doppler shift being taken out is a real shift, not a
+            # formality. Without the correction the mode's phase differs by up
+            # to 2.88 radians over the same window.
+            raw = maximum(abs(angle(boosted.E_modes[i, 1]/A₀[i])) for i in peaks)
+            println("  without the exp(ikut) correction the phase differs by up to ",
+                    round(raw; digits = 2), " rad")
+            @test raw > 1.0
+        end
+
         @testset "Landau damping converges under refinement" begin
             # Agreement at one resolution inside a 3% band can be luck: two
             # errors of opposite sign meeting in the middle is exactly how a
             # plausible-but-wrong solver survives a tolerance. What cannot be
             # luck is the error *shrinking* when the grid is refined.
+            #
+            # **This one keeps α = 1e-2 where the cases above moved to 1e-3**,
+            # and the bounce phase says why it may: at k = 0.5 the damping is
+            # fast enough that `ω_B` falls with the field before a bounce
+            # completes, so `trapping_phase(1e-2, γ, 30) = 0.65` against the 3.7
+            # the k = 0.3 case reached. The larger amplitude keeps the mode
+            # above the recurrence floor at the coarsest grid, where α = 1e-3
+            # would put it into the noise at Nx = 32.
             #
             # Δx, Δv and Δt are halved together, so the Courant number stays at
             # 0.81 and only the discretisation moves. Measured at k = 0.5:
