@@ -9,6 +9,35 @@ This project has not been released; entries below describe work on `master`.
 
 ### Added
 
+- **The dispersion relation of an electromagnetic wave in plasma is asserted**
+  (`test/test_em_plasma.jl`). The Yee update is pinned in vacuum mode by mode
+  against a closed form; the plasma current that turns it into half of a
+  laser-plasma model was exercised only through `wakefield`, where it enters a
+  wake dominated by the ponderomotive term. Standing PEC modes in uniform
+  plasma now measure
+
+      (2/Δt)²·sin²(ωΔt/2) = (2/Δx)²·sin²(kΔx/2) + n
+
+  over two densities, three Courant numbers and four wavenumbers, worst
+  departure 3.2e-4 — which is the crossing estimator's own Δt resolution, not
+  the scheme. The plasma cutoff comes with it: at n = 0.3 the longest mode the
+  grid holds oscillates at 0.55018 against `√(n + k²)` = 0.55000, where the
+  discrete plasma frequency itself is 0.54789 and `√n` is 0.54772.
+
+  The sign of the current is the point of the last testset. `docs/normalization`
+  says reversing it turns the oscillation into growth; run, it reaches 4.8e+134
+  in four thousand steps against the 1.0e+2 the physical sign holds.
+
+  The three lines this tests — the canonical `p⊥ += E⊥Δt`, the `-J Δt`
+  convention and that sign — are now `transverse_step!` in the harness, called
+  by `wakefield` rather than written inside it, so the relation asserted here is
+  a statement about the code the study runs. Numbers unchanged: the extended
+  suite reproduces every wakefield figure bit for bit.
+
+  `em_omega` is the closed form. It is not the continuum `ωₚ² + k²`, and the gap
+  matters: at the ten cells per wavelength the wakefield study used, the group
+  velocity it implies is 4.5% below `√(1-n)`.
+
 - **The kinetic dispersion relation is solved rather than tabulated**
   (`test/dispersion.jl`). The plasma dispersion function is written as
   `Z(ζ) = i√π·erfcx(-iζ)`, i.e. through the *entire* Faddeeva function, so one

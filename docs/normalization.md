@@ -85,9 +85,36 @@ plasma-oscillation notebook verifies against the analytic plasma frequency:
 ∂p/∂t = +E        ∂E/∂t = -n·p
 ```
 
-Together these give an oscillation. Flipping either gives exponential growth.
+Together these give an oscillation. Flipping either gives exponential growth —
+measured, in `test/test_em_plasma.jl`: the same transverse mode that stays at
+its initial amplitude with the sign above reaches `4.8e134` in four thousand
+steps with the current reversed.
 
-The frequency of that oscillation is now asserted rather than asserted-about:
+## The transverse wave on the grid
+
+Coupling that current to the Yee update — which is what `transverse_step!` in
+the verification harness does, and what `wakefield` calls — gives a plane wave
+whose frequency is **not** `ω² = ωₚ² + k²` but
+
+```
+(2/Δt)²·sin²(ωΔt/2) = (2/Δx)²·sin²(kΔx/2) + n
+```
+
+exactly. `em_omega` in the harness is that relation and
+`test/test_em_plasma.jl` asserts it to 3.2e-4 across two densities, three
+Courant numbers and four wavenumbers.
+
+The plasma enters only through `nΔt²/4`, so at a small Courant number the error
+is the spatial term, and it is not decorative: at ten cells per vacuum
+wavelength the group velocity this relation gives is 4.5% below `√(1-n)`. A
+laser pulse therefore arrives late and drives a wake whose phase velocity is
+wrong by the same amount, which for a wakefield study is the difference between
+`γ_φ ≈ 2.2` and `≈ 3.0`. Resolve the laser wavelength with twenty cells or
+better, or read the pulse speed off `em_omega` rather than off the continuum
+formula.
+
+The frequency of the longitudinal oscillation is now asserted rather than
+asserted-about:
 `test/test_verification.jl` measures it at `ω = 1.005719` against the
 Bohm–Gross `√(1 + 3k²) = 1.005904` at `k = 2π/100`, which is 0.018% — and
 0.57% from the cold `ωₚ = 1`, so the thermal correction is resolved rather than

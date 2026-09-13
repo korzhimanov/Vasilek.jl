@@ -270,6 +270,65 @@ function ddx!(d, u, Δx)
 end
 
 """
+    transverse_step!(advance_fields!, em, pʸ, pᶻ, density, t, Δt)
+
+One step of the transverse half of the reduced model: accumulate the canonical
+`p⊥ = -A⊥` from `E⊥`, then advance `em` with the current that momentum carries.
+
+Three lines, and every one of them has been wrong at some point, which is why
+they are a function rather than a passage inside [`wakefield`](@ref):
+
+* the accumulation is `p⊥ += E⊥Δt`, which is the invariant `p⊥ = -A⊥` and not a
+  force integral -- see the `wakefield` docstring;
+* the current argument is `-J Δt` rather than `J`, because
+  `make_advance_fields` adds it straight into the field. Without the `Δt` the
+  wakefield study reached a peak field of 1.0e22;
+* the sign pairs `∂p/∂t = +e` with `∂e/∂t = -n·p` into an oscillation. The
+  other way round it is exponential growth, measured at 44 rather than 1.
+
+`density` is whatever the caller has: the Vlasov density of the step in
+`wakefield`, a constant in `test_em_plasma.jl`. Sharing this function is what
+lets the dispersion relation asserted there be a statement about the code the
+wakefield study runs, rather than about a second copy of it.
+"""
+function transverse_step!(advance_fields!, em, pʸ, pᶻ, density, t, Δt)
+    pʸ .= pʸ .+ em.ey.*Δt
+    pᶻ .= pᶻ .+ em.ez.*Δt
+    advance_fields!(t, (y = -pʸ.*density.*Δt, z = -pᶻ.*density.*Δt))
+    return nothing
+end
+
+"""
+    em_omega(k, density, Δx, Δt)
+
+Frequency of a plane electromagnetic wave in uniform plasma **on this grid**:
+
+    (2/Δt)²·sin²(ωΔt/2) = (2/Δx)²·sin²(kΔx/2) + n
+
+Not an approximation and not the continuum `ω² = ωₚ² + k²` — it is exact for
+the update order in [`transverse_step!`](@ref), which is worth setting out
+because the two are far apart at the resolutions this package runs. Writing
+`z = exp(-iωΔt)` and eliminating `H` and `p⊥` from the three update lines leaves
+
+    -2i·sin(ωΔt/2)·E = -2i·cfl·sin(kΔx/2)·H - Δt²n·E/(-2i·sin(ωΔt/2))
+
+and the relation above follows. The plasma enters only through `Δt²n/4`, so at
+the small `cfl` the wakefield study uses it is the *spatial* term that carries
+the error: at ten cells per wavelength the group velocity comes out 4.5% below
+`√(1-n)`, which is a laser pulse arriving late and a wake with the wrong phase
+velocity, not a rounding difference.
+
+Real for `cfl²sin²(kΔx/2) + nΔt²/4 ≤ 1`, which is the stability condition; the
+plasma term is what tightens it slightly below the familiar `cfl ≤ 1`.
+"""
+function em_omega(k, density, Δx, Δt)
+    s = (Δt/Δx)^2*sin(k*Δx/2)^2 + density*Δt^2/4
+    s ≤ 1 || error("em_omega: cfl²sin²(kΔx/2) + nΔt²/4 = $s exceeds 1, so this " *
+                   "grid is unstable at k = $k and the frequency is complex")
+    return 2/Δt*asin(sqrt(s))
+end
+
+"""
     wakefield(; Δx, Δt_factor, Δp, total_time, ...)
 
 Laser wakefield excitation in a 1D1V plasma slab: `PFC` advection in x and p,
@@ -407,16 +466,10 @@ function wakefield(; Δx = 0.1*2π,
         n[k, :] = integrate(p, g)
         solve_poisson!(e, n[k, :] - nᵢ)
 
-        # The canonical transverse momentum, `p⊥ = -A⊥`. See the docstring.
-        pʸ .= pʸ .+ em.ey.*Δt
-        pᶻ .= pᶻ .+ em.ez.*Δt
-
-        # The current owes its own Δt -- `make_advance_fields` adds the argument
-        # straight into `ey` -- and the sign that pairs `∂p/∂t = +e` with
-        # `∂e/∂t = −n·p` into an oscillation rather than exponential growth.
-        # Without the first the peak field reached 1.0e22; with the sign the
-        # other way, 44. See `docs/normalization.md`.
-        advance_fields!(k*Δt, (y = -pʸ.*n[k, :].*Δt, z = -pᶻ.*n[k, :].*Δt))
+        # The canonical transverse momentum and the current it carries, both in
+        # `transverse_step!` so that `test_em_plasma.jl` can assert the
+        # dispersion relation of *this* code rather than of a copy of it.
+        transverse_step!(advance_fields!, em, pʸ, pᶻ, view(n, k, :), k*Δt, Δt)
 
         @. ϕ = 0.5*(pʸ^2 + pᶻ^2)
         ddx!(∂ϕ, ϕ, Δx)

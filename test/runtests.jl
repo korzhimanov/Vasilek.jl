@@ -17,6 +17,7 @@ using LinearAlgebra
     include("test_allocations.jl")
     include("test_verification.jl")
     include("test_maxwell_solvers.jl")
+    include("test_em_plasma.jl")
     include("test_vlasov_solvers.jl")
     include("test_boltzmann_solvers.jl")
 end
