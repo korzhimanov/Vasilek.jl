@@ -9,9 +9,10 @@
 # With `Z` in hand the Landau roots are computed at any `k` rather than quoted at
 # three, and the two-stream measurement can be compared against the beams the
 # solver was actually given -- warm ones -- instead of against a cold limit it is
-# known to miss. Measured, the second point is worth about a factor of four: the
-# three warm rates come out within 2.01% where the cold form is off by up to
-# 7.44%.
+# known to miss. Measured at the `vt = 0.3` of the three growth-rate runs, the
+# warm root takes the worst error from the cold form's 3.14% to 1.95%. The gap is
+# widest at the `vt = 0.6` run, 7.44% against 2.01%, because the cold form's error
+# grows with the beam temperature and the warm root's does not.
 #
 # Deliberately a separate file rather than part of `verification_harness.jl`:
 # nothing here runs a simulation, and `test_dispersion.jl` needs it without
@@ -31,10 +32,13 @@ for is a damped or growing mode with `Im ζ ≠ 0`. `w` is entire, so the
 expression below **is** the analytic continuation rather than an approximation
 to it, and one formula covers the whole plane.
 
-`erfcx` rather than `erf` because `w(ζ) = exp(-ζ²)erfc(-iζ)` overflows in the
-first factor and underflows in the second for `|ζ| ≳ 27`, where the scaled form
-stays finite: the resonance at `v = ω/k` sits at `ζ = 2.8` for the cases here,
-but the fluid limit of a collisional run pushes it out to ten times that.
+`erfcx` rather than `erf` because `w(ζ) = exp(-ζ²)erfc(-iζ)` breaks on the real
+axis at `|ζ| ≳ 27`: the first factor underflows toward zero, the second
+overflows to `Inf`, and `w` comes back with an infinite imaginary part where the
+scaled form stays finite. Below that the two agree to the last bit -- measured
+identical at `ζ = 8`, 20 and 26 -- so the choice is about the far tail only. The
+resonance at `v = ω/k` sits at `ζ = 2.8` for the cases here, but the fluid limit
+of a collisional run pushes it out to ten times that.
 """
 Z(ζ) = im*sqrt(π)*erfcx(-im*ζ)
 

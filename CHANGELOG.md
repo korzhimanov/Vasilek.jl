@@ -74,8 +74,11 @@ This project has not been released; entries below describe work on `master`.
   Nothing in the discretisation is Galilean invariant — the grid does not move
   and the boosted Maxwellian sits on it asymmetrically — so the agreement is a
   measurement: over the eleven maxima in the fitting window, amplitudes within
-  1.5e-3 and phases within 8.0e-3 rad, with fitted rates 0.133% apart and
-  frequencies identical to the estimator's resolution. Without the Doppler
+  1.5e-3 and phases within 1.8e-3 rad, with fitted rates 0.133% apart and
+  frequencies identical to the estimator's resolution. The phase is compared at
+  each sample's own time, `t[k] + Δt/2` — the field is recorded mid-step — and
+  removing the Doppler factor at `t[k]` instead reads 8.0e-3, of which 6.25e-3 is
+  that half-step and not the grid. Without the Doppler
   correction the phase differs by up to 2.88 rad, which is what says the
   correction is doing work.
 
@@ -105,10 +108,13 @@ This project has not been released; entries below describe work on `master`.
   with window spreads of 0.19%, 0.05% and 0.36% (they were up to 1.45%).
 
   `trapping_phase` is the guard, asserted per case: `(√α/γ)(1 - exp(-γT))`, the
-  bounce phase accumulated before the mode damps away. It is calibrated by the
-  new trapping testset rather than assumed — the damping departs at 3.5 and
-  stops at 7.3 — and the three cases sit at 0.21, 0.45 and 1.70 where the old
-  k = 0.3 setup sat at 3.7.
+  bounce phase accumulated before the mode damps away, evaluated at the
+  amplitude each run actually used. It is calibrated by the new trapping testset
+  rather than assumed: in its own units the damping departs at about 2.8 and
+  stops at 4.3 to 5.7, and the three cases sit at 0.21, 0.45 and 1.70 where the
+  old k = 0.3 setup sat at 3.7. (The testset's headline invariant is the
+  undamped `√α·t₀`, 7.1 to 8.0 at the arrest — a different number, not to be
+  compared with these.)
 
 - **The recurrence in the Landau notebook is the second harmonic's, not the
   seeded mode's.** The text explained the rise in `ε_e` at t ≈ 62 as the mode
@@ -139,7 +145,8 @@ This project has not been released; entries below describe work on `master`.
   predicts 0.8993 there, against 0.8858 measured; at twenty cells it predicts
   0.9329 against 0.9261.
 
-  So `Δx` halves, to twenty cells per laser wavelength, at 30% more wall clock.
+  So `Δx` halves, to twenty cells per laser wavelength, at about four times the
+  wall clock: `Δt` halves with it, so both `Nx` and `Nt` double.
   It matters because the wake keeps station with the driver: a driver six
   percent slow is a wake whose phase velocity is six percent wrong, `γ_φ ≈ 2.2`
   against 3.0, which is a different statement about trapping and dephasing.
@@ -219,8 +226,9 @@ This project has not been released; entries below describe work on `master`.
 
 - **The two-stream case is measured against warm beams.** The runs have
   Maxwellian beams at `vt = 0.3` and were compared against the cold closed form,
-  which at that temperature is off by up to 7.44% — most of a 6% tolerance spent
-  on a known approximation. Against `two_stream_warm` the same three
+  which at that temperature is off by up to 3.14% — half of a 6% tolerance spent
+  on a known approximation, and 7.44% at the `vt = 0.6` run, where the cold error
+  has grown with the temperature. Against `two_stream_warm` the same three
   measurements read −0.39%, −1.95% and +0.10%, and the tolerance is now 3%.
 
   `a = 1.0`, the cold stability boundary, turns from a qualitative case into the

@@ -52,9 +52,9 @@ closed form remains as its zero-temperature limit and is checked as such.
 | the Vlasov–Poisson flow runs backwards | round-trip error after v → −v falls by at least 4× when the grid is halved, at α = 0.05 | 1.97e-3 → 3.44e-4, ×5.7 |
 | unless the flow has out-run the grid | at α = 0.5 the same refinement recovers nothing | 0.164 → 0.156, ×1.05 |
 | and reversibility is bought with positivity | the two most reversible schemes are the two that drive f negative | 0.085 and 0.106 at f = −0.094 and −0.058, against PFC's 0.164 at f ≥ 0 |
-| strong Landau damping, α = 0.5 | γ₁ in the literature's −0.281…−0.292 and γ₂ in its 0.0770…0.0858; refining moves γ₂ toward them | 0.2863, 0.0789 |
+| strong Landau damping, α = 0.5 | γ₁ in the literature's −0.281…−0.292; γ₂ within 0.070…0.090, just under the cited 0.0815…0.0858, and refining moves it toward them | 0.2863, 0.0789 (0.0814 at twice the resolution) |
 | and the non-uniform velocity grid agrees | both rates within 2% of the uniform grid at the same Δt | 0.04%, 0.6% |
-| a drifting plasma damps the same way | boosted mode matches the rest-frame one once the Doppler phase is removed, and the fitted rates agree | 1.5e-3, 8.0e-3 rad, 0.133% |
+| a drifting plasma damps the same way | boosted mode matches the rest-frame one once the Doppler phase is removed at each sample's own time, and the fitted rates agree | 1.5e-3, 1.8e-3 rad, 0.133% |
 | trapping stops the damping on the bounce time | ω_B·t₀ between 6.5 and 8.5 at four amplitudes, and t₀ ∝ α^(−1/2) | 7.09–8.01, slope −0.557 |
 | each mode recurs at its own 2π/(kΔv) | within a plasma period, for the seeded mode and the harmonic it generates | 128.6 vs 125.7, 64.3 vs 62.8 |
 | plasma oscillation frequency | ω within 0.2% of Bohm–Gross √(1+3k²), and the cold ωₚ excluded | 0.018%, against 0.57% for cold |

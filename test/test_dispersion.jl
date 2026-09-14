@@ -45,9 +45,11 @@ end
 @testset "The plasma dispersion function" begin
     @testset "Z at zero and on the real axis" begin
         # Z(0) = i√π exactly, and the imaginary part on the real axis is
-        # √π·exp(-ζ²) -- the Landau term, and the reason `erfcx` is used rather
-        # than `exp(-ζ²)erfc(-iζ)`: at ζ = 8 the second form has already
-        # overflowed its first factor while this one reports 1.6e-28.
+        # √π·exp(-ζ²) -- the Landau term, 2.8e-28 at ζ = 8. The unscaled
+        # `exp(-ζ²)erfc(-iζ)` still gets that right: the two forms agree to the
+        # last bit up to ζ = 26. `erfcx` earns its place past that, where
+        # `erfc(-iζ)` overflows and the unscaled form returns `Re Z = -Inf` --
+        # which is why ζ = 30 is in the asymptotic loop below.
         @test Z(0.0 + 0.0im) ≈ im*sqrt(π) rtol = 1e-15
         for ζ in (0.5, 2.0, 5.0, 8.0)
             @test imag(Z(complex(ζ, 0.0))) ≈ sqrt(π)*exp(-ζ^2) rtol = 1e-12
@@ -55,8 +57,9 @@ end
 
         # and the asymptotic expansion of the real part, which pins the branch:
         # Re Z → -1/ζ - 1/(2ζ³) - 3/(4ζ⁵), the next term being -15/(8ζ⁷).
-        for ζ in (5.0, 8.0)
+        for ζ in (5.0, 8.0, 30.0)
             series = -1/ζ - 1/(2ζ^3) - 3/(4ζ^5)
+            @test isfinite(Z(complex(ζ, 0.0)))
             @test isapprox(real(Z(complex(ζ, 0.0))), series; atol = 2*15/(8ζ^7))
         end
     end
