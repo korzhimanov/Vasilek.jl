@@ -90,6 +90,13 @@ energy, and that nothing asserted until now. `modes = (k₁, k₂, …)` adds
 [`mode_amplitude`](@ref), which is what separates a mode from its harmonics
 where `ε_e` cannot.
 
+**Row `k` of `E_modes` (and of `ε_e`) is sampled at `t[k] + Δt/2`, not `t[k]`.**
+The field is solved inside the step, after Strang's first `x` half-step, and
+recorded from there. A rate or a frequency cannot see a constant time offset;
+a *phase* can, and does: removing a Doppler factor `exp(-ikut)` at `t[k]` leaves
+`k·u·Δt/2` behind on every sample, which the Galilean test in
+`test_verification.jl` once reported as the grid's own non-invariance.
+
 **The invariants use the cell-width sum `Σ f ΔvΔx`, not `integrate`.** That is
 the quadrature the schemes actually conserve: `PFC` is a flux form, so what
 leaves one cell enters its neighbour and the full-weight sum is preserved
@@ -472,7 +479,8 @@ a resolution this model can be read at: the Yee dispersion relation
 so the pulse arrives late and the wake it writes has a phase velocity wrong by
 the same amount -- `γ_φ ≈ 2.2` against the 3.0 the physics gives, which is the
 difference between two different statements about trapping and dephasing.
-Measured across the two, at a cost of 30% more wall clock:
+Measured across the two, at about four times the wall clock -- halving `Δx` halves
+`Δt` with it, so `Nx` and `Nt` both double (2.5 s against 10 s, timed back to back):
 
     cells/λ₀   pulse speed   wake phase velocity   λ       predicted v_g
     10         0.8858        0.8925                17.460  0.8993
@@ -876,7 +884,8 @@ against the relation it came from before using it.
 
 **This is the `vt → 0` limit, not the case the runs are held to.** The beams in
 [`two_stream`](@ref) are Maxwellian at `vt = 0.3`, where the cold rate is off by
-up to 7.44%; [`two_stream_warm`](@ref) solves the same relation for warm beams
+up to 3.14% -- and by 7.44% for the `vt = 0.6` run, the cold error growing with
+temperature; [`two_stream_warm`](@ref) solves the same relation for warm beams
 and is what the assertions compare against. The two meet to 0.006% at
 `vt = 0.02`, which `test_dispersion.jl` asserts, and they part company in sign
 as well as size near the band edge: above `a ≈ 0.77` the warm rate is the larger

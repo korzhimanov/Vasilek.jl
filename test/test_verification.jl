@@ -42,9 +42,13 @@ Bounce phase a resonant particle accumulates before the mode damps away,
 usual statement is O'Neil's `γ ≫ ω_B`, and by that measure none of the cases
 below qualify -- but `ω_B` is not constant, and a mode that damps before the
 first bounce never traps anything however small `γ` is. The phase is what
-combines the two, and it is calibrated: the local damping rate departs from the
-analytic one at `Φ_B ≈ 3.5` and crosses zero at `Φ_B ≈ 7.3`, measured in the
-trapping testset below.
+combines the two, and it is calibrated against the trapping testset below --
+**in its own units**, which matters because that testset reports the undamped
+phase `√α·t₀` (7.1 to 8.0 at the arrest) rather than this one. Evaluated at the
+same arrest times, `Φ_B` is 4.3 to 5.7; at the point where the local rate first
+leaves the analytic one (`t ≈ 35` at `α = 0.01`) it is 2.8. The guard the linear
+cases use, `Φ_B < 2`, sits below both, and the testset asserts it against the
+arrest.
 
 Measured for the three cases here, at `α = 1e-3`: 0.21, 0.45 and 1.70. For the
 `α = 0.01` this suite used at `k = 0.3`, over its old window: 3.7 -- which is
@@ -57,7 +61,10 @@ trapping_phase(α, γ, T) = sqrt(α)/γ*(1 - exp(-γ*T))
     landau_case(k, Nx, vmax, Δt, tmax; α = 1e-3)
 
 A single-mode Landau run: two wavelengths of `k` across the box, a Maxwellian
-perturbed by `α`, returning `(t, ε_e)`.
+perturbed by `α`, returning `(t, ε_e, courant, α)`. The amplitude comes back with
+the run so that the linearity guard reads it off the result rather than
+restating it -- restated, the guard was a check on a constant, and passed at the
+`α = 1e-2` it exists to catch.
 
 **`α = 1e-3`, not the 1e-2 this suite started with.** The mode is meant to be
 linear, and at 1% it is not: see [`trapping_phase`](@ref) and the trapping
@@ -87,7 +94,7 @@ function landau_case(k, Nx, vmax, Δt, tmax; α = 1e-3)
     t = collect(0.0:Δt:tmax)
     f₀ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. (1.0 + α*cos(k*x)))'
     ε_e = vlasov_poisson(x, v, f₀, t).ε_e
-    return t, ε_e, vmax*Δt/Δx
+    return t, ε_e, vmax*Δt/Δx, α
 end
 
 @testset "Extended verification" begin
@@ -130,14 +137,16 @@ end
                      (0.3, 108,  6.0, 0.05, 100.0, (10.0, 90.0), (12.0, 80.0)))
 
             for (k, Nx, vmax, Δt, tmax, window, alt) in cases
-                t, ε_e, courant = landau_case(k, Nx, vmax, Δt, tmax)
+                t, ε_e, courant, α = landau_case(k, Nx, vmax, Δt, tmax)
                 γa, ωa = landau_rate(k)
 
                 # The run has to be linear for the analytic rate to be the right
                 # target, and that is a property of the amplitude and the window
                 # together rather than of either alone. Measured 0.21, 0.45 and
-                # 1.70 for the three cases; the damping visibly departs at 3.5.
-                Φ_B = trapping_phase(1e-3, γa, window[2])
+                # 1.70 for the three cases; in these units the damping departs at
+                # about 2.8 and stops at 4.3 to 5.7. `α` is the run's own: at the
+                # 1e-2 this suite used to run, the k = 0.3 case reads 5.38 here.
+                Φ_B = trapping_phase(α, γa, window[2])
                 @test Φ_B < 2.0
 
                 γ, npeaks = damping_rate(t, ε_e; tmin = window[1], tmax = window[2])
@@ -223,9 +232,11 @@ end
             #   t₀√α    8.01    7.35    7.14    7.09
             #
             # A factor of eight in amplitude moves the arrest by 3.2, where
-            # α^(-1/2) predicts 2.83; the residue is ω_B falling as the field
-            # damps, which is what `trapping_phase` accounts for and why the
-            # last column drifts down rather than sitting flat.
+            # α^(-1/2) predicts 2.83. The residue is not something the decay
+            # factor in `trapping_phase` removes: evaluated at these arrest
+            # times it reads 4.26, 4.79, 5.28 and 5.71, a spread of 34% against
+            # the 13% of the undamped column above. The undamped phase is the
+            # better invariant here, and it is the one asserted.
             function arrest_time(α; k = 0.3, tmax)
                 L = 2*(2π/k)
                 Δx = L/108
@@ -255,10 +266,15 @@ end
             for (α, t₀) in scan
                 println("  α = ", rpad(α, 6), " damping stops at t = ", rpad(round(t₀; digits = 1), 6),
                         "  ω_B·t₀ = ", round(t₀*sqrt(α); digits = 2))
-                # The bounce phase at the arrest is the invariant statement, and
-                # it is what calibrates the guard the linear cases use.
+                # The bounce phase at the arrest is the invariant statement.
                 @test 6.5 < t₀*sqrt(α) < 8.5
             end
+
+            # And the calibration of the guard the linear cases use, in the
+            # guard's own units: `trapping_phase` at every arrest time is well
+            # above the 2 the linear runs are held under. Measured minimum 4.26.
+            γ₃ = landau_rate(0.3)[1]
+            @test minimum(trapping_phase(α, γ₃, t₀) for (α, t₀) in scan) > 2.0
 
             # And the power law itself, fitted rather than eyeballed: log t₀
             # against log α has slope -0.56 over this range, against the -0.5 a
@@ -272,10 +288,10 @@ end
             @test -0.7 < slope < -0.45
 
             # The linear runs are on the other side of this: at α = 1e-3 and the
-            # k = 0.3 window the bounce phase is 1.70, where the departure sets
-            # in at 3.5 and the arrest at 7.3.
-            @test trapping_phase(1e-3, landau_rate(0.3)[1], 90.0) < 2.0
-            @test trapping_phase(1e-2, landau_rate(0.3)[1], 50.0) > 3.0
+            # k = 0.3 window the bounce phase is 1.70, where in the same units
+            # the departure sets in at about 2.8 and the arrest at 4.3 to 5.7.
+            @test trapping_phase(1e-3, γ₃, 90.0) < 2.0
+            @test trapping_phase(1e-2, γ₃, 50.0) > 3.0
         end
 
         @testset "Each mode recurs at its own 2π/(kΔv)" begin
@@ -493,8 +509,11 @@ end
             # plateau, so a "damping rate" is a straight line through a curve
             # and the answer depends on how much of the curve is in the window.
             # The window here is the one that spans the decay proper -- four
-            # maxima, ending before the plateau at t ≈ 13 -- and it is what puts
-            # the measurement in the literature's range rather than beside it.
+            # maxima, ending before the plateau at t ≈ 13 -- and it puts γ₁ in
+            # the literature's range rather than beside it. γ₂ is not in the
+            # range the citations above give: 0.0789 sits 3.2% under the lowest
+            # of them, 0.0815, and it is refinement rather than the window that
+            # closes the gap (below).
             #
             # γ₂ is better behaved (0.0751 to 0.0789 over windows holding eight
             # or nine maxima) but saturates after t ≈ 41, where the field stops
@@ -517,7 +536,7 @@ end
             println("  128 x 241: γ₁ = ", round(fine.γ₁; digits = 4), " (", fine.n₁,
                     " maxima), γ₂ = ", round(fine.γ₂; digits = 4), " (", fine.n₂, " maxima)")
             @test 0.27 < fine.γ₁ < 0.30       # the literature's -0.281 to -0.292
-            @test 0.070 < fine.γ₂ < 0.090     # and its 0.0770 to 0.08584
+            @test 0.070 < fine.γ₂ < 0.090     # cited 0.0815 to 0.08584; 0.0789 here
 
             # Refinement moves γ₂ toward the published value rather than away
             # from it, which is the statement that the agreement is not a
@@ -582,9 +601,17 @@ end
             # `u = 0.5` against `u = 0`:
             #
             #   amplitude ratio     within 1.5e-3
-            #   phase               within 8.0e-3 rad
+            #   phase               within 1.8e-3 rad
             #   fitted γ            0.133% apart
             #   fitted ω            identical to the estimator's resolution
+            #
+            # **The Doppler factor is removed at the time the field was sampled,
+            # `t[k] + Δt/2`**, not at `t[k]`: `E_modes` is recorded from the field
+            # solved mid-step (see `vlasov_poisson`). Removed at `t[k]`, the same
+            # comparison reads 8.0e-3 rad, and this comment once quoted that as
+            # the grid's non-invariance -- 78% of it was `k·u·Δt/2 = 6.25e-3`, a
+            # constant offset from the timestamp. The tolerance is set against
+            # the corrected figure, so an offset of that size now fails.
             #
             # Compared at the maxima, and deliberately: both `|E_k|` and `ε_e`
             # pass through deep nulls, where a relative difference of anything
@@ -602,17 +629,18 @@ end
                 t; modes = (k,))
             rest, boosted = drifting(0.0), drifting(u)
 
-            # The Doppler factor is taken out here; the assertion is that what
-            # remains is the same complex history.
+            # The Doppler factor is taken out here, at each sample's own time;
+            # the assertion is that what remains is the same complex history.
+            Δt = t[2] - t[1]
             A₀ = rest.E_modes[:, 1]
-            A_u = boosted.E_modes[:, 1] .* cis.(k*u .* t)
+            A_u = boosted.E_modes[:, 1] .* cis.(k*u .* (t .+ Δt/2))
             peaks = local_extrema(t, abs.(A₀); tmin = 5.0, tmax = 30.0, maxima = true)
             amp = maximum(abs(abs(A_u[i])/abs(A₀[i]) - 1) for i in peaks)
             phase = maximum(abs(angle(A_u[i]/A₀[i])) for i in peaks)
             println("  boosted by u = ", u, ", over ", length(peaks), " maxima: amplitude ",
                     round(amp; sigdigits = 3), ", phase ", round(phase; sigdigits = 3), " rad")
             @test amp < 5e-3
-            @test phase < 2e-2
+            @test phase < 5e-3
 
             # And the rates, which is the same statement read through the
             # estimators the rest of this file uses.
@@ -867,11 +895,12 @@ end
             # such in `test_dispersion.jl` -- but it is not what the simulation
             # is held to any more. `two_stream_warm` solves the same relation
             # with Maxwellian beams instead of delta functions, and the
-            # difference is not cosmetic: at the `vt = 0.3` these runs use the
-            # cold form is off by up to 7.44% where the warm root is off by
-            # 2.01%, which is the whole tolerance budget. The one place it
-            # changes a *conclusion* rather than a number is `a = 0.8`; see
-            # below.
+            # difference is not cosmetic: at the `vt = 0.3` of the three
+            # growth-rate runs the cold form is off by up to 3.14% where the
+            # warm root is off by 1.95%, and at the `vt = 0.6` run by 7.44%
+            # against 2.01% -- the cold error grows with the temperature, the
+            # warm one does not. The one place it changes a *conclusion* rather
+            # than a number is `a = 0.8`; see below.
 
             @testset "the closed form solves the dispersion relation" begin
                 # Cheap, and it is what lets the rest of this testset be read as
