@@ -16,7 +16,7 @@ As for now, the following functionality has been implemented:
 
 ## Verification
 
-Four runnable studies live in `verification/`. They execute directly and write
+Five runnable studies live in `verification/`. They execute directly and write
 their figures beside themselves, and they are written in Literate.jl comment
 form so they can also be rendered:
 
@@ -25,6 +25,7 @@ julia --project=verification verification/landau-damping-1d1v.jl
 julia --project=verification verification/plasma-oscillations-1d1v.jl
 julia --project=verification verification/wakefield.jl
 julia --project=verification verification/two-stream.jl
+julia --project=verification verification/plasma-echo.jl
 ```
 
 Their headline claims are asserted by the test suite rather than left in prose.
@@ -57,6 +58,13 @@ closed form remains as its zero-temperature limit and is checked as such.
 | a drifting plasma damps the same way | boosted mode matches the rest-frame one once the Doppler phase is removed at each sample's own time, and the fitted rates agree | 1.5e-3, 1.8e-3 rad, 0.133% |
 | trapping stops the damping on the bounce time | ω_B·t₀ between 6.5 and 8.5 at four amplitudes, and t₀ ∝ α^(−1/2) | 7.09–8.01, slope −0.557 |
 | each mode recurs at its own 2π/(kΔv) | within a plasma period, for the seeded mode and the harmonic it generates | 128.6 vs 125.7, 64.3 vs 62.8 |
+| a plasma echo, field off, is the closed form's | pointwise within 0.3% of the peak, the peak within two steps of its own, the sign reversing with the kick | 0.12%, t = 15.28 on both |
+| out of a mode no moment could see | the echo over 10⁴ times the seeded mode's density at the kick | 2.4·10⁴ |
+| and what a scheme keeps of a filament is what it returns | SemiLagrangian < PFC < LaxWendroff < Upwind; upwind returns under 70% | 0.11%, 0.98%, 4.5%, 45%; 55% |
+| the loss is truncation | PFC's error falls at least 5× per halving of Δv | 7.3×, 6.6× |
+| a plasma echo, field on, is second-order kinetic theory's | pointwise within 1% of `echo_second_order`, the peak within 1% of its size and two steps of its time | 0.48%, 0.47%, t = 29.05 on both |
+| which is not the field-off echo | the closed form's peak over 1/0.6 times the run's and 0.5 later | 2.1×, 1.14 |
+| and the residual is the run's | it falls 2.5× from Nx = 64 to 128 | 3.4× |
 | plasma oscillation frequency | ω within 0.2% of Bohm–Gross √(1+3k²), and the cold ωₚ excluded | 0.018%, against 0.57% for cold |
 | nor does that frequency depend on its window | two windows agree within 0.2% | 0.006% |
 | two-stream growth rate, kv₀ = 0.4, 0.6, 0.8 | γ within 3% of the warm kinetic root, and the peak in the right place | 0.39%, 1.95%, 0.10% |
@@ -73,7 +81,16 @@ closed form remains as its zero-temperature limit and is checked as such.
 | its size is the one linear theory gives | peak within 10% of `linear_wake`, pointwise rms under 15% | 6.4%, 6.4% |
 | and it is the laser that made it | amplitude ∝ a₀² within 8%; ≥10× the unlit control; ≥4× behind the pulse over ahead | 3.3%, 36×, 9.4× |
 
-A fifth study compares the advection schemes on the physics rather than on a
+The echo is the one place a kinetic theory beyond linear order is held to a
+number. With the field off it has a closed form, exact in both amplitudes; with
+the field on, `echo_second_order` in `test/echo.jl` composes three linear
+responses of the Maxwellian — the seed screened, the kick screened, and the
+echo's own density polarising the plasma — and the run reproduces the result,
+the ringing after the peak included. Both runs are cheap, and both measure
+something no moment of `f` does: what a scheme keeps of filaments finer than any
+it can show.
+
+A sixth study compares the advection schemes on the physics rather than on a
 shifted sine, and is advisory rather than asserted:
 
 ```bash

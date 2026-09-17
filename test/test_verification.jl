@@ -368,6 +368,79 @@ end
             @test maximum(A₁[lo₂:hi₂]) > 10*maximum(A₂[lo₂:hi₂])
         end
 
+        @testset "The plasma echo, with the plasma's own field" begin
+            # `test_echo.jl` measures the echo with the field off, against a
+            # closed form exact in both amplitudes. This is the same experiment
+            # in the self-consistent run, against `echo_second_order`: the seed's
+            # filament screened at k₁, the kick screened at k₂, and the echo's
+            # own density polarising the plasma at k₃ -- three linear responses
+            # of a Maxwellian, composed, with nothing taken from the solver. It
+            # is the one comparison in this suite with a kinetic theory beyond
+            # linear order, and the benchmark Galeotti, Califano and Pegoraro
+            # (2006) proposed for Vlasov codes.
+            #
+            # The field does not correct the echo, it remakes it. Measured at
+            # Nx = 128, Δv = 0.05, Δt = 0.02, α = ε = 0.01, τ = 10:
+            #
+            #                             peak |A₃|   at t
+            #   closed form, field off    5.018e-4    30.19
+            #   second-order theory       2.385e-4    29.05
+            #   run                       2.374e-4    29.05
+            #
+            # Half the size, a time unit early, and then it rings: the k₃ mode
+            # the echo builds is a Langmuir wave, which goes on oscillating and
+            # Landau-damping after its ballistic source has phase-mixed away.
+            # The comparison is pointwise over all of τ < t ≤ 40, so the ringing
+            # is held to the same standard as the peak.
+            fine = self_consistent_echo()
+            coarse = self_consistent_echo(Nx = 64)
+
+            function against_theory(r)
+                after = findall(>(10.0), r.t)
+                t = range(r.t[after[1]], r.t[after[end]]; length = length(after))
+                A = r.modes[after, 3]
+                setup = (α = 0.01, ε = 0.01, τ = 10.0, k₁ = r.k[1], k₂ = r.k[2])
+                theory = echo_second_order(t; setup...).echo
+                closed = [echo_closed_form(u; setup...) for u in t]
+                i, j, c = argmax(abs.(A)), argmax(abs.(theory)), argmax(abs.(closed))
+                return (err = maximum(abs, A .- theory)/abs(theory[j]),
+                        size = abs(A[i])/abs(theory[j]), t_run = t[i], t_theory = t[j],
+                        vs_closed = abs(A[i])/abs(closed[c]), t_closed = t[c],
+                        off = maximum(abs, A .- closed)/abs(closed[c]))
+            end
+            fr, cr = against_theory(fine), against_theory(coarse)
+            for (label, r) in (("Nx = 128", fr), ("Nx =  64", cr))
+                println("  ", label, ": pointwise ", round(r.err; sigdigits = 3),
+                        " of the peak; peak ", round(r.size; digits = 4),
+                        " of the theory's, at t = ", round(r.t_run; digits = 2),
+                        " (theory ", round(r.t_theory; digits = 2), ")")
+            end
+            println("  field off: peak ", round(1/fr.vs_closed; digits = 2), "x the run's, at t = ",
+                    round(fr.t_closed; digits = 2), "; pointwise ", round(fr.off; sigdigits = 3))
+
+            # 4.8e-3 of the peak pointwise; the peak 0.47% under the theory's,
+            # on the same sample.
+            @test fr.err < 1e-2
+            @test abs(fr.size - 1) < 1e-2
+            @test abs(fr.t_run - fr.t_theory) ≤ 2*0.02
+
+            # And it is the field that does it. The closed form has everything
+            # else -- the same seed, kick, filament and phase mixing -- and puts
+            # the peak at 2.1 times the run's and 1.14 later, missing the run
+            # pointwise by 1.01 of its own peak. A run that lost the field would
+            # sit on the closed form and fail the comparison above; these hold
+            # the two curves apart, so that no run can pass both.
+            @test fr.vs_closed < 0.6
+            @test fr.t_closed - fr.t_run > 0.5
+            @test fr.off > 0.5
+
+            # The residual is the run's truncation, not the theory's: 1.61e-2 at
+            # Nx = 64 against 4.81e-3 at 128, a factor 3.4. At Nx = 64, halving Δv
+            # or Δt instead leaves it at 1.53e-2 and 1.65e-2, cutting α tenfold
+            # moves it by 3e-5, and halving ε by 8e-4 -- the curvature of J₁.
+            @test cr.err > 2.5*fr.err
+        end
+
         @testset "The Vlasov-Poisson flow is reversible, and what breaks it" begin
             # `test_strang_splitting.jl` measures reversibility on a rigid
             # rotation with the field switched off. This is the same statement
