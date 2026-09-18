@@ -10,6 +10,11 @@ using NumericalIntegration, FFTW
 # simulation, and `test_dispersion.jl` exercises it without the Strang loop.
 include(joinpath(@__DIR__, "dispersion.jl"))
 
+# The plasma echo's closed form, its second-order theory, and the free-streaming
+# run; `self_consistent_echo` below is the same experiment through
+# `vlasov_poisson`.
+include(joinpath(@__DIR__, "echo.jl"))
+
 "Spectral Poisson solve on a uniform x grid, e = -dφ/dx with φ'' = -ρ."
 function make_poisson(x)
     Δx = x[2] - x[1]
@@ -199,6 +204,65 @@ function vlasov_poisson(x, v, f₀, t;
     # it is the only way to ask a question about the distribution rather than
     # about a moment of it, which is what the reversibility test needs.
     return (; ε_e, ε, mass, momentum, l2, entropy, fmin, E_modes, f)
+end
+
+"""
+    self_consistent_echo(; L = 4π, m₁ = 2, m₂ = 3, Nx = 128, Δv = 0.05, vmax = 6.0,
+                         Δt = 0.02, α = 0.01, ε = 0.01, τ = 10.0, tmax = 40.0,
+                         kick_courant = 0.5)
+
+[`ballistic_echo`](@ref) with the field on: `vlasov_poisson` from `t = 0` to `τ`,
+the kick, and `vlasov_poisson` again from `τ` on the kicked distribution -- a
+restart the driver supports as it stands, since it takes whatever `f` it is
+handed. The kick is `ballistic_echo`'s, sub-steps included, through the driver's
+own velocity scheme.
+
+Returns `t`, `k = (k₁, k₂, k₃)` and `modes`, the density amplitudes `ik·E_k` at
+those wavenumbers -- densities rather than fields, so that they compare with
+`echo_second_order` and `echo_closed_form` directly. **`t` holds the times the
+modes were sampled at, which are mid-step, `t + Δt/2`** (see `vlasov_poisson`);
+the row the driver duplicates at the end of each segment is dropped.
+
+**The defaults are not `ballistic_echo`'s**, and each difference is there for the
+theory. `echo_second_order` is second order, so both amplitudes are small,
+`α = ε = 0.01`. It holds once the seed's own field has damped, and at `k₁ = 1`
+that field damps at `γ = 0.851`: waiting until `τ = 10` leaves 2.0e-4 of it where
+`τ = 5` would leave 1.4e-2. The filament the kick then meets is twice as fine,
+`2π/(k₁τ) = 0.63`, which `Δv = 0.05` resolves with thirteen cells, and the echo
+arrives at `t_e = 30`. And `Nx = 128`, because the x-sweep is what limits the
+comparison: the run is 1.6e-2 of the peak from the theory at `Nx = 64` and 4.8e-3
+at 128, where halving `Δv` or `Δt` at `Nx = 64` instead leaves it at 1.5e-2 and
+1.7e-2.
+"""
+function self_consistent_echo(; L = 4π, m₁ = 2, m₂ = 3, Nx = 128, Δv = 0.05, vmax = 6.0,
+                              Δt = 0.02, α = 0.01, ε = 0.01, τ = 10.0, tmax = 40.0,
+                              kick_courant = 0.5)
+    k₁, k₂ = 2π*m₁/L, 2π*m₂/L
+    k = (k₁, k₂, k₂ - k₁)
+    Δx = L/Nx
+    x = [(j-1)*Δx for j = 1:Nx]
+    v = collect(-vmax:Δv:vmax)
+    f₀ = [exp(-u^2/2)/sqrt(2π)*(1 + α*cos(k₁*y)) for u in v, y in x]
+
+    before = collect(0:Δt:τ)
+    isapprox(before[end], τ; atol = 1e-9*Δt) ||
+        error("the kick at τ = $τ does not fall on a step of Δt = $Δt")
+    seed = vlasov_poisson(x, v, f₀, before; modes = k)
+
+    f = copy(seed.f)
+    widths = cell_widths(v)
+    kick! = line_advector(PFCNonUniform(widths; fmin = 0.0, fmax = 1.0), widths)
+    nsub = max(1, ceil(Int, abs(ε)/(kick_courant*Δv)))
+    for j in eachindex(x), _ = 1:nsub
+        kick!(view(f, :, j), ε*cos(k₂*x[j])/nsub)
+    end
+
+    after = collect(τ:Δt:tmax)
+    echo = vlasov_poisson(x, v, f, after; modes = k)
+
+    t = vcat(before[1:end-1], after[1:end-1]) .+ Δt/2
+    E = vcat(seed.E_modes[1:end-1, :], echo.E_modes[1:end-1, :])
+    return (; t, k, modes = E .* transpose(im .* collect(k)), x, v)
 end
 
 # --------------------------------------------------------- mode fitting

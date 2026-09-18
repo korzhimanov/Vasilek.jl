@@ -9,6 +9,40 @@ This project has not been released; entries below describe work on `master`.
 
 ### Added
 
+- **The plasma echo, with the field off and with it on** (`test/echo.jl`,
+  `test/VlasovSolver/test_echo.jl`, `test/test_verification.jl`,
+  `verification/plasma-echo.jl`). Phase mixing is reversible, and nothing in
+  the suite checked that the solver keeps it so: free streaming measures the
+  decay of a density mode, never whether the information it decayed into
+  survives. A seed at k₁ = 1, a velocity kick at k₂ = 3/2 when t = 5, and around
+  t = 15 a mode nobody seeded, at k₃ = 1/2.
+
+  With the field off the echo has a closed form, exact in both amplitudes:
+  `−iα·J₁(k₃ε(t − τ))·exp(−(k₃t − k₂τ)²/2)`. The Bessel function is not a
+  refinement — its small-argument limit is 14.6% high at these amplitudes — and
+  the sign is asserted separately, since the direction of the kick changes it
+  and nothing about the peak. PFC at 128 × 241 follows the closed form to
+  1.23e-3 of the peak, pointwise, out of a seeded mode the kick found at 1.84e-6:
+  2.4e4 times smaller than the echo it turns into. The loss converges at orders
+  2.87 and 2.72 as Δv halves, and it ranks the schemes: cubic SemiLagrangian
+  1.07e-3, PFC 9.83e-3, LaxWendroff 4.48e-2, and Upwind 0.449, which returns 55%
+  of the echo and loses most of the rest in the x-sweep rather than in the kick.
+  Fast suite.
+
+  With the field on, `echo_second_order` composes three linear responses of the
+  Maxwellian: the seed's filament screened at k₁, the kick screened at k₂
+  together with the lifetime of the field it induces, and the echo's own density
+  polarising the plasma at k₃, solved as a Volterra equation. Its pieces are
+  checked before any run is held to it — the resonant dielectric function is
+  `dielectric` to 1.2e-16, the filament's closed form agrees with a time-domain
+  solve to 4.9e-6, and with the field off the theory is the closed form's
+  small-ε limit to 1.1e-14. The self-consistent run (128 × 241, α = ε = 0.01,
+  τ = 10) follows it to 4.8e-3 of the peak, pointwise and ringing included, with
+  the peak 0.47% low on the same sample, t = 29.05. The field-off form would put
+  that peak 2.1 times higher and 1.14 later. The residual is the x-sweep's: 1.6e-2
+  at Nx = 64, where halving Δv or Δt instead leaves it at 1.5e-2 and 1.7e-2.
+  Extended suite.
+
 - **Time reversal of the self-consistent system** (`test/test_verification.jl`).
   `test_strang_splitting.jl` measures reversibility on a rigid rotation with the
   field switched off; this is the same statement for Vlasov–Poisson, which is
