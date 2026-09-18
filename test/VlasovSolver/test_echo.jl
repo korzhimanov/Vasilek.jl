@@ -91,6 +91,16 @@ end
         @test flipped.curve < 3e-2
     end
 
+    @testset "a time the run never reaches is refused" begin
+        # A snapshot past `tmax`, or between two steps, used to come back as
+        # uninitialised memory; the kick past `tmax` as a BoundsError. Both are
+        # caught before anything runs, so these cost nothing.
+        @test_throws ErrorException ballistic_echo(pfc, pfc; snapshots = (25.0,))
+        @test_throws ErrorException ballistic_echo(pfc, pfc; snapshots = (11.005,))
+        @test_throws ErrorException ballistic_echo(pfc, pfc; τ = 30.0)
+        @test_throws ErrorException ballistic_echo(pfc, pfc; τ = 5.005)
+    end
+
     @testset "it is made of what no moment could see" begin
         # At the kick the seeded mode's density amplitude is 1.84e-6 -- the closed
         # form says 3.7e-7, and the rest is the x-sweep damping rows unevenly so

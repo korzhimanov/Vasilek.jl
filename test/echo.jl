@@ -93,12 +93,20 @@ function ballistic_echo(scheme_x, scheme_v; L = 4π, m₁ = 2, m₂ = 3, Nx = 64
     f = [exp(-v[i]^2/2)/sqrt(2π)*(1 + α*cos(k₁*x[j])) for i = 1:Nv, j = 1:Nx]
 
     t = collect(0:Δt:tmax)
-    kick = round(Int, τ/Δt) + 1
-    isapprox(t[kick], τ; atol = 1e-9*Δt) ||
-        error("the kick at τ = $τ does not fall on a step of Δt = $Δt")
+    # The kick and every snapshot have to land on a step of the run. A snapshot
+    # that does not is never written, and `similar` would hand back whatever the
+    # allocator left there -- measured 1.1e293 for a snapshot past `tmax` -- as
+    # if it were a distribution function.
+    on_step(ts, what) = begin
+        s = round(Int, ts/Δt) + 1
+        1 ≤ s ≤ length(t) && isapprox(t[s], ts; atol = 1e-9*Δt) ||
+            error("$what at t = $ts does not fall on a step of Δt = $Δt in [0, $(t[end])]")
+        s
+    end
+    kick = on_step(τ, "the kick")
     nsub = max(1, ceil(Int, abs(ε)/(kick_courant*Δv)))
     shots = [similar(f) for _ in snapshots]
-    shot_at = [round(Int, ts/Δt) + 1 for ts in snapshots]
+    shot_at = [on_step(ts, "a snapshot") for ts in snapshots]
 
     modes = zeros(ComplexF64, length(t), 3)
     wsx, wsv = workspace(scheme_x, Nx), workspace(scheme_v, Nv)
