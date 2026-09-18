@@ -116,30 +116,56 @@ The energy histories above keep `integrate`, because they are compared with
 tolerances of half a percent where the difference is irrelevant, and because
 changing them would silently move numbers the notebooks quote.
 
+**The ions are a fixed background**, a Maxwellian's density on the grid unless
+`nᵢ` gives a profile over `x`; and `f` is rescaled on entry so that the two
+integrate to the same charge, unless `renormalize = false`. The rescaling is the
+trapezoid over `x` of both, which on a periodic grid weights the two end points
+by half, so it is exact only while `nₑ` and `nᵢ` are proportional -- a uniform
+background, which is every caller that does not pass `nᵢ`. One that does is
+handing over a matched pair and should keep it: for the equilibrium of
+[`bgk_equilibrium`](@ref) the rescaling is 1 − 1.9e-3, and applying it takes the
+field's departure from that equilibrium over `t ≤ 100` from 6.5e-3 to 8.9e-3.
+
 `scheme_x` and `scheme_v` default to `PFCNonUniform` on the two grids, which is
 what the verification notebooks use and what every previous caller got. They are
 arguments so that the same driver can measure what the physics costs under a
 *different* scheme, which is what `verification/scheme-comparison.jl` does, and
 so that a refinement study can hold the scheme fixed while moving the grid.
+
+**The defaults' upper bound is the larger of 1 and the initial maximum of `f`.**
+It was 1 outright, which every earlier run sits under -- their peaks are 0.4 to
+0.66, so their numbers do not move -- and which `PFCNonUniform` does not check.
+Above it the limiter's `2(fmax − f)` goes negative and the scheme corrupts the
+run without a word: an equilibrium whose trapped population peaks at 1.79 was 44%
+of its peak away from itself by `t = 100` with the bound at 1, and 1.3% with it
+at 2. By Liouville the initial maximum is the bound the exact solution keeps.
 """
 function vlasov_poisson(x, v, f₀, t;
                         scheme_x = nothing, scheme_v = nothing, invariants = false,
-                        modes = ())
+                        modes = (), nᵢ = nothing, renormalize = true)
     Δx = cell_widths(x)
     Δv = cell_widths(v)
-    sx = scheme_x === nothing ? PFCNonUniform(Δx; fmin = 0.0, fmax = 1.0) : scheme_x
-    sv = scheme_v === nothing ? PFCNonUniform(Δv; fmin = 0.0, fmax = 1.0) : scheme_v
 
-    advect_x! = line_advector(sx, Δx)
-    advect_v! = line_advector(sv, Δv)
-
-    fᵢ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. Δx/Δx)'
-    nᵢ = integrate(v, fᵢ)
+    if nᵢ === nothing
+        fᵢ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. Δx/Δx)'
+        nᵢ = integrate(v, fᵢ)
+    else
+        length(nᵢ) == length(x) || throw(DimensionMismatch(
+            "nᵢ has $(length(nᵢ)) points, the x grid $(length(x))"))
+        nᵢ = collect(float.(nᵢ))
+    end
     Nᵢ = integrate(x, nᵢ)
 
     f = copy(f₀)
-    f .*= Nᵢ/integrate(x, integrate(v, f))
+    renormalize && (f .*= Nᵢ/integrate(x, integrate(v, f)))
     g = f'
+
+    fmax = max(1.0, maximum(f))
+    sx = scheme_x === nothing ? PFCNonUniform(Δx; fmin = 0.0, fmax) : scheme_x
+    sv = scheme_v === nothing ? PFCNonUniform(Δv; fmin = 0.0, fmax) : scheme_v
+
+    advect_x! = line_advector(sx, Δx)
+    advect_v! = line_advector(sv, Δv)
 
     solve_poisson! = make_poisson(x)
     e = similar(x)
@@ -263,6 +289,72 @@ function self_consistent_echo(; L = 4π, m₁ = 2, m₂ = 3, Nx = 128, Δv = 0.0
     t = vcat(before[1:end-1], after[1:end-1]) .+ Δt/2
     E = vcat(seed.E_modes[1:end-1, :], echo.E_modes[1:end-1, :])
     return (; t, k, modes = E .* transpose(im .* collect(k)), x, v)
+end
+
+# --------------------------------------------------- nonlinear equilibria
+
+"""
+    bgk_distribution(ψ; T_trapped = 1.0)
+
+`F(W)` of a stationary solution in the potential energy `U = −ψ cos kx`, as a
+function of the particle energy `W = v²/2 + U`: Maxwellian for the passing
+particles, `W ≥ ψ`, and at temperature `T_trapped` below the separatrix, the two
+joined continuously at `W = ψ`.
+
+`T_trapped = 1` is the Maxwell–Boltzmann equilibrium `M(v)·exp(ψ cos kx)`,
+analytic across the separatrix. Any other value is a BGK mode proper -- a trapped
+population the passing one does not determine -- and puts a kink in `F` exactly
+on the separatrix, which is the structure it exists to test.
+"""
+bgk_distribution(ψ; T_trapped = 1.0) =
+    W -> W ≥ ψ ? exp(-W)/sqrt(2π) : exp(-ψ - (W - ψ)/T_trapped)/sqrt(2π)
+
+"""
+    bgk_equilibrium(; ψ = 0.5, k = 0.5, T_trapped = 1.0, Nx = 64, Δv = 0.1,
+                    vmax = 6.0, Δt = 0.05, tmax = 50.0, ψ_ions = ψ, ion_sign = +1)
+
+Run a nonlinear equilibrium: `f₀ = F(v²/2 − ψ cos kx)` with `F` from
+[`bgk_distribution`](@ref), over one wavelength, on the ion background that
+holds it still.
+
+Any function of the energy is a stationary solution of the Vlasov equation; what
+makes it one of Vlasov--Poisson is a charge density whose field is the force
+`−∂ₓU = −ψk sin kx`. With the uniform ions every other run uses there is none,
+so the ions are built for it: `∂ₓE = nₑ − nᵢ` in this code's convention gives
+
+    nᵢ = nₑ + ∂ₓ²U = nₑ + ψk² cos kx
+
+with `nₑ` the code's own moment of `f₀`. `ψ_ions` and `ion_sign` build them for a
+different `ψ`, or with the sign of the Poisson equation reversed -- the two ways
+of handing the run a state that is not an equilibrium.
+
+Returns the grids, `f₀` and the final `f`, the field's `k` mode history `E` (mid-
+step, see `vlasov_poisson`) against `E₀`, the equilibrium's own: `iψk` times
+`sin(kΔx)/(kΔx)`, the centred difference `docs/normalization.md` documents. Also
+the separatrix `v_sep(x) = √(2ψ(1 + cos kx))` and the `l2` and `entropy`
+histories.
+
+**The defaults.** `ψ = 0.5` traps everything below `|v| = 1.41` at the bottom of
+the well -- 85% of the particles there, two thirds of all of them -- and the
+deepest bounce at `ω_B = k√ψ = 0.354`, so `t = 50` is 2.8 of their periods. The peak of `f₀` is
+0.66 for `T_trapped = 1`, 0.40 for `T_trapped = 2` and 1.79 for `T_trapped = 1/2`.
+"""
+function bgk_equilibrium(; ψ = 0.5, k = 0.5, T_trapped = 1.0, Nx = 64, Δv = 0.1,
+                         vmax = 6.0, Δt = 0.05, tmax = 50.0, ψ_ions = ψ, ion_sign = +1)
+    Δx = 2π/k/Nx
+    x = [(j-1)*Δx for j = 1:Nx]
+    v = collect(-vmax:Δv:vmax)
+    moment(F, ψ) = [Δv*sum(F(u^2/2 - ψ*cos(k*y)) for u in v) for y in x]
+    F = bgk_distribution(ψ; T_trapped)
+    f₀ = [F(u^2/2 - ψ*cos(k*y)) for u in v, y in x]
+    nᵢ = moment(bgk_distribution(ψ_ions; T_trapped), ψ_ions) .+
+         ion_sign*ψ_ions*k^2 .* cos.(k .* x)
+
+    t = collect(0:Δt:tmax)
+    r = vlasov_poisson(x, v, f₀, t; nᵢ, renormalize = false, modes = (k,), invariants = true)
+    return (; x, v, t = t[1:end-1] .+ Δt/2, f₀, f = r.f, E = r.E_modes[1:end-1, 1],
+            E₀ = im*ψ*k*sin(k*Δx)/(k*Δx), v_sep = @.(sqrt(2ψ*(1 + cos(k*x)))),
+            l2 = r.l2[1:end-1], entropy = r.entropy[1:end-1])
 end
 
 # --------------------------------------------------------- mode fitting

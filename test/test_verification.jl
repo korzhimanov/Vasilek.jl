@@ -441,6 +441,106 @@ end
             @test cr.err > 2.5*fr.err
         end
 
+        @testset "A nonlinear equilibrium stays put, and gives on the separatrix" begin
+            # Every other run here starts away from equilibrium and is judged on
+            # how it moves. This one starts *on* a nonlinear equilibrium -- a
+            # function of the particle energy, held by the ion background built
+            # for it in `bgk_equilibrium` -- and is judged on how little it moves.
+            # It is also the first run in the suite whose physics is carried by
+            # trapped particles: at ψ = 0.5 two thirds of them are, and t = 50 is
+            # 2.8 periods of the deepest.
+            field(r) = maximum(abs, r.E .- r.E₀)/abs(r.E₀)
+            drift(r) = maximum(abs, r.f .- r.f₀)/maximum(r.f₀)
+            function off_separatrix(r)
+                I = argmax(abs.(r.f .- r.f₀))
+                return abs(abs(r.v[I[1]]) - r.v_sep[I[2]])/(r.v[2] - r.v[1])
+            end
+            fine = (Nx = 128, Δv = 0.05, Δt = 0.025)
+            smooth, smooth_fine = bgk_equilibrium(), bgk_equilibrium(; fine...)
+            kinked = bgk_equilibrium(T_trapped = 2.0)
+            kinked_fine = bgk_equilibrium(; T_trapped = 2.0, fine...)
+            for (label, r) in (("Maxwell-Boltzmann, 64 x 121  ", smooth),
+                               ("Maxwell-Boltzmann, 128 x 241 ", smooth_fine),
+                               ("trapped at T = 2, 64 x 121   ", kinked),
+                               ("trapped at T = 2, 128 x 241  ", kinked_fine))
+                println("  ", label, " f ", rpad(round(drift(r); sigdigits = 3), 10),
+                        " field ", rpad(round(field(r); sigdigits = 3), 10),
+                        " worst cell ", round(off_separatrix(r); digits = 1),
+                        " cells off the separatrix")
+            end
+
+            @testset "the smooth one holds, and converges at the scheme's order" begin
+                # Maxwell–Boltzmann, analytic across the separatrix. Through
+                # t = 50: f within 1.52e-3 of its peak, the field within 3.85e-3.
+                # Neither is an oscillation about the equilibrium; both grow
+                # steadily -- the field's departure is 6.5e-3 by t = 100 -- and
+                # they are the scheme's dissipation, since L² falls by 1.13e-3
+                # and the entropy rises by 1.27e-4 where the exact flow keeps both.
+                @test drift(smooth) < 5e-3
+                @test field(smooth) < 1e-2
+                @test smooth.l2[end] < smooth.l2[1]
+                @test smooth.entropy[end] > smooth.entropy[1]
+
+                # Halving Δx, Δv and Δt together: 7.6 times less in f and 6.1 in
+                # the field, PFC's third order. Halving Δt alone moves neither
+                # (3.85e-3 → 3.89e-3), so the splitting is not what limits it.
+                @test drift(smooth)/drift(smooth_fine) > 5
+                @test field(smooth)/field(smooth_fine) > 4
+            end
+
+            @testset "a kink on the separatrix is where it gives" begin
+                # Trapped particles at twice the temperature of the passing ones.
+                # F is continuous and still decreasing -- so the equilibrium is
+                # still stable -- but its slope jumps where trapped meets passing,
+                # and that is where the error goes: the worst cell is on the
+                # separatrix at both resolutions, where the smooth equilibrium's
+                # is 13 and 24 cells away from it.
+                @test off_separatrix(kinked) ≤ 1
+                @test off_separatrix(kinked_fine) ≤ 1
+                @test off_separatrix(smooth) > 5
+
+                # And it converges at first order, not third: 1.90e-2 → 1.09e-2,
+                # a factor 1.75, twelve times the smooth case's error to begin
+                # with. The field hardly notices, 3.69e-3 → 1.43e-3: it is an
+                # integral over the kink, not a sample of it.
+                @test 1.3 < drift(kinked)/drift(kinked_fine) < 3
+                @test drift(kinked) > 5*drift(smooth)
+                @test field(kinked) < 1e-2
+            end
+
+            @testset "a trapped population above f = 1 holds as well" begin
+                # Trapped particles at half the temperature peak at 1.79, above
+                # the bound of 1 the harness used to give PFC. Nothing checked
+                # it, and the limiter wrecked the run: 43.6% of the peak by
+                # t = 50. With the bound taken from f₀, as it is now: 0.99%, on
+                # the separatrix again.
+                cold = bgk_equilibrium(T_trapped = 0.5)
+                @test maximum(cold.f₀) > 1.5
+                @test drift(cold) < 3e-2
+                @test off_separatrix(cold) ≤ 1
+            end
+
+            @testset "and it is this equilibrium, not any" begin
+                # Ions built with the Poisson sign `docs/normalization.md` used
+                # to give, ∂E/∂x = nᵢ − nₑ: the code's field is then the
+                # equilibrium's reversed from the first sample (E/E₀ = −1.000),
+                # and f departs by 16% of its peak by t = 50.
+                reversed = bgk_equilibrium(ion_sign = -1)
+                @test field(reversed) > 1.5
+                @test drift(reversed) > 0.1
+
+                # A potential 10% off the one the ions hold puts the field 49% and
+                # 59% off at once -- the field is the small difference nₑ − nᵢ --
+                # and f departs by 3.7% and 4.0%, 24 and 27 times the
+                # equilibrium's own drift.
+                for ψ in (0.45, 0.55)
+                    r = bgk_equilibrium(; ψ, ψ_ions = 0.5)
+                    @test field(r) > 0.3
+                    @test drift(r) > 10*drift(smooth)
+                end
+            end
+        end
+
         @testset "The Vlasov-Poisson flow is reversible, and what breaks it" begin
             # `test_strang_splitting.jl` measures reversibility on a rigid
             # rotation with the field switched off. This is the same statement

@@ -16,7 +16,7 @@ As for now, the following functionality has been implemented:
 
 ## Verification
 
-Five runnable studies live in `verification/`. They execute directly and write
+Six runnable studies live in `verification/`. They execute directly and write
 their figures beside themselves, and they are written in Literate.jl comment
 form so they can also be rendered:
 
@@ -26,6 +26,7 @@ julia --project=verification verification/plasma-oscillations-1d1v.jl
 julia --project=verification verification/wakefield.jl
 julia --project=verification verification/two-stream.jl
 julia --project=verification verification/plasma-echo.jl
+julia --project=verification verification/bgk-equilibrium.jl
 ```
 
 Their headline claims are asserted by the test suite rather than left in prose.
@@ -65,6 +66,11 @@ closed form remains as its zero-temperature limit and is checked as such.
 | a plasma echo, field on, is second-order kinetic theory's | pointwise within 1% of `echo_second_order`, the peak within 1% of its size and two steps of its time | 0.48%, 0.47%, t = 29.05 on both |
 | which is not the field-off echo | the closed form's peak over 1/0.6 times the run's and 0.5 later | 2.1×, 1.14 |
 | and the residual is the run's | it falls 2.5× from Nx = 64 to 128 | 3.4× |
+| a nonlinear equilibrium stays put, two thirds of it trapped | f within 0.5% of its peak and the field within 1% through t = 50 | 0.15%, 0.39% |
+| and what moves it is the scheme | L² falls and entropy rises; f and field converge at third order, 5× and 4× per halving | 7.6×, 6.1× |
+| with a kink in F on the separatrix, the error sits on it | the worst cell within one of the separatrix at two resolutions, converging at first order | on it both times, 1.75× |
+| and the equilibrium is this one | ions built on the Poisson sign the docs used to give hold the reversed field; a potential 10% off the ions' drifts 10× more | E/E₀ = −1.000, 16%; 24×, 27× |
+| a trapped population above f = 1 holds too | within 3% of its peak, now that PFC's bound comes from f₀ | 0.99%, against 43.6% at the old bound |
 | plasma oscillation frequency | ω within 0.2% of Bohm–Gross √(1+3k²), and the cold ωₚ excluded | 0.018%, against 0.57% for cold |
 | nor does that frequency depend on its window | two windows agree within 0.2% | 0.006% |
 | two-stream growth rate, kv₀ = 0.4, 0.6, 0.8 | γ within 3% of the warm kinetic root, and the peak in the right place | 0.39%, 1.95%, 0.10% |
@@ -90,7 +96,14 @@ the ringing after the peak included. Both runs are cheap, and both measure
 something no moment of `f` does: what a scheme keeps of filaments finer than any
 it can show.
 
-A sixth study compares the advection schemes on the physics rather than on a
+The equilibrium study is the converse of every other run: it starts on a
+nonlinear stationary state, two thirds of it trapped particles, and asks how
+little the solver moves it. The smooth equilibrium's error spreads over phase
+space and converges at third order; give the trapped particles a temperature of
+their own, which puts a kink in `F` on the separatrix, and the error sits on the
+separatrix, twelve times larger, and converges at first order.
+
+A seventh study compares the advection schemes on the physics rather than on a
 shifted sine, and is advisory rather than asserted:
 
 ```bash

@@ -9,6 +9,37 @@ This project has not been released; entries below describe work on `master`.
 
 ### Added
 
+- **A nonlinear equilibrium, run to see whether it stays put**
+  (`test/test_verification.jl`, `bgk_equilibrium` in the harness,
+  `verification/bgk-equilibrium.jl`). Every other Vlasov–Poisson run in the
+  suite starts off equilibrium and is judged on how it moves. This one starts on
+  one — a function of the particle energy in the potential `−ψ cos kx`, on an ion
+  background built to hold it — and is judged on how little it moves. It is also
+  the first run whose physics is carried by trapped particles: at ψ = 0.5 two
+  thirds of them are.
+
+  The Maxwell–Boltzmann equilibrium, analytic across the separatrix, holds f to
+  1.52e-3 of its peak and the field to 3.85e-3 through t = 50. That is not an
+  oscillation about the equilibrium but a steady drift, and it is the scheme's
+  dissipation: L² falls by 1.13e-3 and the entropy rises by 1.27e-4, where the
+  exact flow keeps both. It converges at PFC's third order, 7.6 times less in f
+  and 6.1 in the field per halving, and halving Δt alone moves neither.
+
+  Give the trapped particles a temperature of their own and `F` keeps its value
+  but not its slope across the separatrix. The worst cell is then *on* the
+  separatrix at both resolutions — where the smooth case's is 13 and 24 cells
+  away — twelve times the smooth error, converging at first order (1.75 per
+  halving). Trapped-particle structure lives or dies there, and so does the
+  accuracy of anything that has trapped particles in it.
+
+  The teeth: ions built for a potential 10% off put the field 49% and 59% off at
+  once and f drifts 24 and 27 times further; ions built on the documentation's
+  old Poisson sign hold the reversed field (below, under Fixed).
+
+  `vlasov_poisson` takes `nᵢ`, an ion density profile, and `renormalize`: the
+  rescaling of `f` to the ions' charge is a trapezoid, exact only for
+  proportional profiles, and on this matched pair it is 1 − 1.9e-3.
+
 - **The plasma echo, with the field off and with it on** (`test/echo.jl`,
   `test/VlasovSolver/test_echo.jl`, `test/test_verification.jl`,
   `verification/plasma-echo.jl`). Phase mixing is reversible, and nothing in
@@ -121,6 +152,25 @@ This project has not been released; entries below describe work on `master`.
   discrepancy that was entirely two nulls landing a time step apart.
 
 ### Fixed
+
+- **`docs/normalization.md` gave the Poisson equation with the wrong sign.** It
+  read `∂E/∂x = nᵢ − nₑ` beside `∂f/∂t + v∂f/∂x + E∂f/∂v = 0`, a pair under which
+  electrons attract one another. Every Poisson call in the package and the
+  verification runs solves `∂E/∂x = nₑ − nᵢ`, `E` being the force on an electron
+  — minus the physical field — as the transverse section of the same page already
+  had it. It was found by building on it: ions made for a nonlinear equilibrium
+  under the documented sign hold exactly the reversed field, `E/E₀ = −1.000` from
+  the first sample, and the run leaves the equilibrium by 16% of its peak.
+
+- **The verification harness gave PFC an upper bound of 1 whatever `f` was.**
+  `vlasov_poisson` built its default `PFCNonUniform` schemes with `fmax = 1.0`,
+  and `PFCNonUniform` does not check its data against the bound. Every run until
+  now peaks between 0.4 and 0.66, under it; a trapped population at half the
+  passing temperature peaks at 1.79, and the limiter took it 43.6% of its peak
+  away from equilibrium by t = 50, where the same run holds to 0.99% with the
+  bound at its own maximum. The bound is now the larger of 1 and the initial
+  maximum of `f`, which by Liouville the exact solution keeps; every earlier
+  run's number is unchanged.
 
 - **The "linear" Landau case at k = 0.3 was not linear, and the agreement it
   reported was two errors cancelling.** At the 1% perturbation this suite used,
