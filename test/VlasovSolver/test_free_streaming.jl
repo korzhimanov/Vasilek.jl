@@ -48,17 +48,20 @@ const FS_α  = 1e-2
 mode_amplitude(n, x, k) = 2*sum(n .* cos.(k .* x))/length(x)
 
 """
-    free_stream(scheme, v, nsteps; fmax)
+    free_stream(scheme, v, nsteps)
 
 Advect a modulated Maxwellian in `x` only, returning the time series of the
 density mode amplitude. One row per velocity, one shared scheme value and one
-workspace -- the reentrant pattern `test_threading` pins.
+workspace -- the reentrant pattern `test_threading` pins. `scheme` may be a
+function of the initial `f` returning one, which is how `PFC` is given the
+distribution's own maximum as its bound.
 """
 function free_stream(scheme, v, nsteps)
     Δx = FS_L/FS_NX
     x = [(j-1)*Δx for j = 1:FS_NX]
     fM = @. exp(-0.5*v^2)/sqrt(2π)
     f = [fM[i]*(1 + FS_α*cos(FS_K*x[j])) for i in eachindex(v), j = 1:FS_NX]
+    scheme = scheme isa AbstractAdvection1D ? scheme : scheme(f)
 
     buf = Vector{Float64}(undef, FS_NX)
     ws = workspace(scheme, FS_NX)
@@ -100,7 +103,7 @@ end
         exact = @. FS_α*exp(-0.5*FS_K^2*t^2)
 
         cases = [("SemiLagrangian cubic", SemiLagrangian(CubicSpline()), 1e-5),
-                 ("PFC",                  PFC(fmin = 0.0, fmax = 0.5),   1e-4),
+                 ("PFC",                  f -> PFC(fmin = 0.0, fmax = maximum(f)), 1e-4),
                  ("LaxWendroff",          LaxWendroff(),                 4e-3),
                  ("Upwind",               Upwind(),                      6e-2)]
 
@@ -137,7 +140,7 @@ end
         nsteps = round(Int, 1.3*T_R/FS_ΔT)
 
         for (name, scheme) in [("SemiLagrangian cubic", SemiLagrangian(CubicSpline())),
-                               ("PFC", PFC(fmin = 0.0, fmax = 0.5))]
+                               ("PFC", f -> PFC(fmin = 0.0, fmax = maximum(f)))]
             amps = free_stream(scheme, v, nsteps)
             # search past the initial decay so the t = 0 peak is not found
             from = round(Int, 0.5*T_R/FS_ΔT)

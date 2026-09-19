@@ -59,8 +59,10 @@ function nonlinear_grid()
     return x, v, f₀, t
 end
 
-# `fmax = 1.0` brackets the data, whose peak is 1/√(2π) ≈ 0.399 -- the same
-# bounds the harness gives its own PFCNonUniform default.
+# `PFC` is bounded by the distribution it carries, `[0, maximum(f)]`, as the
+# harness bounds its own `PFCNonUniform` default. It is given as a function of `f`
+# because the driver rescales the initial condition before running, and a bound
+# taken from `f₀` beforehand would sit under the rescaled maximum.
 #
 # `Godunov(PiecewiseLinear())` without a limiter is missing on purpose: its
 # amplification factor exceeds 1 for every mode, which `test_amplification.jl`
@@ -72,7 +74,7 @@ schemes() = [
     ("Godunov VanLeer",        Godunov(PiecewiseLinear(), VanLeer())),
     ("SemiLagrangian linear",  SemiLagrangian(LinearSpline())),
     ("SemiLagrangian cubic",   SemiLagrangian(CubicSpline())),
-    ("PFC",                    PFC(fmin = 0.0, fmax = 1.0)),
+    ("PFC",                    f -> PFC(fmin = 0.0, fmax = maximum(f))),
     ("PFCNonUniform",          nothing),          # the harness default
 ]
 

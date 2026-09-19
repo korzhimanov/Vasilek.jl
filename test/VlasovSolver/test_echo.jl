@@ -40,11 +40,13 @@ function echo_error(r; α = 0.1, ε = 0.2, τ = 5.0)
 end
 
 @testset "Plasma echo" begin
-    pfc = PFC(fmin = 0.0, fmax = 0.5)
+    # PFC bounded by the distribution it carries, whose maximum is (1 + α)/√(2π);
+    # built by the driver from the `f` it actually starts on.
+    pfc = f -> PFC(fmin = 0.0, fmax = maximum(f))
 
     # The production scheme at three velocity resolutions, shared by the first
     # and the last testset. Nx = 128 rather than 64, because at 64 the x-sweep's
-    # own truncation (2.7e-3 of the peak) is a floor under the two finest; and
+    # own truncation (2.8e-3 of the peak) is a floor under the two finest; and
     # Δt = 0.01, because PFC is restricted to Courant ≤ 1 and at Nx = 128 the
     # fastest row would carry 1.22 at Δt = 0.02.
     Δvs = (0.2, 0.1, 0.05)
@@ -64,7 +66,7 @@ end
         t_exact = dense[argmax(exact)]
         fine = errors[end]
 
-        # Measured at Δv = 0.05: 1.23e-3 of the peak, pointwise over t ≥ τ.
+        # Measured at Δv = 0.05: 1.25e-3 of the peak, pointwise over t ≥ τ.
         @test fine.curve < 3e-3
 
         # The peak at t = 15.28, where the closed form's is, and not at t_e = 15,
@@ -79,7 +81,7 @@ end
         @test maximum(linear)/maximum(exact) - 1 > 0.1
 
         # The sign. The echo is +sin k₃x, so its amplitude is negative imaginary --
-        # to 3e-15 of its modulus, the setup being mirror-symmetric -- and
+        # to 4e-15 of its modulus, the setup being mirror-symmetric -- and
         # reversing the kick reverses it. A kick applied as v → v − ε cos k₂x
         # leaves |A₃|, and so the peak's time and size, exactly as they were; the
         # pointwise comparison catches it as an error of twice the peak, and these
@@ -118,7 +120,7 @@ end
         # Measured at Nx = 64, Δv = 0.1, pointwise over t ≥ τ against the peak:
         #
         #   SemiLagrangian cubic  1.07e-3
-        #   PFC                   9.83e-3
+        #   PFC                   1.03e-2
         #   LaxWendroff           4.48e-2
         #   Upwind                0.449    returning 0.553 of the peak
         #
@@ -148,10 +150,10 @@ end
     end
 
     @testset "and the loss is truncation error, at PFC's order" begin
-        # 5.96e-2 → 8.15e-3 → 1.23e-3 as Δv halves: ratios 7.3 and 6.6, orders
-        # 2.87 and 2.72 against the scheme's 3. The second ratio is the lower
+        # 6.39e-2 → 8.61e-3 → 1.25e-3 as Δv halves: ratios 7.4 and 6.9, orders
+        # 2.89 and 2.78 against the scheme's 3. The second ratio is the lower
         # because the x-sweep's floor at Nx = 128 is a quarter of the finest
-        # error: refining Δv further, to 0.025 and 0.0125, gives 4.2e-4 and
+        # error: refining Δv further, to 0.025 and 0.0125, gives 4.3e-4 and
         # 3.4e-4.
         @test errors[1].curve/errors[2].curve > 5
         @test errors[2].curve/errors[3].curve > 5

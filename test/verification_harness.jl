@@ -132,6 +132,13 @@ arguments so that the same driver can measure what the physics costs under a
 *different* scheme, which is what `verification/scheme-comparison.jl` does, and
 so that a refinement study can hold the scheme fixed while moving the grid.
 
+**Either may also be a function of the initial `f` that returns a scheme**, as
+in `f -> PFC(fmin = 0.0, fmax = maximum(f))`, and is called with the `f` the run
+actually starts from. That is the only way for a caller to bound a scheme by
+that distribution: the driver rescales what it is handed before it runs -- by
+0.8% at α = 0.5 -- so a bound taken from `f₀` beforehand sits below the rescaled
+maximum and trips `PFC`'s own check on the first call.
+
 **The defaults' bounds are those of `f` on entry: 0 and its maximum.** By
 Liouville's theorem the exact solution keeps both, and PFC's limiter exists to
 keep a run between the bounds it is given, so they belong to the run rather than
@@ -170,8 +177,9 @@ function vlasov_poisson(x, v, f₀, t;
     g = f'
 
     bound = maximum(f)
-    sx = scheme_x === nothing ? PFCNonUniform(Δx; fmin = 0.0, fmax = bound) : scheme_x
-    sv = scheme_v === nothing ? PFCNonUniform(Δv; fmin = 0.0, fmax = bound) : scheme_v
+    pick(s, widths) = s === nothing ? PFCNonUniform(widths; fmin = 0.0, fmax = bound) :
+                      s isa AbstractAdvection1D ? s : s(f)
+    sx, sv = pick(scheme_x, Δx), pick(scheme_v, Δv)
 
     advect_x! = line_advector(sx, Δx)
     advect_v! = line_advector(sv, Δv)
