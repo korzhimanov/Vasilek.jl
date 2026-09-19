@@ -146,10 +146,10 @@ returns 0.0 rather than a value nobody should trust.
 suite fits, with the beams at `vt = 0.3` the runs actually use:
 
     a     warm      cold      measured   vs warm   vs cold
-    0.4   0.30362   0.30819   0.30244    -0.39%    -1.87%
-    0.6   0.34909   0.35339   0.34229    -1.95%    -3.14%
-    0.8   0.31201   0.31134   0.31232    +0.10%    +0.32%
-    1.0   0.09823   0         ~0.088                 --
+    0.4   0.30362   0.30819   0.30245    -0.39%    -1.86%
+    0.6   0.34909   0.35339   0.34228    -1.95%    -3.14%
+    0.8   0.31201   0.31134   0.31229    +0.09%    +0.31%
+    1.0   0.09823   0         0.09516    -3.12%      --
 
 Two things fall out of that table which the cold form actively misleads about.
 The first is the tolerance: 2.01% against the warm root where the cold one needs

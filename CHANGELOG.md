@@ -83,9 +83,12 @@ This project has not been released; entries below describe work on `master`.
 
   Three measurements, and the second is the interesting one:
 
-  * at α = 0.05 the round-trip error is 1.97e-3, 3.44e-4 and 4.85e-5 as the grid
-    halves — ratios 5.7 and 7.1 against the 8 that `PFC`'s third order predicts,
-    so the irreversibility is the scheme's and it converges away;
+  * at α = 0.05 the round-trip error is 2.82e-3, 6.48e-4 and 1.58e-4 as the grid
+    halves — ratios 4.4 and 4.1, second order, so the irreversibility is the
+    scheme's and it converges away. (It was 1.97e-3, 3.44e-4 and 4.85e-5, ratios
+    5.7 and 7.1 toward `PFC`'s third order, while the harness bounded the limiter
+    at 1; bounded at the initial maximum, as it now is, the limiter clips the
+    peak cell and that costs the order — see Fixed.);
   * at α = 0.5 it is 0.164 and stays 0.156 when the grid is halved, a factor of
     1.05. By then the flow has folded the distribution into filaments finer than
     Δv, and the information needed to run the film backwards is not on the mesh
@@ -139,7 +142,7 @@ This project has not been released; entries below describe work on `master`.
   Nothing in the discretisation is Galilean invariant — the grid does not move
   and the boosted Maxwellian sits on it asymmetrically — so the agreement is a
   measurement: over the eleven maxima in the fitting window, amplitudes within
-  1.5e-3 and phases within 1.8e-3 rad, with fitted rates 0.133% apart and
+  1.7e-3 and phases within 1.8e-3 rad, with fitted rates 0.136% apart and
   frequencies identical to the estimator's resolution. The phase is compared at
   each sample's own time, `t[k] + Δt/2` — the field is recorded mid-step — and
   removing the Doppler factor at `t[k]` instead reads 8.0e-3, of which 6.25e-3 is
@@ -164,13 +167,33 @@ This project has not been released; entries below describe work on `master`.
 
 - **The verification harness gave PFC an upper bound of 1 whatever `f` was.**
   `vlasov_poisson` built its default `PFCNonUniform` schemes with `fmax = 1.0`,
-  and `PFCNonUniform` does not check its data against the bound. Every run until
-  now peaks between 0.4 and 0.66, under it; a trapped population at half the
-  passing temperature peaks at 1.79, and the limiter took it 43.6% of its peak
-  away from equilibrium by t = 50, where the same run holds to 0.99% with the
-  bound at its own maximum. The bound is now the larger of 1 and the initial
-  maximum of `f`, which by Liouville the exact solution keeps; every earlier
-  run's number is unchanged.
+  a number nothing chose, and `PFCNonUniform` does not check its data against
+  it. A trapped population at half the passing temperature peaks at 1.79, and
+  the limiter took it 43.6% of its peak away from equilibrium by t = 50. The
+  bounds are now those of `f` on entry, 0 and its maximum, which by Liouville
+  the exact solution keeps: that run holds to 0.99%. The same goes for the
+  other two places the harness chose a bound — the echo's kick (1) and
+  `two_stream` (3, set once to clear the 1) — and for the Landau and
+  plasma-oscillation notebooks, which the harness mirrors. No run exceeds its
+  bound: a new `fmax` history tops out exactly at it or below, to the bit.
+
+  Every earlier run sat under the old bound, where the limiter never engaged.
+  At the maximum it now does, and the price is measured: the α = 0.05
+  reversibility round trip converges at second order, 2.82e-3 → 6.48e-4 →
+  1.58e-4, where it went 1.97e-3 → 3.44e-4 → 4.85e-5 at third, and its
+  threshold is now 3.5× per halving rather than 4×. The rest moved little —
+  the three Landau rates by 0.2% at most (0.5% on the coarsest level of the
+  refinement ladder), ω at k = 0.5 from 0.14% to 0.26% off the root, the
+  two-stream rates in the fifth decimal place — and every quoted number is updated
+  to the new runs. Six that were already stale are corrected with them: the
+  trapezoid's mass drift in the invariants note (1.6e-4 quoted, 2.4e-4 measured
+  every step, under either bound); the recurrence window ratio (116 quoted, 119
+  at the old bound); the stable two-stream cases' decay (3.36e-5 and 7.02e-6
+  quoted, 2.54e-6 and 1.2e-9 measured) and the unstable case they are set
+  against; the `a = 1.0` row of the warm-root table (≈0.088, from before that
+  case ran to `tmax = 80`, against 0.09516); and the recurrence table's floor
+  and `two_stream`'s "peak ε_e of 61", which no definition reproduces and which
+  are replaced by measured quantities.
 
 - **The "linear" Landau case at k = 0.3 was not linear, and the agreement it
   reported was two errors cancelling.** At the 1% perturbation this suite used,
@@ -188,8 +211,8 @@ This project has not been released; entries below describe work on `master`.
   At α = 1e-3 the same column is flat to t = 95, the window widens to [10, 90]
   with thirty maxima, and the measurement reads 0.71% *above* — as do the other
   two, which is what a dissipative scheme should do. The three cases now run at
-  α = 1e-3 and are 0.71%, 1.09% and 1.11% on γ, 0.08%, 0.07% and 0.14% on ω,
-  with window spreads of 0.19%, 0.05% and 0.36% (they were up to 1.45%).
+  α = 1e-3 and are 0.71%, 1.14% and 0.94% on γ, 0.08%, 0.22% and 0.26% on ω,
+  with window spreads of 0.18%, 0.05% and 0.04% (they were up to 1.45%).
 
   `trapping_phase` is the guard, asserted per case: `(√α/γ)(1 - exp(-γT))`, the
   bounce phase accumulated before the mode damps away, evaluated at the
@@ -313,16 +336,16 @@ This project has not been released; entries below describe work on `master`.
   which at that temperature is off by up to 3.14% — half of a 6% tolerance spent
   on a known approximation, and 7.44% at the `vt = 0.6` run, where the cold error
   has grown with the temperature. Against `two_stream_warm` the same three
-  measurements read −0.39%, −1.95% and +0.10%, and the tolerance is now 3%.
+  measurements read −0.39%, −1.95% and +0.09%, and the tolerance is now 3%.
 
   `a = 1.0`, the cold stability boundary, turns from a qualitative case into the
   sharpest one in the testset. The cold form predicts exactly zero there and the
   old assertion could only say "something grows" (a factor of 4.91 over t ≤ 26);
-  the warm root predicts 0.09823 and the run gives 0.09510, which is 3.19%. It
+  the warm root predicts 0.09823 and the run gives 0.09516, which is 3.12%. It
   costs a longer run — `tmax = 80` to bring `ε_e` up to the same amplitude band
-  every other case uses, against a divergence at t = 86.3 — and is held to 8%
+  every other case uses, against a divergence at t = 86.2 — and is held to 8%
   because the beat ripple `growth_rate` documents is worst where `γ` is
-  smallest: over `hi` ∈ {1, 2, 3, 5} the fit moves between −6.08% and −3.19%.
+  smallest: over `hi` ∈ {1, 2, 3, 5} the fit moves between −6.01% and −3.12%.
 
   The temperature comparison at `a = 0.6` is now absolute as well as relative:
   γ falls 4.4% between `vt = 0.3` and `vt = 0.6` where warm theory predicts
@@ -338,7 +361,7 @@ This project has not been released; entries below describe work on `master`.
   `a = 0.8`, and past `a = 1` the cold branch is identically zero while warm
   beams still grow — which the same testset had been measuring all along, at
   `a = 1.0`, without the two statements being put side by side. Against the warm
-  root the `a = 0.8` measurement is +0.10% and there is nothing left to explain.
+  root the `a = 0.8` measurement is +0.09% and there is nothing left to explain.
 
   The estimator's ripple is real and the note in `growth_rate` about it stands;
   what changed is that it is no longer asked to account for a discrepancy that
@@ -458,8 +481,8 @@ This project has not been released; entries below describe work on `master`.
   1.4e-14) and confirms it reproduces `√(3/8)` and `1/(2√2)` on its own before
   using it.
 
-  Measured at three wavenumbers, with the beams at `vt = 0.3`: γ = 0.30244,
-  0.34229 and 0.31232 against 0.30819, 0.35339 and 0.31134 — 1.87%, 3.14% and
+  Measured at three wavenumbers, with the beams at `vt = 0.3`: γ = 0.30245,
+  0.34228 and 0.31229 against 0.30819, 0.35339 and 0.31134 — 1.86%, 3.14% and
   0.31%. **`γ(a)` is non-monotone**, peaking at `a = √(3/8) ≈ 0.612`, so
   reproducing all three is a statement about the branch rather than about one
   point: a solver that merely amplified what it was given could not put the
@@ -470,7 +493,7 @@ This project has not been released; entries below describe work on `master`.
 
   The sharpest assertion is the **stability boundary**, which is qualitative and
   so cannot be laundered by a tolerance: `γ_cold` is exactly zero for `kv₀ ≥ 1`,
-  and at `a` = 1.2 and 1.6 the mode decays to 0.053 and 0.000 of its initial
+  and at `a` = 1.2 and 1.6 the mode decays to 0.052 and 0.000 of its initial
   energy rather than growing. At `a` = 1.0, the cold boundary itself, the warm
   system is still weakly unstable — a factor of 4.9 over `t ≤ 26` — and that is
   asserted as *present* rather than papered over, the boundary being sharp only
@@ -481,9 +504,9 @@ This project has not been released; entries below describe work on `master`.
   imaginary, so the mode grows without oscillating and there are no `log cos²`
   poles — nor, in fact, any local maxima for `damping_rate` to find. Its window
   is set by **amplitude** rather than time, which is what makes it transferable
-  across the branch: at `kv₀ = 0.4` a fixed time window gives 9.76%, 5.63%,
-  4.35% and 0.56% depending on where it is put, and the amplitude band gives
-  1.87% at every `k`. The ceiling also keeps the run inside the solver's
+  across the branch: at `kv₀ = 0.4` a fixed time window gives 9.75%, 5.63%,
+  4.35% and 0.55% depending on where it is put, and the amplitude band gives
+  1.86% at every `k`. The ceiling also keeps the run inside the solver's
   validity — the field grows with the mode, and a large enough `ε_e` breaks
   `PFC`'s Courant limit in `v`, measured diverging to 1.2e161 before `NaN` at
   `t = 24.1`. Widening the velocity window only postpones that, from `t = 24.1`
@@ -692,9 +715,9 @@ This project has not been released; entries below describe work on `master`.
 
 - **Mass, momentum, L² and entropy are measured and asserted.** Total energy was
   the only invariant that ever was. Over the k = 0.5 Landau case, 875 steps:
-  mass drifts 2.8e-16 and momentum stays at 1.7e-15 on a mass of 25.1 — both
+  mass drifts 2.8e-16 and momentum stays at 5.3e-16 on a mass of 25.1 — both
   round-off, both exact conservation laws the discrete scheme also satisfies.
-  L² falls 9.8e-6 and entropy rises 7.4e-6, monotonically at every step. Those
+  L² falls 1.0e-5 and entropy rises 7.5e-6, monotonically at every step. Those
   two are *not* conserved and are not asserted as if they were: an exact Vlasov
   flow preserves both, and the drift is numerical dissipation. What is asserted
   is the direction, since a dissipative scheme can only lose L² and gain entropy.
@@ -702,16 +725,16 @@ This project has not been released; entries below describe work on `master`.
   **The invariants use the cell-width sum `Σ f ΔvΔx`, not `integrate`.** That is
   the quadrature a flux form conserves; the trapezoid halves the two endpoint
   weights, which no conservation law protects. Measured on the same run, the
-  trapezoid reports 1.6e-4 of mass drift and 7.3e-4 of momentum against 2.8e-16
-  and 1.7e-15 — three orders of magnitude of apparent non-conservation that
+  trapezoid reports 2.4e-4 of mass drift and 7.3e-4 of momentum against 2.8e-16
+  and 5.3e-16 — twelve orders of magnitude of apparent non-conservation that
   belongs entirely to the quadrature. The energy histories keep `integrate`,
   being compared at half-a-percent tolerances where it cannot matter.
 
 - **Landau damping converges under refinement.** Agreement at one resolution
   inside a 3% band can be two errors of opposite sign meeting in the middle.
   Halving Δx, Δv and Δt together — so the Courant number stays at 0.81 and only
-  the discretisation moves — gives γ errors of 5.83%, 1.45%, 0.62% and 0.47%.
-  The L² dissipation over the same ladder falls by 10.2x, 7.8x and 7.8x against
+  the discretisation moves — gives γ errors of 6.41%, 1.31%, 0.61% and 0.47%.
+  The L² dissipation over the same ladder falls by 11.0x, 7.9x and 7.8x against
   the 8x a third-order scheme predicts, which is what identifies the residual
   error in γ: the fitted rate is the physical damping plus the scheme's own,
   which is why every measurement sits on the high side of the analytic value

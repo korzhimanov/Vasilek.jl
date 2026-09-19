@@ -109,15 +109,15 @@ end
             # near a value at one wavenumber.
             #
             # Both roots are measured. The real frequency turns out to be the
-            # sharper of the two by roughly a factor of four -- it comes from
+            # sharper of the two by a factor of four to nine -- it comes from
             # counting nulls, where γ comes from fitting an amplitude that
             # numerical dissipation also acts on -- so it is held to 1% where γ
             # is held to 3%. Measured:
             #
             #   k     γ                       ω_r
             #   0.3   0.01271  (0.71%)        1.15895  (0.08%)
-            #   0.4   0.06685  (1.09%)        1.28415  (0.07%)
-            #   0.5   0.15506  (1.11%)        1.41372  (0.14%)
+            #   0.4   0.06688  (1.14%)        1.28228  (0.22%)
+            #   0.5   0.15481  (0.94%)        1.41939  (0.26%)
             #
             # All three sit *above* the analytic rate now, and that is the point
             # of the amplitude change: the residue is numerical dissipation,
@@ -171,7 +171,7 @@ end
                 # This is the assertion that would have caught the old fit: the
                 # per-sample version moved by 2.3% when its start was nudged one
                 # step, because it began on a null. Through the maxima the two
-                # windows here agree to 0.36%, 0.05% and 0.19% -- tighter than
+                # windows here agree to 0.04%, 0.05% and 0.18% -- tighter than
                 # the 0.43%, 0.44% and 1.45% of the 1% runs, the k = 0.3 case by
                 # a factor of eight, because what moved that one between windows
                 # was trapping rather than the estimator.
@@ -194,7 +194,7 @@ end
                 # 1% sits in a wide gap. Below it is the estimator's own floor:
                 # a null is located only to within Δt, so two windows disagree
                 # by about Δt/span whatever the physics does, which is 0.4% at
-                # k = 0.5. Measured here 0.100%, 0.146% and 0.066%. Above it is
+                # k = 0.5. Measured here 0.300%, 0.000% and 0.066%. Above it is
                 # the failure being tested for: losing one null of ten rescales
                 # the spacing by 10/9, i.e. by 11%.
                 ω_alt, _ = oscillation_frequency(t, ε_e; tmin = alt[1], tmax = alt[2])
@@ -216,25 +216,25 @@ end
             #
             # The local rate between maxima two apart, at k = 0.3, α = 1e-2:
             #
-            #   t      8     19    30    41    52    62    73    84    95
-            #   γ      .0127 .0130 .0127 .0119 .0092 .0048 .0000 -.0035 -.0054
+            #   t      8     19    30    41    52    63    73    84    95
+            #   γ      .0127 .0130 .0128 .0119 .0092 .0048 .0000 -.0036 -.0055
             #
             # It does not merely stop -- it goes negative, which is the field
             # growing again as the trapped population sloshes. At α = 1e-3 the
-            # same column is flat at 0.0123 to 0.0129 all the way to t = 95.
+            # same column is flat at 0.0121 to 0.0129 all the way to t = 95.
             #
             # **The scaling is the assertion.** ω_B = √(kE₀) = √α here, so the
             # arrest time should go as α^(-1/2), and the accumulated phase
             # ω_B·t at which it happens should not move at all. Measured:
             #
             #   α       0.005   0.01    0.02    0.04
-            #   t₀      113.2   73.5    50.5    35.4
-            #   t₀√α    8.01    7.35    7.14    7.09
+            #   t₀      113.1   73.4    50.5    35.4
+            #   t₀√α    8.00    7.34    7.14    7.09
             #
             # A factor of eight in amplitude moves the arrest by 3.2, where
             # α^(-1/2) predicts 2.83. The residue is not something the decay
             # factor in `trapping_phase` removes: evaluated at these arrest
-            # times it reads 4.26, 4.79, 5.28 and 5.71, a spread of 34% against
+            # times it reads 4.26, 4.79, 5.28 and 5.72, a spread of 34% against
             # the 13% of the undamped column above. The undamped phase is the
             # better invariant here, and it is the one asserted.
             function arrest_time(α; k = 0.3, tmax)
@@ -307,13 +307,14 @@ end
             #
             # Measured on the notebook's own grid, to t = 140:
             #
-            #   mode     |E| at t=0   floor      peak       at t     T_R
-            #   k = 0.5  1.99e-2      1.75e-8    1.03e-2    128.6    125.7
-            #   k = 1.0  2.63e-17     --         7.78e-5    64.3     62.8
+            #   mode     |E| at t=0   least      peak       at t     T_R
+            #   k = 0.5  1.99e-2      8.7e-9     1.03e-2    128.6    125.7
+            #   k = 1.0  2.63e-17     --         7.60e-5    64.3     62.8
             #
+            # ("least" is the smallest |E| between the decay and the return.)
             # The harmonic starts at round-off -- it is not seeded -- and around
-            # its recurrence it is 25 times the seeded mode, which around the
-            # seeded mode's own recurrence is 116 times it. In `ε_e` both are
+            # its recurrence it is 21 times the seeded mode, which around the
+            # seeded mode's own recurrence is 121 times it. In `ε_e` both are
             # the same bump.
             x = collect(π/8:π/8:8π)
             v = collect(-4:0.1:4)
@@ -353,7 +354,7 @@ end
             # nulls, so a point sample of the ratio swings between 20 and 520
             # across three time units without anything physical changing. The
             # peak over the window is the quantity the recurrence is about.
-            # Measured over t ∈ [58, 72]: 3.08e-6 against 7.78e-5, a factor 25.
+            # Measured over t ∈ [58, 72]: 3.68e-6 against 7.60e-5, a factor 21.
             lo, hi = findfirst(≥(58.0), t), findfirst(≥(72.0), t)
             peak₁, peak₂ = maximum(A₁[lo:hi]), maximum(A₂[lo:hi])
             println("  over t ∈ [58, 72]: max|E_k| = ", round(peak₁; sigdigits = 3),
@@ -363,7 +364,7 @@ end
 
             # The other way round at the seeded mode's own recurrence, which is
             # what makes the pair a statement rather than an observation.
-            # Measured over t ∈ [120, 135]: 1.03e-2 against 8.92e-5, a factor 116.
+            # Measured over t ∈ [120, 135]: 1.03e-2 against 8.51e-5, a factor 121.
             lo₂, hi₂ = findfirst(≥(120.0), t), findfirst(≥(135.0), t)
             @test maximum(A₁[lo₂:hi₂]) > 10*maximum(A₂[lo₂:hi₂])
         end
@@ -576,20 +577,27 @@ end
                           l2 = (fwd.l2[end-1] - fwd.l2[1])/fwd.l2[1])
             end
 
-            @testset "at small amplitude it converges away at the scheme's order" begin
+            @testset "at small amplitude it converges away" begin
                 # Nothing is irreversible about the equations, so the round-trip
                 # error is the scheme's dissipation and has to vanish with the
-                # grid. `PFC` is third order, so halving should cut it by eight.
-                # Measured at α = 0.05 over T = 20: 1.97e-3, 3.44e-4, 4.85e-5 at
-                # Nx = 64, 128 and 256 -- ratios 5.7 and 7.1. The last level
-                # costs 22 s and is left out; the two below cost two seconds.
+                # grid. Measured at α = 0.05 over T = 20: 2.82e-3, 6.48e-4 and
+                # 1.58e-4 at Nx = 64, 128 and 256 -- ratios 4.4 and 4.1, second
+                # order. The last level costs 22 s and is left out; the two below
+                # cost two seconds.
+                #
+                # `PFC` is third order, and with its bound at 1, which never
+                # engaged, this read 1.97e-3, 3.44e-4 and 4.85e-5 -- ratios 5.7
+                # and 7.1. The bound is now the initial maximum, as Liouville
+                # has it, and the limiter clips the peak cell there; the error is
+                # a maximum over f, so it sees that cell, and one order is what
+                # the clipping costs. The threshold is set for second order.
                 coarse = round_trip(64, 0.1, 0.05, 20.0, 0.05)
                 fine = round_trip(128, 0.05, 0.025, 20.0, 0.05)
                 println("  α = 0.05: round trip ", round(coarse.err; sigdigits = 3),
                         " -> ", round(fine.err; sigdigits = 3),
                         "  (x", round(coarse.err/fine.err; digits = 1),
-                        ", third order would give 8)")
-                @test fine.err < coarse.err/4
+                        "; second order gives 4, third 8)")
+                @test fine.err < coarse.err/3.5
                 @test fine.err < 1e-3
             end
 
@@ -600,7 +608,7 @@ end
                 # backwards is not on the grid any more, and the round trip
                 # returns 16% of the peak whatever the resolution: measured
                 # 1.64e-1 at Nx = 64 against 1.56e-1 at 128, a factor of 1.05
-                # where the linear case gains 5.7.
+                # where the linear case gains 4.4.
                 #
                 # This is the honest counterweight to the testset above. The
                 # scheme is third order and the splitting is symmetric, and
@@ -738,8 +746,8 @@ end
             # the same physics. Until now it was asserted only through an energy
             # drift over a *linear* run, where the distribution never approaches
             # the sharp gradients its limiter exists for. Measured against the
-            # uniform grid at the same Δt: γ₁ 0.2793 against 0.2794 (0.04%) and
-            # γ₂ 0.0720 against 0.0716 (0.6%).
+            # uniform grid at the same Δt: γ₁ 0.2793 against 0.2794 (0.05%) and
+            # γ₂ 0.0721 against 0.0716 (0.6%).
             stretched = strong_case(64, 0.1, 0.05;
                 v = vcat(collect(-6:0.1:-1.1), collect(-1:0.05:1), collect(1.1:0.1:6)))
             println("  non-uniform Δv: γ₁ = ", round(stretched.γ₁; digits = 4),
@@ -773,9 +781,9 @@ end
             # Measured at the 11 maxima of `|E_k|` in the fitting window, with
             # `u = 0.5` against `u = 0`:
             #
-            #   amplitude ratio     within 1.5e-3
+            #   amplitude ratio     within 1.7e-3
             #   phase               within 1.8e-3 rad
-            #   fitted γ            0.133% apart
+            #   fitted γ            0.136% apart
             #   fitted ω            identical to the estimator's resolution
             #
             # **The Doppler factor is removed at the time the field was sampled,
@@ -854,17 +862,17 @@ end
             # 0.81 and only the discretisation moves. Measured at k = 0.5:
             #
             #   Nx    Δv      Δt     γ         error    ΔL²/L² over the run
-            #   32    0.2     0.16   0.16230   5.83%    -9.99e-5
-            #   64    0.1     0.08   0.15558   1.45%    -9.80e-6
-            #   128   0.05    0.04   0.15431   0.62%    -1.26e-6
-            #   256   0.025   0.02   0.15407   0.47%    -1.62e-7
+            #   32    0.2     0.16   0.16318   6.41%    -1.11e-4
+            #   64    0.1     0.08   0.15536   1.31%    -1.01e-5
+            #   128   0.05    0.04   0.15430   0.61%    -1.27e-6
+            #   256   0.025   0.02   0.15407   0.47%    -1.63e-7
             #
             # The last level costs 14 s on its own and is left out; the three
             # below cost about two seconds together.
             #
             # The L² column is why the γ column behaves as it does, and is worth
             # asserting alongside it. `PFC` is third order, so halving the grid
-            # should cut its dissipation by eight -- measured 10.2, 7.8 and 7.8.
+            # should cut its dissipation by eight -- measured 11.0, 7.9 and 7.8.
             # The residual error in γ *is* that dissipation: the fitted rate is
             # the physical damping plus the scheme's own, which is why every
             # measurement above sits on the high side of the analytic value
@@ -915,15 +923,15 @@ end
             # **Measured with the cell-width sum `Σ f ΔvΔx`, not `integrate`.**
             # That is what a flux-form scheme conserves; the trapezoid halves
             # the endpoint weights, which no conservation law protects, and
-            # reports 1.6e-4 of mass drift that belongs to the quadrature rather
+            # reports 2.4e-4 of mass drift that belongs to the quadrature rather
             # than the solver. See the note on `vlasov_poisson`.
             #
             # Measured over the k = 0.5 case, 875 steps:
             #
             #   mass       2.8e-16 relative               -- round-off
-            #   momentum   1.7e-15 absolute, on mass 25.1 -- round-off
-            #   L²         -9.8e-6, monotone decreasing   -- numerical dissipation
-            #   entropy    +7.4e-6, monotone increasing   -- the same thing
+            #   momentum   5.3e-16 absolute, on mass 25.1 -- round-off
+            #   L²         -1.0e-5, monotone decreasing   -- numerical dissipation
+            #   entropy    +7.5e-6, monotone increasing   -- the same thing
             #
             # Mass and momentum are exact conservation laws of the continuous
             # system that the discrete scheme also satisfies, so they are held
@@ -1111,9 +1119,9 @@ end
                 # ε_e rising from 100x its initial value to 5.0:
                 #
                 #   a = kv₀   γ measured   γ warm     error    γ cold     error
-                #   0.4       0.30244      0.30362   -0.39%    0.30819   -1.87%
-                #   0.6       0.34229      0.34909   -1.95%    0.35339   -3.14%
-                #   0.8       0.31232      0.31201   +0.10%    0.31134   +0.31%
+                #   0.4       0.30245      0.30362   -0.39%    0.30819   -1.86%
+                #   0.6       0.34228      0.34909   -1.95%    0.35339   -3.14%
+                #   0.8       0.31229      0.31201   +0.09%    0.31134   +0.31%
                 #
                 # Held to 3% against the warm root, about 1.5x the worst. The
                 # cold column is printed alongside because the two disagree by
@@ -1128,7 +1136,7 @@ end
                 # cold one between a = 0.75 and a = 0.8, and beyond a = 1 the
                 # cold branch is identically zero while warm beams are still
                 # unstable -- which this very testset measures below. Against
-                # the warm root the same measurement is +0.10%, and nothing
+                # the warm root the same measurement is +0.09%, and nothing
                 # needs explaining away.
                 measured = Float64[]
                 for a in (0.4, 0.6, 0.8)
@@ -1155,7 +1163,7 @@ end
                 # unambiguous: at a = 0.6 the warm branch falls monotonically
                 # with vt (0.35337 at 0.02, 0.34909 at 0.3, 0.33381 at 0.6 --
                 # `test_dispersion.jl` asserts the monotonicity), and the runs
-                # follow it. Measured γ = 0.32710 at vt = 0.6 against 0.34229 at
+                # follow it. Measured γ = 0.32710 at vt = 0.6 against 0.34228 at
                 # vt = 0.3, a drop of 4.4% where theory predicts 4.4%.
                 #
                 # Both halves are asserted now. The relative one -- a colder
@@ -1190,8 +1198,9 @@ end
                 @test two_stream_warm(1.6) == 0.0
 
                 # Measured over t ≤ 26, as a ratio of peak ε_e to initial:
-                # a = 1.2 gives 1.00 (4.84e-5 decaying to 3.36e-5) and a = 1.6
-                # gives 1.00 (2.02e-5 to 7.02e-6), against 5.9e4 at a = 0.6.
+                # a = 1.2 gives 1.00 (4.84e-5 decaying to 2.54e-6) and a = 1.6
+                # gives 1.00 (2.02e-5 to 1.2e-9), against 2.0e8 at a = 0.6 over
+                # its own t ≤ 24.
                 for a in (1.2, 1.6)
                     t, ε_e = two_stream(a; tmax = 26.0)
                     ratio = maximum(ε_e)/ε_e[1]
@@ -1211,19 +1220,19 @@ end
                 # against a number, in a regime where the two theories differ by
                 # infinity rather than by percent.
                 #
-                # Measured γ = 0.09510 against 0.09823, which is 3.19%, fitted
-                # over t ∈ [45.6, 78.3]. The band is the same `[100ε₀, 5.0]`
+                # Measured γ = 0.09516 against 0.09823, which is 3.12%, fitted
+                # over t ∈ [45.6, 78.2]. The band is the same `[100ε₀, 5.0]`
                 # every other case uses; `tmax = 80` is what it takes to reach
                 # 5.0 at a tenth of the growth rate, and the run goes non-finite
-                # at t = 86.3, so the margin is six time units rather than the
-                # four steps the `a = 0.6` case gets at `tmax = 24`.
+                # at t = 86.2, so the margin is six time units rather than the
+                # three steps the `a = 0.6` case gets at `tmax = 24`.
                 #
                 # Held to 8% rather than the 3% above, and the reason is in
                 # `growth_rate`: the beat between the growing root and the
                 # oscillating pair decays as exp(-γt) relative to the mode, so
                 # it is worst where γ is smallest, and γ here is a third of the
                 # branch maximum. Measured over `hi` ∈ {1, 2, 3, 5} the fit
-                # moves from -6.08% to -3.19%; 8% covers that spread with room.
+                # moves from -6.01% to -3.12%; 8% covers that spread with room.
                 t, ε_e = two_stream(1.0; tmax = 80.0)
                 γ, t0, t1 = growth_rate(t, ε_e; lo = 100*ε_e[1], hi = 5.0)
                 γw = two_stream_warm(1.0)

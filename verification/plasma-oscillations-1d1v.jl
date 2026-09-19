@@ -48,9 +48,6 @@ x = collect(1.0:1.0:100.0)
 v = collect(-4:0.1:4)
 Δv = vcat([v[2]-v[1]], 0.5*(v[3:end] - v[1:end-2]), [v[end]-v[end-1]])
 
-advect_x! = inplace_advect(PFCNonUniform(Δx; fmin = 0.0, fmax = 1.0), length(Δx))
-advect_v! = inplace_advect(PFCNonUniform(Δv; fmin = 0.0, fmax = 1.0), length(Δv))
-
 fi = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. Δx/Δx)'
 ni = integrate(v, fi)
 Ni = integrate(x, ni)
@@ -59,6 +56,11 @@ f0 = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. (1.0 + 0.01*cos(2π*x/100)))'
 n0 = integrate(v, f0)
 N0 = integrate(x, n0)
 f0 *= Ni/N0
+
+# The limiter is bounded by the initial condition: by Liouville's theorem the
+# exact solution never leaves `[0, maximum(f0)]`.
+advect_x! = inplace_advect(PFCNonUniform(Δx; fmin = 0.0, fmax = maximum(f0)), length(Δx))
+advect_v! = inplace_advect(PFCNonUniform(Δv; fmin = 0.0, fmax = maximum(f0)), length(Δv))
 
 f = copy(f0)
 
@@ -157,9 +159,6 @@ x = collect(1.0:1.0:100.0)
 v = vcat(collect(-4:0.2:-1.2), collect(-1:0.1:1), collect(1.2:0.2:4))
 Δv = vcat([v[2]-v[1]], 0.5*(v[3:end] - v[1:end-2]), [v[end]-v[end-1]])
 
-advect_x! = inplace_advect(PFCNonUniform(Δx; fmin = 0.0, fmax = 1.0), length(Δx))
-advect_v! = inplace_advect(PFCNonUniform(Δv; fmin = 0.0, fmax = 1.0), length(Δv))
-
 fi = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. Δx/Δx)'
 ni = integrate(v, fi)
 Ni = integrate(x, ni)
@@ -168,6 +167,11 @@ f0 = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. (1.0 + 0.01*cos(2π*x/100)))'
 n0 = integrate(v, f0)
 N0 = integrate(x, n0)
 f0 *= Ni/N0
+
+# The limiter is bounded by the initial condition: by Liouville's theorem the
+# exact solution never leaves `[0, maximum(f0)]`.
+advect_x! = inplace_advect(PFCNonUniform(Δx; fmin = 0.0, fmax = maximum(f0)), length(Δx))
+advect_v! = inplace_advect(PFCNonUniform(Δv; fmin = 0.0, fmax = maximum(f0)), length(Δv))
 
 f = copy(f0)
 

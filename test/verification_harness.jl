@@ -108,8 +108,8 @@ leaves one cell enters its neighbour and the full-weight sum is preserved
 exactly. The trapezoid halves the two endpoint weights, which no flux
 conservation law protects, and measuring with it reports a drift that belongs to
 the quadrature rather than to the scheme. Measured over the k = 0.5 Landau run,
-875 steps: mass drifts 2.8e-16 by the cell-width sum against **1.6e-4** by the
-trapezoid, and momentum stays at 1.7e-15 against 7.3e-4. Both trapezoid figures
+875 steps: mass drifts 2.8e-16 by the cell-width sum against **2.4e-4** by the
+trapezoid, and momentum stays at 5.3e-16 against 7.3e-4. Both trapezoid figures
 are the endpoint weighting, not the solver.
 
 The energy histories above keep `integrate`, because they are compared with
@@ -132,13 +132,22 @@ arguments so that the same driver can measure what the physics costs under a
 *different* scheme, which is what `verification/scheme-comparison.jl` does, and
 so that a refinement study can hold the scheme fixed while moving the grid.
 
-**The defaults' upper bound is the larger of 1 and the initial maximum of `f`.**
-It was 1 outright, which every earlier run sits under -- their peaks are 0.4 to
-0.66, so their numbers do not move -- and which `PFCNonUniform` does not check.
-Above it the limiter's `2(fmax − f)` goes negative and the scheme corrupts the
-run without a word: an equilibrium whose trapped population peaks at 1.79 was 44%
-of its peak away from itself by `t = 100` with the bound at 1, and 1.3% with it
-at 2. By Liouville the initial maximum is the bound the exact solution keeps.
+**The defaults' bounds are those of `f` on entry: 0 and its maximum.** By
+Liouville's theorem the exact solution keeps both, and PFC's limiter exists to
+keep a run between the bounds it is given, so they belong to the run rather than
+to the driver. They were the constant 1, which nothing chose and `PFCNonUniform`
+does not check. Above it the limiter's `2(fmax − f)` goes negative and the scheme
+corrupts the run without a word: an equilibrium whose trapped population peaks at
+1.79 ended 44% of its peak away from itself with the bound at 1. Below it, where
+every run until then sat, the bound never engaged at all.
+
+Tight, it does engage, at the maximum, and that has a measured price: the limiter
+clips the reconstruction in the peak cell, and the α = 0.05 round trip in
+`test_verification.jl` converges at second order (×4.4, then ×4.1) where it
+converged at third (×5.7, ×7.1). Elsewhere the numbers moved little and are
+updated where they are quoted. No run leaves its bound: the `fmax` history of a
+Landau, a strong Landau, a two-stream and an equilibrium run tops out exactly at
+it, or below, to the last bit.
 """
 function vlasov_poisson(x, v, f₀, t;
                         scheme_x = nothing, scheme_v = nothing, invariants = false,
@@ -160,9 +169,9 @@ function vlasov_poisson(x, v, f₀, t;
     renormalize && (f .*= Nᵢ/integrate(x, integrate(v, f)))
     g = f'
 
-    fmax = max(1.0, maximum(f))
-    sx = scheme_x === nothing ? PFCNonUniform(Δx; fmin = 0.0, fmax) : scheme_x
-    sv = scheme_v === nothing ? PFCNonUniform(Δv; fmin = 0.0, fmax) : scheme_v
+    bound = maximum(f)
+    sx = scheme_x === nothing ? PFCNonUniform(Δx; fmin = 0.0, fmax = bound) : scheme_x
+    sv = scheme_v === nothing ? PFCNonUniform(Δv; fmin = 0.0, fmax = bound) : scheme_v
 
     advect_x! = line_advector(sx, Δx)
     advect_v! = line_advector(sv, Δv)
@@ -185,6 +194,10 @@ function vlasov_poisson(x, v, f₀, t;
     # being unusable on a nonlinear run. Tracked because the comparison study
     # would otherwise rank a non-positive scheme first without saying so.
     fmin     = invariants ? similar(t) : nothing
+    # And the maximum, which Liouville's theorem forbids to grow just as it
+    # forbids the minimum to fall; the defaults hold their limiter to the
+    # initial one, and this is how a run shows whether it stayed there.
+    fmax     = invariants ? similar(t) : nothing
     # Per-mode field amplitudes, when asked for. `ε_e` sums every mode in the
     # box, which is fine while one of them dominates and misleading the moment
     # another does -- the recurrence of the second harmonic arrives at half the
@@ -220,16 +233,17 @@ function vlasov_poisson(x, v, f₀, t;
             @. tmp = nlogn(f)*wt
             entropy[k] = sum(tmp)
             fmin[k] = minimum(f)
+            fmax[k] = maximum(f)
         end
     end
-    for h in (ε_e, ε, mass, momentum, l2, entropy, fmin)
+    for h in (ε_e, ε, mass, momentum, l2, entropy, fmin, fmax)
         h === nothing || (h[end] = h[end-1])
     end
     E_modes === nothing || (E_modes[end, :] = E_modes[end-1, :])
     # `f` comes back too. It costs nothing -- the array exists either way -- and
     # it is the only way to ask a question about the distribution rather than
     # about a moment of it, which is what the reversibility test needs.
-    return (; ε_e, ε, mass, momentum, l2, entropy, fmin, E_modes, f)
+    return (; ε_e, ε, mass, momentum, l2, entropy, fmin, fmax, E_modes, f)
 end
 
 """
@@ -277,7 +291,7 @@ function self_consistent_echo(; L = 4π, m₁ = 2, m₂ = 3, Nx = 128, Δv = 0.0
 
     f = copy(seed.f)
     widths = cell_widths(v)
-    kick! = line_advector(PFCNonUniform(widths; fmin = 0.0, fmax = 1.0), widths)
+    kick! = line_advector(PFCNonUniform(widths; fmin = 0.0, fmax = maximum(f)), widths)
     nsub = max(1, ceil(Int, abs(ε)/(kick_courant*Δv)))
     for j in eachindex(x), _ = 1:nsub
         kick!(view(f, :, j), ε*cos(k₂*x[j])/nsub)
@@ -937,7 +951,7 @@ transferable between wavenumbers: the growth rate varies over the branch, so a
 fixed time window covers a different stretch of the exponential at each `k` and
 the fitted value wobbles by several percent with it. Measured at `kv₀ = 0.4`
 over the same run, fitting `t ∈ [8,18]`, `[10,20]`, `[12,22]`, `[14,24]` gives
-9.76%, 5.63%, 4.35% and 0.56% error; the amplitude band gives 1.87% and does the
+9.75%, 5.63%, 4.35% and 0.55% error; the amplitude band gives 1.86% and does the
 same thing at every `k`.
 
 !!! note "Why a fixed window wobbles: `ε_e` is not one exponential"
@@ -963,8 +977,8 @@ same thing at every `k`.
     anything cleverer: it spans 1.15 to 2.22 beat periods across the three cases
     in use, enough to average the ripple. Adding `cos ω₊t` and `sin ω₊t` to the
     design matrix -- still a linear fit, since `ω₊` is known in closed form --
-    was tried and moves the band results by at most one point (−1.87% to
-    −2.87%, −3.14% to −3.08%, +0.31% to +0.44%). It is not worth the machinery.
+    was tried and moves the band results by at most one point (−1.86% to
+    −2.86%, −3.14% to −3.08%, +0.31% to +0.44%). It is not worth the machinery.
 
     This is what produced the apparent overshoot above `γ_cold` at small beam
     temperature: `vt` changes `γ` slightly, which moves the beat's phase within
@@ -1078,11 +1092,11 @@ narrower grid halves the cost.
       * the `a = 0.8` fit needs `ε_e` to reach `hi = 5.0`, which happens at
         `t = 22.85`. Below that `growth_rate` raises rather than guessing.
       * the `a = 0.6` run passes `PFC`'s velocity Courant limit on the way and
-        goes non-finite at `t = 24.2` -- `a = 0.4` at 25.85, `a = 0.8` at 27.7,
-        each after `ε_e` has run away to 1e169 or beyond.
+        goes non-finite at `t = 24.15` -- `a = 0.4` at 25.8, `a = 0.8` at 27.7,
+        each after `ε_e` has run away to 1e124 or beyond.
 
-    So the usable range is about `[22.9, 24.2]` and the default takes the top
-    of it, four steps clear of the `a = 0.6` divergence. Moving `tmax` down
+    So the usable range is about `[22.9, 24.15]` and the default takes the top
+    of it, three steps clear of the `a = 0.6` divergence. Moving `tmax` down
     buys margin against the divergence by spending it against the fit, which is
     not a trade worth making blind: a fit that fails to complete is the more
     likely of the two, and both are now loud rather than silent. `growth_rate`
@@ -1091,15 +1105,16 @@ narrower grid halves the cost.
     growth rate and failed an `isapprox` with nothing to point at.
 
     Note that the run is already past the Courant limit well before it diverges:
-    peak `ε_e` reaches 61 at `a = 0.6`, twelve times the `hi` that holds the
-    velocity Courant number at 0.65, so the tail of the run is unphysical even
-    where it is finite. Nothing reads it -- the fit is long over by then.
+    at `a = 0.6` `ε_e` is 40 by `t = 23` and 7.8e4 by `t = 24`, where the
+    `hi = 5` of the fit holds the velocity Courant number at 0.65, so the tail of
+    the run is unphysical even where it is finite. Nothing reads it -- the fit is
+    long over by then.
 
     **`a = 1.0` is a different regime and takes `tmax = 80`.** There the cold
     rate is zero and the warm one is 0.098, a third of the branch maximum, so
     `ε_e` needs 78 time units to cross the same amplitude band the other cases
     cross in twenty. Its divergence is correspondingly later -- measured at
-    t = 86.3 -- which is why the two numbers can coexist: the window is narrow
+    t = 86.2 -- which is why the two numbers can coexist: the window is narrow
     at each `a`, not globally.
 """
 function two_stream(a; v₀ = 3.0, vt = 0.3, Δv = 0.05, vmax = 6.0,
@@ -1114,11 +1129,7 @@ function two_stream(a; v₀ = 3.0, vt = 0.3, Δv = 0.05, vmax = 6.0,
     beams = @. 0.5/sqrt(2π*vt^2)*(exp(-(v - v₀)^2/(2vt^2)) +
                                   exp(-(v + v₀)^2/(2vt^2)))
     f₀ = beams * (@. (1.0 + 1e-3*cos(k*x)))'
-    # The harness defaults to `fmax = 1.0`, which a beam this narrow exceeds:
-    # the peak is 0.5/(√(2π)·vt) = 0.665 at vt = 0.3, and passes 1.0 below 0.2.
-    r = vlasov_poisson(x, v, f₀, t;
-            scheme_x = PFCNonUniform(cell_widths(x); fmin = 0.0, fmax = 3.0),
-            scheme_v = PFCNonUniform(cell_widths(v); fmin = 0.0, fmax = 3.0))
+    r = vlasov_poisson(x, v, f₀, t)
     return t[1:end-1], r.ε_e[1:end-1]
 end
 
