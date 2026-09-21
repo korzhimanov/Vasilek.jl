@@ -7,12 +7,18 @@
 # `wakefield` is shared: the script and the tests that assert its claims run one
 # setup. The self-consistent run itself, `self_consistent_echo`, is in
 # `verification_harness.jl`, because it is built on `vlasov_poisson`.
+#
+# The files in `test/` include it as
+# `@isdefined(echo_closed_form) || include(...)`, so that each still runs on its
+# own while a full test run, which puts them all in `Main`, evaluates this one
+# once: a repeat would redefine every method here, and `Pkg.test` runs with
+# `--warn-overwrite=yes`.
 
 using Vasilek
 using SpecialFunctions: besselj1
 
 # `Z`, `Zprime` and `dielectric`, for the second-order theory.
-include(joinpath(@__DIR__, "dispersion.jl"))
+@isdefined(Z) || include(joinpath(@__DIR__, "dispersion.jl"))
 
 """
     echo_closed_form(t; α, ε, τ, k₁, k₂)

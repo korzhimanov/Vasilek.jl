@@ -1,6 +1,6 @@
 using Vasilek
 
-include(joinpath(@__DIR__, "scheme_cases.jl"))
+@isdefined(march!) || include(joinpath(@__DIR__, "scheme_cases.jl"))
 
 # API contract tests: the promises the types make outside the numerics.
 #

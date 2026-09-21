@@ -1,4 +1,4 @@
-include(joinpath(@__DIR__, "dispersion.jl"))
+@isdefined(Z) || include(joinpath(@__DIR__, "dispersion.jl"))
 
 """
 The kinetic dispersion relation, checked before anything is allowed to be

@@ -17,6 +17,11 @@
 # Deliberately a separate file rather than part of `verification_harness.jl`:
 # nothing here runs a simulation, and `test_dispersion.jl` needs it without
 # paying for the harness's Strang loop.
+#
+# The files in `test/` include it as `@isdefined(Z) || include(...)`, so that
+# each still runs on its own while a full test run, which puts them all in
+# `Main`, evaluates this one once: a repeat would redefine every method here,
+# and `Pkg.test` runs with `--warn-overwrite=yes`.
 
 using SpecialFunctions: erfcx
 
