@@ -91,9 +91,10 @@ end
     @test march!(f₀, Upwind(), 1.0, INV_N) == f₀
 
     # Beyond it, upwind is unstable. The growth is seeded by round-off at the
-    # grid scale, so it surfaces late: measured max|f| is still 1.506 after 200
-    # steps at c = 1.05, but 1.5e66 after 2000.
-    late = march!(f₀, Upwind(), 1.05, 2000)
-    println("  Upwind at c = 1.05 after 2000 steps: max|f| = ", maximum(abs, late))
-    @test maximum(abs, late) > 1e10
+    # grid scale -- |1 − 2c| = 1.1 per step for the grid-scale mode at c = 1.05
+    # -- so it surfaces late: measured max|f| was still 1.506 after 200 steps,
+    # but 1.5e66 after 2000. That lateness is why `advect!` now refuses the step
+    # rather than leaving it to be noticed; `test_contracts.jl` covers the
+    # refusal for every scheme.
+    @test_throws DomainError march!(f₀, Upwind(), 1.05, 1)
 end

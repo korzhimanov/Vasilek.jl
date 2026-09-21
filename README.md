@@ -161,8 +161,10 @@ advect!(dest, src, scheme, courant, ws)
 
 A scheme value holds no data, so one can be shared across every line of a
 multidimensional sweep and across tasks; the workspace is what belongs to the
-task. `dest` and `src` must be distinct. Upgrading from 0.1: see
-[docs/migration-0.2.md](docs/migration-0.2.md).
+task. `dest` and `src` must be distinct, and `|courant| ≤ 1` for every scheme
+but `SemiLagrangian`, which has no Courant limit: `advect!` refuses a step past
+it rather than return an answer that looks right and is unstable. Upgrading from
+0.1: see [docs/migration-0.2.md](docs/migration-0.2.md).
 
 This block is executed by the test suite, so it cannot drift from the API.
 
