@@ -36,9 +36,10 @@ This project has not been released; entries below describe work on `master`.
   once and f drifts 24 and 27 times further; ions built on the documentation's
   old Poisson sign hold the reversed field (below, under Fixed).
 
-  `vlasov_poisson` takes `nᵢ`, an ion density profile, and `renormalize`: the
-  rescaling of `f` to the ions' charge is a trapezoid, exact only for
-  proportional profiles, and on this matched pair it is 1 − 1.9e-3.
+  `vlasov_poisson` takes `nᵢ`, an ion density profile, and `renormalize`, which
+  passing `nᵢ` turns off: the rescaling of `f` to the ions' charge is a
+  trapezoid, exact only for proportional profiles, and on this matched pair it
+  is 1 − 1.9e-3 and doubles the equilibrium's drift, inside its tolerances.
 
 - **The plasma echo, with the field off and with it on** (`test/echo.jl`,
   `test/VlasovSolver/test_echo.jl`, `test/test_verification.jl`,

@@ -83,7 +83,8 @@ function line_advector(scheme, Δz)
 end
 
 """
-    vlasov_poisson(x, v, f₀, t; scheme_x, scheme_v, invariants = false)
+    vlasov_poisson(x, v, f₀, t; scheme_x, scheme_v, invariants = false, modes = (),
+                   nᵢ = nothing, renormalize = nᵢ === nothing)
 
 Strang-split Vlasov–Poisson on a static grid.
 
@@ -117,14 +118,18 @@ tolerances of half a percent where the difference is irrelevant, and because
 changing them would silently move numbers the notebooks quote.
 
 **The ions are a fixed background**, a Maxwellian's density on the grid unless
-`nᵢ` gives a profile over `x`; and `f` is rescaled on entry so that the two
-integrate to the same charge, unless `renormalize = false`. The rescaling is the
-trapezoid over `x` of both, which on a periodic grid weights the two end points
-by half, so it is exact only while `nₑ` and `nᵢ` are proportional -- a uniform
-background, which is every caller that does not pass `nᵢ`. One that does is
-handing over a matched pair and should keep it: for the equilibrium of
-[`bgk_equilibrium`](@ref) the rescaling is 1 − 1.9e-3, and applying it takes the
-field's departure from that equilibrium over `t ≤ 100` from 6.5e-3 to 8.9e-3.
+`nᵢ` gives a profile over `x`. Without `nᵢ`, `f` is rescaled on entry so that the
+two integrate to the same charge; with it, `f` is taken as it comes; and
+`renormalize` overrides either. The rescaling is the trapezoid over `x` of both,
+which on a periodic grid weights the two end points by half, so it is exact only
+while `nₑ` and `nᵢ` are proportional -- a uniform background, which is what a
+caller that does not pass `nᵢ` gets. One that does is handing over a matched
+pair, and the rescaling would unmatch it: for the equilibrium of
+[`bgk_equilibrium`](@ref) it is 1 − 1.9e-3, and applying it doubles the
+equilibrium's departure from itself through `t = 50`, from 3.85e-3 to 8.07e-3 in
+the field and from 1.52e-3 to 3.17e-3 in `f`. That is inside the tolerances the
+equilibrium is held to, so nothing downstream would catch a caller who forgot to
+switch it off; passing `nᵢ` switches it off instead.
 
 `scheme_x` and `scheme_v` default to `PFCNonUniform` on the two grids, which is
 what the verification notebooks use and what every previous caller got. They are
@@ -151,7 +156,7 @@ it, or below, to the last bit.
 """
 function vlasov_poisson(x, v, f₀, t;
                         scheme_x = nothing, scheme_v = nothing, invariants = false,
-                        modes = (), nᵢ = nothing, renormalize = true)
+                        modes = (), nᵢ = nothing, renormalize = nᵢ === nothing)
     Δx = cell_widths(x)
     Δv = cell_widths(v)
 
@@ -342,11 +347,11 @@ with `nₑ` the code's own moment of `f₀`. `ψ_ions` and `ion_sign` build them
 different `ψ`, or with the sign of the Poisson equation reversed -- the two ways
 of handing the run a state that is not an equilibrium.
 
-Returns the grids, `f₀` and the final `f`, the field's `k` mode history `E` (mid-
-step, see `vlasov_poisson`) against `E₀`, the equilibrium's own: `iψk` times
-`sin(kΔx)/(kΔx)`, the centred difference `docs/normalization.md` documents. Also
-the separatrix `v_sep(x) = √(2ψ(1 + cos kx))` and the `l2` and `entropy`
-histories.
+Returns the grids, `f₀`, the ions `nᵢ` and the final `f`, the field's `k` mode
+history `E` (mid-step, see `vlasov_poisson`) against `E₀`, the equilibrium's
+own: `iψk` times `sin(kΔx)/(kΔx)`, the centred difference `docs/normalization.md`
+documents. Also the separatrix `v_sep(x) = √(2ψ(1 + cos kx))` and the `l2` and
+`entropy` histories.
 
 **The defaults.** `ψ = 0.5` traps everything below `|v| = 1.41` at the bottom of
 the well -- 85% of the particles there, two thirds of all of them -- and the
@@ -365,8 +370,8 @@ function bgk_equilibrium(; ψ = 0.5, k = 0.5, T_trapped = 1.0, Nx = 64, Δv = 0.
          ion_sign*ψ_ions*k^2 .* cos.(k .* x)
 
     t = collect(0:Δt:tmax)
-    r = vlasov_poisson(x, v, f₀, t; nᵢ, renormalize = false, modes = (k,), invariants = true)
-    return (; x, v, t = t[1:end-1] .+ Δt/2, f₀, f = r.f, E = r.E_modes[1:end-1, 1],
+    r = vlasov_poisson(x, v, f₀, t; nᵢ, modes = (k,), invariants = true)
+    return (; x, v, t = t[1:end-1] .+ Δt/2, f₀, nᵢ, f = r.f, E = r.E_modes[1:end-1, 1],
             E₀ = im*ψ*k*sin(k*Δx)/(k*Δx), v_sep = @.(sqrt(2ψ*(1 + cos(k*x)))),
             l2 = r.l2[1:end-1], entropy = r.entropy[1:end-1])
 end

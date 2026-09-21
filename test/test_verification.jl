@@ -540,6 +540,22 @@ end
                     @test drift(r) > 10*drift(smooth)
                 end
             end
+
+            @testset "the ions it is handed are the ions it keeps" begin
+                # Handed `nᵢ`, the driver takes `f` as matched to it. Its
+                # rescaling to the ions' charge is a trapezoid, exact only for
+                # proportional profiles, and on this pair it is 1 − 1.9e-3:
+                # applied, it doubles the drift above, 3.85e-3 → 8.07e-3 in the
+                # field and 1.52e-3 → 3.17e-3 in f, and both stay inside their
+                # tolerances. So it is pinned here, one step in, on the flux-form
+                # mass: f₀'s to 2.2e-16 by default, 1.9e-3 short when forced.
+                one_step(; kw...) = vlasov_poisson(smooth.x, smooth.v, smooth.f₀, [0.0, 0.05];
+                                                   smooth.nᵢ, invariants = true, kw...).mass[1]
+                cells = (smooth.v[2] - smooth.v[1])*(smooth.x[2] - smooth.x[1])
+                Σf₀ = sum(smooth.f₀)*cells
+                @test one_step() ≈ Σf₀ rtol = 1e-12
+                @test one_step(renormalize = true) < (1 - 1e-3)*Σf₀
+            end
         end
 
         @testset "The Vlasov-Poisson flow is reversible, and what breaks it" begin
