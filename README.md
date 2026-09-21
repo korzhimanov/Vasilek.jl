@@ -61,8 +61,8 @@ closed form remains as its zero-temperature limit and is checked as such.
 | each mode recurs at its own 2π/(kΔv) | within a plasma period, for the seeded mode and the harmonic it generates | 128.6 vs 125.7, 64.3 vs 62.8 |
 | a plasma echo, field off, is the closed form's | pointwise within 0.3% of the peak, the peak within two steps of its own, the sign reversing with the kick | 0.12%, t = 15.28 on both |
 | out of a mode no moment could see | the echo over 10⁴ times the seeded mode's density at the kick | 2.4·10⁴ |
-| and what a scheme keeps of a filament is what it returns | SemiLagrangian < PFC < LaxWendroff < Upwind; upwind returns under 70% | 0.11%, 0.98%, 4.5%, 45%; 55% |
-| the loss is truncation | PFC's error falls at least 5× per halving of Δv | 7.3×, 6.6× |
+| and what a scheme keeps of a filament is what it returns | SemiLagrangian < PFC < LaxWendroff < Upwind; upwind returns under 70% | 0.11%, 1.03%, 4.5%, 45%; 55% |
+| the loss is truncation | PFC's error falls at least 5× per halving of Δv | 7.4×, 6.9× |
 | a plasma echo, field on, is second-order kinetic theory's | pointwise within 1% of `echo_second_order`, the peak within 1% of its size and two steps of its time | 0.48%, 0.47%, t = 29.05 on both |
 | which is not the field-off echo | the closed form's peak over 1/0.6 times the run's and 0.5 later | 2.1×, 1.14 |
 | and the residual is the run's | it falls 2.5× from Nx = 64 to 128 | 3.4× |

@@ -63,7 +63,9 @@ end
 Run the setup of [`echo_closed_form`](@ref): free streaming in `x`, one row per
 velocity as in `test_free_streaming.jl`, and at `t = τ` the kick, an advection in
 `v` of every column by `ε cos k₂x`. `k₁` and `k₂` are the `m₁`-th and `m₂`-th
-modes of the box.
+modes of the box. Either scheme may be given as a function of the initial `f`
+returning one -- `f -> PFC(fmin = 0.0, fmax = maximum(f))` -- which is how `PFC`
+is bounded by the distribution it will carry.
 
 Returns `t`; `k = (k₁, k₂, k₃)`; `modes`, the `Nt × 3` matrix of complex density
 amplitudes at those three wavenumbers; `kick`, the index of `τ` in `t`; the grids,
@@ -109,6 +111,8 @@ function ballistic_echo(scheme_x, scheme_v; L = 4π, m₁ = 2, m₂ = 3, Nx = 64
     shot_at = [on_step(ts, "a snapshot") for ts in snapshots]
 
     modes = zeros(ComplexF64, length(t), 3)
+    scheme_x = scheme_x isa AbstractAdvection1D ? scheme_x : scheme_x(f)
+    scheme_v = scheme_v isa AbstractAdvection1D ? scheme_v : scheme_v(f)
     wsx, wsv = workspace(scheme_x, Nx), workspace(scheme_v, Nv)
     bufx, bufv, col = zeros(Nx), zeros(Nv), zeros(Nv)
     n = zeros(Nx)

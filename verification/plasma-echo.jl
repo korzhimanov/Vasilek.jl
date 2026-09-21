@@ -36,7 +36,7 @@ floor_at(y) = max(y, 1e-12)     # for the log axes: the closed forms reach 1e-20
 # expansion as the echo's, from the terms (m, q) = (0, 1) and (1, 0):
 # α·J₀(k₁ε(t − τ))·exp(−k₁²t²/2) and 2|J₁(k₂ε(t − τ))|·exp(−k₂²(t − τ)²/2).
 α, ε, τ = 0.1, 0.2, 5.0
-pfc = PFC(fmin = 0.0, fmax = 0.5)
+pfc = f -> PFC(fmin = 0.0, fmax = maximum(f))     # bounded by the distribution it carries
 ballistic = ballistic_echo(pfc, pfc; Nx = 128, Δt = 0.01, Δv = 0.05,
                            snapshots = (11.0, 15.0, 19.0))
 k₁, k₂, k₃ = ballistic.k

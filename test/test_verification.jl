@@ -647,7 +647,7 @@ end
                 #   scheme                 round trip   min f       ΔL²/L²
                 #   LaxWendroff            8.50e-2      -9.44e-2    -0.005
                 #   SemiLagrangian cubic   1.06e-1      -5.82e-2    -0.004
-                #   PFC                    1.64e-1      +5.21e-10   -0.047
+                #   PFC                    1.64e-1      +5.21e-10   -0.048
                 #   Upwind                 3.32e-1      +3.10e-09   -0.210
                 #
                 # The ordering is the one `verification/scheme-comparison.jl`
@@ -660,7 +660,7 @@ end
                 results = Dict{String,Any}()
                 for (name, scheme) in (("LaxWendroff", LaxWendroff()),
                                        ("SemiLagrangian cubic", SemiLagrangian(CubicSpline())),
-                                       ("PFC", PFC(fmin = 0.0, fmax = 1.0)),
+                                       ("PFC", f -> PFC(fmin = 0.0, fmax = maximum(f))),
                                        ("Upwind", Upwind()))
                     r = round_trip(64, 0.1, 0.05, 20.0, 0.5; scheme = scheme)
                     results[name] = r

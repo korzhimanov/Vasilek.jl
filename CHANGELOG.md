@@ -54,10 +54,10 @@ This project has not been released; entries below describe work on `master`.
   refinement — its small-argument limit is 14.6% high at these amplitudes — and
   the sign is asserted separately, since the direction of the kick changes it
   and nothing about the peak. PFC at 128 × 241 follows the closed form to
-  1.23e-3 of the peak, pointwise, out of a seeded mode the kick found at 1.84e-6:
+  1.25e-3 of the peak, pointwise, out of a seeded mode the kick found at 1.84e-6:
   2.4e4 times smaller than the echo it turns into. The loss converges at orders
-  2.87 and 2.72 as Δv halves, and it ranks the schemes: cubic SemiLagrangian
-  1.07e-3, PFC 9.83e-3, LaxWendroff 4.48e-2, and Upwind 0.449, which returns 55%
+  2.89 and 2.78 as Δv halves, and it ranks the schemes: cubic SemiLagrangian
+  1.07e-3, PFC 1.03e-2, LaxWendroff 4.48e-2, and Upwind 0.449, which returns 55%
   of the echo and loses most of the rest in the x-sweep rather than in the kick.
   Fast suite.
 
@@ -156,6 +156,28 @@ This project has not been released; entries below describe work on `master`.
   discrepancy that was entirely two nulls landing a time step apart.
 
 ### Fixed
+
+- **`PFC` in the remaining verification runs is bounded by the distribution it
+  carries.** The harness took its own defaults' bounds from `f` above; the runs
+  that pass `PFC` in explicitly still bounded it at 0.5 (`test_echo.jl`,
+  `test_free_streaming.jl`, `verification/plasma-echo.jl`) or 1
+  (the reversibility ranking in `test_verification.jl`,
+  `verification/scheme-comparison.jl`). A bound taken from `f₀` by the caller
+  cannot work where the driver rescales `f` before running — by 0.8% at α = 0.5,
+  above the bound, into `PFC`'s own check — so `vlasov_poisson`, `ballistic_echo`
+  and `free_stream` now also take a scheme as a function of the initial `f`,
+  `f -> PFC(fmin = 0.0, fmax = maximum(f))`, and call it with the `f` they start
+  from.
+
+  The numbers barely move: the
+  echo's PFC error goes from 1.23e-3 to 1.25e-3 of the peak (and 9.83e-3 to
+  1.03e-2 at 64 × 121), its orders from 2.87 and 2.72 to 2.89 and 2.78, PFC's
+  L² loss in the α = 0.5 round trip from 0.047 to 0.048, and in the scheme
+  comparison the uniform `PFC` row now equals `PFCNonUniform`'s, 1.31% where it
+  read 1.45%. Free streaming does not move at all. Left as they are, on purpose:
+  the unit tests of the schemes, where a bound is an input of the contract under
+  test rather than the maximum of an evolving distribution, and the
+  rigid-rotation test, whose Gaussian's analytic peak is the 1 it is given.
 
 - **`docs/normalization.md` gave the Poisson equation with the wrong sign.** It
   read `∂E/∂x = nᵢ − nₑ` beside `∂f/∂t + v∂f/∂x + E∂f/∂v = 0`, a pair under which
@@ -746,7 +768,7 @@ This project has not been released; entries below describe work on `master`.
   times a bare kernel and `test_convergence` measures an order on a shifted
   sine; neither says what a scheme costs *in the physics*. Ranked by error in
   the Landau damping rate at k = 0.5: `LaxWendroff` 0.64%, cubic
-  `SemiLagrangian` 1.07%, `PFC` 1.45%, `Godunov`+`VanLeer` 3.99%, and upwind —
+  `SemiLagrangian` 1.07%, `PFC` 1.31%, `Godunov`+`VanLeer` 3.99%, and upwind —
   with `Godunov(PiecewiseConstant)` and linear `SemiLagrangian`, identical to it
   as `test_amplification` requires — at **48.8%**, its own dissipation being two
   orders of magnitude larger than the physical damping it is trying to measure.
