@@ -44,8 +44,10 @@ const FS_NX = 64
 const FS_ΔT = 0.02
 const FS_α  = 1e-2
 
+# Named apart from the harness's `mode_amplitude`, the complex amplitude: a full
+# test run puts both files in `Main`, and a second definition would replace it.
 "Amplitude of the `cos kx` component of `n`, on the uniform grid `x`."
-mode_amplitude(n, x, k) = 2*sum(n .* cos.(k .* x))/length(x)
+cos_amplitude(n, x, k) = 2*sum(n .* cos.(k .* x))/length(x)
 
 """
     free_stream(scheme, v, nsteps)
@@ -68,7 +70,7 @@ function free_stream(scheme, v, nsteps)
     amps = Vector{Float64}(undef, nsteps + 1)
     for s = 0:nsteps
         n = [integrate(v, @view f[:, j]) for j = 1:FS_NX]
-        amps[s+1] = mode_amplitude(n, x, FS_K)
+        amps[s+1] = cos_amplitude(n, x, FS_K)
         s == nsteps && break
         for i in eachindex(v)
             row = @view f[i, :]

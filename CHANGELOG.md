@@ -175,6 +175,15 @@ This project has not been released; entries below describe work on `master`.
   now evaluates `dispersion.jl` once where it did twice. Pass and broken counts
   are unchanged: 1499 and 2 by default, 1632 and 2 extended.
 
+- **`test_free_streaming.jl` replaced the harness's `mode_amplitude` for every
+  file that ran after it.** Its own `mode_amplitude(n, x, k)`, the real `cos kx`
+  projection, had the signature of the harness's complex one, and a full run
+  puts both files in `Main`: from there on, a mode the harness measured would
+  have come back as its real part alone. Nothing measures one after it yet; the
+  warning `Pkg.test` printed for it was the one of 151 that was not a repeat. The
+  free-streaming helper is `cos_amplitude` now, and neither run prints a
+  method-overwrite warning.
+
 - **`PFC` in the remaining verification runs is bounded by the distribution it
   carries.** The harness took its own defaults' bounds from `f` above; the runs
   that pass `PFC` in explicitly still bounded it at 0.5 (`test_echo.jl`,
