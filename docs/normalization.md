@@ -24,8 +24,18 @@ With those, the Vlasov–Poisson system is
 
 ```
 ∂f/∂t + v ∂f/∂x + E ∂f/∂v = 0
-∂E/∂x = nᵢ - nₑ,       nₑ = ∫ f dv
+∂E/∂x = nₑ - nᵢ,       nₑ = ∫ f dv
 ```
+
+`E` here is the force on an electron per unit mass — minus the physical field,
+whose Gauss's law is `∂E/∂x = nᵢ - nₑ` — and it is what every Poisson call in
+the package and the verification runs computes, from `nₑ - nᵢ`. The transverse
+section below uses the same field: `∂p/∂t = +E`. The second line read
+`nᵢ - nₑ` until the equilibrium test in `test_verification.jl` built its ions
+from it: under the code's sign those ions hold a field exactly opposite to the
+equilibrium's, `E/E₀ = −1.000` from the first sample, and the run leaves the
+state it was meant to keep by 16% of the peak. Taken literally, with the `+E`
+above, that sign makes electrons attract one another.
 
 and the total energy the verification runs report is
 

@@ -55,9 +55,6 @@ x = collect(π/8:π/8:8π)
 v = collect(-4:0.1:4)
 Δv = vcat([v[2]-v[1]], 0.5*(v[3:end] - v[1:end-2]), [v[end]-v[end-1]])
 
-advect_x! = inplace_advect(PFCNonUniform(Δx; fmin = 0.0, fmax = 1.0), length(Δx))
-advect_v! = inplace_advect(PFCNonUniform(Δv; fmin = 0.0, fmax = 1.0), length(Δv))
-
 fi = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. Δx/Δx)'
 ni = integrate(v, fi)
 Ni = integrate(x, ni)
@@ -66,6 +63,11 @@ f0 = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. (1.0 + 0.01*cos(0.5*x)))'
 n0 = integrate(v, f0)
 N0 = integrate(x, n0)
 f0 *= Ni/N0;
+
+# The limiter is bounded by the initial condition: by Liouville's theorem the
+# exact solution never leaves `[0, maximum(f0)]`.
+advect_x! = inplace_advect(PFCNonUniform(Δx; fmin = 0.0, fmax = maximum(f0)), length(Δx))
+advect_v! = inplace_advect(PFCNonUniform(Δv; fmin = 0.0, fmax = maximum(f0)), length(Δv))
 
 f = copy(f0)
 
@@ -148,7 +150,7 @@ xlabel!("ωₚt")
 ylabel!("|nₖ|")
 savefig(figure("landau-damping-1d1v-06"))
 #
-# Both curves oscillate at their own frequency and pass through deep nulls, so read the envelopes rather than any instant. `test/test_verification.jl` asserts both recurrence times — the seeded mode peaks at $t = 128.6$ against 125.7, the harmonic at 64.3 against 62.8 — and that each mode dominates around its own: the harmonic by a factor 25 near $t \approx 64$, the seeded mode by 116 near $t \approx 128$.
+# Both curves oscillate at their own frequency and pass through deep nulls, so read the envelopes rather than any instant. `test/test_verification.jl` asserts both recurrence times — the seeded mode peaks at $t = 128.6$ against 125.7, the harmonic at 64.3 against 62.8 — and that each mode dominates around its own: the harmonic by a factor 21 near $t \approx 64$, the seeded mode by 121 near $t \approx 128$.
 #
 # We also can check the dispersion relation for Laingmuir oscillations in warm plasma. We expect that the frequency will be equal to
 #
@@ -192,9 +194,6 @@ x = collect(π/8:π/8:8π)
 v = vcat(collect(-4:0.1:-1.1), collect(-1:0.05:1), collect(1.1:0.1:4))
 Δv = vcat([v[2]-v[1]], 0.5*(v[3:end] - v[1:end-2]), [v[end]-v[end-1]])
 
-advect_x! = inplace_advect(PFCNonUniform(Δx; fmin = 0.0, fmax = 1.0), length(Δx))
-advect_v! = inplace_advect(PFCNonUniform(Δv; fmin = 0.0, fmax = 1.0), length(Δv))
-
 fi = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. Δx/Δx)'
 ni = integrate(v, fi)
 Ni = integrate(x, ni)
@@ -203,6 +202,11 @@ f0 = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. (1.0 + 0.01*cos(0.5*x)))'
 n0 = integrate(v, f0)
 N0 = integrate(x, n0)
 f0 *= Ni/N0;
+
+# The limiter is bounded by the initial condition: by Liouville's theorem the
+# exact solution never leaves `[0, maximum(f0)]`.
+advect_x! = inplace_advect(PFCNonUniform(Δx; fmin = 0.0, fmax = maximum(f0)), length(Δx))
+advect_v! = inplace_advect(PFCNonUniform(Δv; fmin = 0.0, fmax = maximum(f0)), length(Δv))
 
 f = copy(f0)
 
@@ -287,9 +291,6 @@ x = collect(π/8:π/8:8π)
 v = vcat(collect(-6:0.1:-1.1), collect(-1:0.05:1), collect(1.1:0.1:6))
 Δv = vcat([v[2]-v[1]], 0.5*(v[3:end] - v[1:end-2]), [v[end]-v[end-1]])
 
-advect_x! = inplace_advect(PFCNonUniform(Δx; fmin = 0.0, fmax = 1.0), length(Δx))
-advect_v! = inplace_advect(PFCNonUniform(Δv; fmin = 0.0, fmax = 1.0), length(Δv))
-
 fi = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. Δx/Δx)'
 ni = integrate(v, fi)
 Ni = integrate(x, ni)
@@ -298,6 +299,11 @@ f0 = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. (1.0 + 0.5*cos(0.5*x)))'
 n0 = integrate(v, f0)
 N0 = integrate(x, n0)
 f0 *= Ni/N0;
+
+# The limiter is bounded by the initial condition: by Liouville's theorem the
+# exact solution never leaves `[0, maximum(f0)]`.
+advect_x! = inplace_advect(PFCNonUniform(Δx; fmin = 0.0, fmax = maximum(f0)), length(Δx))
+advect_v! = inplace_advect(PFCNonUniform(Δv; fmin = 0.0, fmax = maximum(f0)), length(Δv))
 
 f = copy(f0)
 

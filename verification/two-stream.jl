@@ -12,7 +12,7 @@
 # `two_stream`, `γ_cold` and the rest come from `test/verification_harness.jl`,
 # not from a copy here. They were copied once, and the copy carried `tmax = 24.0`
 # without the paragraph explaining that it sits in a window of about [22.9,
-# 24.2] -- bounded below by the slowest fit completing and above by the fastest
+# 24.15] -- bounded below by the slowest fit completing and above by the fastest
 # run diverging. A bare number that cannot move, with nothing saying so, is
 # worse than the duplication it came from. Shared for the reason `wakefield` is
 # shared: the script and the test that asserts its claims run the same setup.
