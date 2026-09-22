@@ -28,7 +28,7 @@ not a Courant number: a non-uniform grid has no single Courant number to quote.
 """
 function advect!(dest, src, p::PFCNonUniform{T,Checked}, α,
                  ws::PFCWorkspace) where {T,Checked}
-    _validate(dest, src, p, ws)
+    _validate(dest, src, p, α, ws)
     Δx, ξ, lo, hi = p.Δx, p.ξ, p.fmin, p.fmax
     if Checked
         # PFC's minimum/maximum pass, about 5% of this step at N = 10000 on

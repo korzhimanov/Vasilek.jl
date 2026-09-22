@@ -29,8 +29,11 @@ const ω_ANALYTIC = 1.41566
 "The k = 0.5 Landau configuration the extended test asserts, at its own grid."
 function landau_grid()
     L = 2*(2π/K)
-    Δx = L/64
-    x = collect(Δx:Δx:L)
+    Nx = 64
+    Δx = L/Nx
+    # Nx points by construction. `Δx:Δx:L` rounds its length out of the
+    # endpoints and can come up a point short; see `two_stream` in the harness.
+    x = collect(range(Δx; step = Δx, length = Nx))
     v = collect(-4:0.1:4)
     t = collect(0.0:0.08:70.0)
     f₀ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. (1.0 + 0.01*cos(K*x)))'
@@ -51,8 +54,9 @@ starts to matter, and the schemes separate immediately.
 """
 function nonlinear_grid()
     L = 2*(2π/K)
-    Δx = L/64
-    x = collect(Δx:Δx:L)
+    Nx = 64
+    Δx = L/Nx
+    x = collect(range(Δx; step = Δx, length = Nx))
     v = collect(-6:0.1:6)
     t = collect(0.0:0.05:40.0)
     f₀ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. (1.0 + 0.5*cos(K*x)))'
@@ -64,14 +68,15 @@ end
 # because the driver rescales the initial condition before running, and a bound
 # taken from `f₀` beforehand would sit under the rescaled maximum.
 #
-# `Godunov(PiecewiseLinear())` without a limiter is missing on purpose: its
-# amplification factor exceeds 1 for every mode, which `test_amplification.jl`
-# asserts analytically, so it has nothing to contribute here but a NaN.
+# `Godunov(PiecewiseLinear())` without a limiter is missing on purpose: it is
+# `LaxWendroff`, whose row is already here, as `test_amplification.jl` asserts
+# mode by mode.
 schemes() = [
     ("Upwind",                 Upwind()),
     ("LaxWendroff",            LaxWendroff()),
     ("Godunov constant",       Godunov(PiecewiseConstant())),
     ("Godunov VanLeer",        Godunov(PiecewiseLinear(), VanLeer())),
+    ("Godunov Superbee",       Godunov(PiecewiseLinear(), Superbee())),
     ("SemiLagrangian linear",  SemiLagrangian(LinearSpline())),
     ("SemiLagrangian cubic",   SemiLagrangian(CubicSpline())),
     ("PFC",                    f -> PFC(fmin = 0.0, fmax = maximum(f))),
@@ -177,16 +182,22 @@ function main()
                 name, r.fmin, r.mass, r.fmin ≥ 0 ? "yes" : "NO")
     end
 
-    println("\nThe two schemes that lead on damping-rate accuracy are the two that")
-    println("go negative. That is Godunov's theorem showing up in the physics:")
-    println("`LaxWendroff` is second order and not monotone, and the cubic spline")
-    println("is third order and not monotone, so both overshoot a steep gradient")
-    println("and both undershoot below zero on the other side. At 1% amplitude")
-    println("that never surfaces; at 50% it does, and in a run that matters it is")
-    println("fatal rather than untidy -- a negative f has no entropy, and the")
-    println("diagnostic here threw DomainError on both until the integrand was")
-    println("guarded. It is what PFC's limiter exists to prevent, and why the")
-    println("harness defaults to it despite not leading the first table.")
+    println("\nAmong the schemes that dissipate, the two that lead on damping-rate")
+    println("accuracy are the two that go negative. That is Godunov's theorem")
+    println("showing up in the physics: `LaxWendroff` is second order and not")
+    println("monotone, and the cubic spline is third order and not monotone, so")
+    println("both overshoot a steep gradient and both undershoot below zero on the")
+    println("other side. At 1% amplitude that never surfaces; at 50% it does, and in")
+    println("a run that matters it is fatal rather than untidy -- a negative f has")
+    println("no entropy, and the diagnostic here threw DomainError on both until")
+    println("the integrand was guarded. It is what PFC's limiter exists to prevent,")
+    println("and why the harness defaults to it despite not leading the first table.")
+    println("\n`Godunov Superbee` does not dissipate, and it heads the first table")
+    println("from below. Its compression is anti-diffusion: its L² is the only one")
+    println("that grows, and its rate sits under the analytic value where every")
+    println("other scheme's sits above. Refined to Nx = 256 at the same Courant")
+    println("number, its error changes sign (-2.41%, -0.39%, -0.68%, +0.13%) rather")
+    println("than shrinking, so its lead here is a cancellation, not accuracy.")
 end
 
 main()

@@ -22,10 +22,25 @@ figure(name) = joinpath(@__DIR__, "$name.png")
 # StrangSplitting still calls advect!(column, alpha) in place. Kept local
 # because StrangSplitting is itself due for replacement when the 2D sweeps
 # land -- its transposes are the thing that has to go.
-function inplace_advect(scheme, n)
+#
+# `advect!` refuses a displacement wider than the narrowest cell, and the
+# strong-damping run at the end asks for 1.0017 of one on its first step: the
+# field's amplitude is 1.0017 there, and Δt is the width of the narrow cells. A
+# step like that is split into the fewest sub-steps that fit, as `line_advector`
+# in the test harness does; every other call here is one call, as before.
+function inplace_advect(scheme::PFCNonUniform, n)
     ws = workspace(scheme, n)
     buf = Vector{Float64}(undef, n)
-    return (column, alpha) -> (advect!(buf, column, scheme, alpha, ws); copyto!(column, buf))
+    h = minimum(scheme.Δx)
+    return function (column, alpha)
+        m = isfinite(alpha) ? max(1, ceil(Int, abs(alpha)/h)) : 1
+        abs(alpha/m) > h && (m += 1)
+        for _ = 1:m
+            advect!(buf, column, scheme, alpha/m, ws)
+            copyto!(column, buf)
+        end
+        return column
+    end
 end
 
 function solve_poisson!(e, ω, ρ, Δx)

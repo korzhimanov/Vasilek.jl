@@ -13,7 +13,7 @@ using .Collisions
 
 export AbstractAdvection1D, advect!, workspace,
        Upwind, LaxWendroff, Godunov, SemiLagrangian, PFC, PFCNonUniform,
-       PiecewiseConstant, PiecewiseLinear, NoLimiter, VanLeer,
+       PiecewiseConstant, PiecewiseLinear, NoLimiter, VanLeer, Superbee,
        LinearSpline, QuadraticSpline, CubicSpline,
        AbstractCollisionOperator, collide!, BGK
 

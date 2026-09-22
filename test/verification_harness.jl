@@ -1,5 +1,11 @@
 # Shared 1D1V Vlasov–Poisson driver for the extended verification tests.
 # Deliberately close to what the verification notebooks do, so the two agree.
+#
+# The files in `test/` include it as
+# `@isdefined(vlasov_poisson) || include(...)`, so that each still runs on its
+# own while a full test run, which puts them all in `Main`, evaluates this one
+# once: a repeat would redefine every method here, and `Pkg.test` runs with
+# `--warn-overwrite=yes`.
 
 using Vasilek
 using Vasilek: StrangSplitting, FDTD1D, PoissonFourier1D
@@ -8,12 +14,12 @@ using NumericalIntegration, FFTW
 # The kinetic dispersion relation: `landau_root`, `two_stream_warm` and the
 # pieces they are built from. Separate file because nothing in it runs a
 # simulation, and `test_dispersion.jl` exercises it without the Strang loop.
-include(joinpath(@__DIR__, "dispersion.jl"))
+@isdefined(landau_root) || include(joinpath(@__DIR__, "dispersion.jl"))
 
 # The plasma echo's closed form, its second-order theory, and the free-streaming
 # run; `self_consistent_echo` below is the same experiment through
 # `vlasov_poisson`.
-include(joinpath(@__DIR__, "echo.jl"))
+@isdefined(echo_closed_form) || include(joinpath(@__DIR__, "echo.jl"))
 
 "Spectral Poisson solve on a uniform x grid, e = -dφ/dx with φ'' = -ρ."
 function make_poisson(x)
@@ -63,12 +69,47 @@ spacing for those and **refuses** a non-uniform grid rather than picking one of
 its spacings and being quietly wrong by the ratio between them. That asymmetry
 is a documented wart of the advection API (see `docs/normalization.md`); this is
 the one place the verification runs have to absorb it.
+
+**A displacement wider than the narrowest cell is split** into the fewest equal
+sub-steps that fit ([`substeps`](@ref)). `advect!` refuses it whole, and a
+translation by `α` is `m` translations by `α/m`. Every call the suite makes
+through here is within the bound, and so one call exactly as before, except in
+two runs, both of them the field driving the velocity sweep. The two-stream runs
+keep growing after their fits, into saturation, and the fastest would ask for
+217 cells a step by `tmax`. The strong-damping run on the notebook's
+non-uniform grid has its field at amplitude 1.0017 on the first step with `Δt`
+equal to the narrow cells' width, so it asks for 1.0017 of them. Neither moves a
+measured number: no fit contains a split step, and the second run's four split
+calls move its rates in the sixth digit.
+
+The uniform-grid method does not split. Nothing here asks a uniform scheme for
+more than `c = 0.50`, and `advect!` says so if something ever does.
 """
 function line_advector(scheme::PFCNonUniform, Δz)
     n = length(Δz)
     ws = workspace(scheme, n)
     buf = Vector{Float64}(undef, n)
-    return (col, α) -> (advect!(buf, col, scheme, α, ws); copyto!(col, buf))
+    h = minimum(Δz)
+    return function (col, α)
+        m = substeps(α, h)
+        for _ = 1:m
+            advect!(buf, col, scheme, α/m, ws)
+            copyto!(col, buf)
+        end
+        return col
+    end
+end
+
+"""
+    substeps(α, h)
+
+The fewest equal parts of `α` that are each no longer than `h`, and one for an
+`α` that is not finite, which `advect!` then refuses itself.
+"""
+function substeps(α, h)
+    isfinite(α) || return 1
+    m = max(1, ceil(Int, abs(α)/h))
+    return abs(α/m) > h ? m + 1 : m    # the quotient can round below the integer
 end
 
 function line_advector(scheme, Δz)
@@ -84,7 +125,7 @@ end
 
 """
     vlasov_poisson(x, v, f₀, t; scheme_x, scheme_v, invariants = false, modes = (),
-                   nᵢ = nothing, renormalize = nᵢ === nothing, stop_at_courant = false)
+                   nᵢ = nothing, renormalize = nᵢ === nothing)
 
 Strang-split Vlasov–Poisson on a static grid.
 
@@ -158,26 +199,16 @@ Tight, it does engage, at the maximum, and that has a measured price: the limite
 clips the reconstruction in the peak cell, and the α = 0.05 round trip in
 `test_verification.jl` converges at second order (×4.4, then ×4.1) where it
 converged at third (×5.7, ×7.1). Elsewhere the numbers moved little and are
-updated where they are quoted. The `fmax` history of a Landau, a strong Landau,
-a two-stream and an equilibrium run tops out exactly at the bound, or below, to
-the last bit. One run did leave it, and recorded no history to show it: the
-`a = 0.6` two-stream case, past its velocity Courant limit. `PFCNonUniform` now
-checks every call, so none can leave it quietly, and that run stops at the limit
-instead.
-
-**`stop_at_courant = true` ends the run at the velocity Courant limit.** The
-x-sweeps move `f` by `vΔt/2`, which the grid fixes; the v-sweep moves it by
-`eΔt`, which grows with the field, and past one cell per step PFC's flux reaches
-beyond the neighbouring cell and the scheme leaves the bounds it is built on --
-which, checked, it refuses a few steps later. With the flag the loop ends after
-the first step whose `max|e|Δt/min Δv` exceeds 1, and every history ends with
-that step: `length(ε_e) - 1` steps ran, and `f` is the state after the last.
-The unstable runs need it; see [`two_stream`](@ref).
+updated where they are quoted. No run leaves its bound: the `fmax` history of a
+Landau, a strong Landau, a two-stream and an equilibrium run tops out exactly at
+it, or below, to the last bit. `PFCNonUniform` now checks every call it takes,
+sub-steps included, and none of them is out of bounds -- the two-stream runs
+carried past their velocity Courant limits into saturation among them, since
+[`line_advector`](@ref) splits every step that would cross a cell.
 """
 function vlasov_poisson(x, v, f₀, t;
                         scheme_x = nothing, scheme_v = nothing, invariants = false,
-                        modes = (), nᵢ = nothing, renormalize = nᵢ === nothing,
-                        stop_at_courant = false)
+                        modes = (), nᵢ = nothing, renormalize = nᵢ === nothing)
     Δx = cell_widths(x)
     Δv = cell_widths(v)
 
@@ -232,7 +263,6 @@ function vlasov_poisson(x, v, f₀, t;
     # seeded mode coming back early.
     E_modes  = isempty(modes) ? nothing : zeros(ComplexF64, length(t), length(modes))
 
-    steps = length(t) - 1
     for k in 1:length(t)-1
         Δt = t[k+1] - t[k]
         vΔt(_) = v*Δt
@@ -263,24 +293,11 @@ function vlasov_poisson(x, v, f₀, t;
             fmin[k] = minimum(f)
             fmax[k] = maximum(f)
         end
-
-        # This step's v-sweep moved `f` by `e*Δt`; the one that crossed a cell
-        # is the last.
-        if stop_at_courant && maximum(abs, e)*Δt > minimum(Δv)
-            steps = k
-            break
-        end
     end
     for h in (ε_e, ε, mass, momentum, l2, entropy, fmin, fmax)
-        h === nothing || (h[steps+1] = h[steps])
+        h === nothing || (h[end] = h[end-1])
     end
-    E_modes === nothing || (E_modes[steps+1, :] = E_modes[steps, :])
-    if steps < length(t) - 1
-        ε_e, ε, mass, momentum, l2, entropy, fmin, fmax =
-            map(h -> h === nothing ? nothing : h[1:steps+1],
-                (ε_e, ε, mass, momentum, l2, entropy, fmin, fmax))
-        E_modes = E_modes === nothing ? nothing : E_modes[1:steps+1, :]
-    end
+    E_modes === nothing || (E_modes[end, :] = E_modes[end-1, :])
     # `f` comes back too. It costs nothing -- the array exists either way -- and
     # it is the only way to ask a question about the distribution rather than
     # about a moment of it, which is what the reversibility test needs.
@@ -992,8 +1009,8 @@ transferable between wavenumbers: the growth rate varies over the branch, so a
 fixed time window covers a different stretch of the exponential at each `k` and
 the fitted value wobbles by several percent with it. Measured at `kv₀ = 0.4`
 over the same run, fitting `t ∈ [8,18]`, `[10,20]`, `[12,22]`, `[14,24]` gives
-9.75%, 5.63%, 4.35% and 0.55% error; the amplitude band gives 1.86% and does the
-same thing at every `k`.
+10.65%, 6.43%, 3.99% and 0.19% error from `γ_cold`; the amplitude band gives
+2.10% and does the same thing at every `k`.
 
 !!! note "Why a fixed window wobbles: `ε_e` is not one exponential"
     The quadratic in `γ_cold` has **four** roots -- the growing pair `±iγ` and
@@ -1006,9 +1023,10 @@ same thing at every `k`.
 
     Measured at `a = 0.6`: the instantaneous rate oscillates with period 4.5
     against the `2π/ω₊ = 4.626` this predicts, swinging between 0.21 and 0.41
-    around a `γ_cold` of 0.353. Fitting over an integer number of beat periods
-    instead of an arbitrary window cuts the spread over start points from
-    39.6%, 14.4% and 22.3% (at `a` = 0.4, 0.6, 0.8) to 9.0%, 5.6% and 4.8%.
+    around a `γ_cold` of 0.353. Fitting over two beat periods instead of one
+    cuts the spread of the rate over start points `t₀ ∈ [10, 14]` from 41.4%,
+    14.4% and 22.3% of `γ_cold` (at `a` = 0.4, 0.6, 0.8) to 9.4%, 5.6% and
+    4.8%.
 
     The ripple is worst where `γ` is smallest, since that is what sets how fast
     it decays away -- which is why `a = 0.4` and `a = 0.9`, at either end of the
@@ -1018,8 +1036,8 @@ same thing at every `k`.
     anything cleverer: it spans 1.15 to 2.22 beat periods across the three cases
     in use, enough to average the ripple. Adding `cos ω₊t` and `sin ω₊t` to the
     design matrix -- still a linear fit, since `ω₊` is known in closed form --
-    was tried and moves the band results by at most one point (−1.86% to
-    −2.86%, −3.14% to −3.08%, +0.31% to +0.44%). It is not worth the machinery.
+    was tried and moves the band results by 1.1 points at most (−2.10% to
+    −3.24%, −3.14% to −3.08%, +0.31% to +0.44%). It is not worth the machinery.
 
     This is what produced the apparent overshoot above `γ_cold` at small beam
     temperature: `vt` changes `γ` slightly, which moves the beat's phase within
@@ -1032,16 +1050,13 @@ same thing at every `k`.
     gains 13% over the run against a head start of 1e-6, so it contributes
     nothing here.
 
-`hi` also has to keep the run inside the solver's validity. The field grows with
-the mode, and the velocity sweep is displaced by `E·Δt`, so a large enough `ε_e`
-breaks `PFC`'s Courant limit in `v` and the run diverges -- measured `ε_e` at
-1.2e161 before `NaN` at `t = 24.1`. Widening the velocity window only postpones
-it, from `t = 24.1` at `±8` to `t = 26.6` at `±16`, which is what identifies the
-Courant limit rather than the boundary as the cause. At the `hi = 5.0` this
-package uses, the velocity Courant number `max|e|Δt/Δv` is 0.52 to 0.66 in the
-three growth-rate runs and 0.73 at `a = 1.0`. (It read 0.46 to 0.65: that is a
-single mode's amplitude `√(2ε_e/L)`, and the peak of `e` is higher.)
-[`two_stream`](@ref) stops its runs at 1.
+`hi` used to be held down by the solver's validity as well. The field grows with
+the mode and displaces the velocity sweep by `E·Δt`, and a large enough `ε_e`
+took that sweep past `PFC`'s Courant limit and the run to `NaN`. `advect!` now
+refuses such a step and [`line_advector`](@ref) splits it, so that bound is
+gone. At the `hi = 5.0` this package uses, the velocity Courant number -- the
+largest `|E|Δt/Δv` over `x` when `ε_e` first reaches it -- is 0.53 to 0.73, and
+no fit contains a split step.
 """
 function growth_rate(t, ε_e; lo, hi)
     i0 = findfirst(≥(lo), ε_e)
@@ -1051,18 +1066,18 @@ function growth_rate(t, ε_e; lo, hi)
     i1 - i0 ≥ 10 ||
         error("growth_rate: only $(i1 - i0 + 1) samples between $lo and $hi")
     band = @view ε_e[i0:i1]
-    # A run that breaches the Courant limit early enough puts a non-finite
-    # sample *inside* the band rather than after it, and `A \ log.(...)` then
-    # returns a `NaN` slope that fails a downstream `isapprox` with nothing to
-    # point at. Diagnose it here, where the cause is still visible. `≤ 0` is
-    # caught with it: `log` of a zero sample would give `-Inf` and the same
-    # silent `NaN`.
+    # A run that diverges early enough puts a non-finite sample *inside* the
+    # band rather than after it -- a velocity sweep past its Courant limit did,
+    # before `advect!` refused one -- and `A \ log.(...)` then returns a `NaN`
+    # slope that fails a downstream `isapprox` with nothing to point at.
+    # Diagnose it here, where the cause is still visible. `≤ 0` is caught with
+    # it: `log` of a zero sample would give `-Inf` and the same silent `NaN`.
     all(x -> isfinite(x) && x > 0, band) || error(
         "growth_rate: the fit window t ∈ [$(t[i0]), $(t[i1])] contains a " *
         "non-positive or non-finite ε_e (first at t = " *
         "$(t[i0 + findfirst(x -> !(isfinite(x) && x > 0), band) - 1])). " *
         "The run has diverged into the band being fitted -- shorten it, or " *
-        "lower `hi` so the fit ends before the velocity Courant limit.")
+        "lower `hi`.")
     A = hcat(ones(i1 - i0 + 1), t[i0:i1])
     return (A \ log.(band))[2]/2, t[i0], t[i1]
 end
@@ -1129,31 +1144,40 @@ measurement, taken before the beams have spread, so it does not see the window
 at all -- measured identical to five digits at `vmax` 5, 6 and 8 -- and the
 narrower grid halves the cost.
 
-!!! note "The runs stop at the velocity Courant limit, and `tmax = 24.0` has only to be long enough"
-    An unstable run grows its field until the velocity sweep moves `f` by more
-    than a cell per step, and past that `PFC` leaves the bounds it is built on.
-    Unchecked, the `a = 0.6` run crossed the limit at `t = 21.1`, handed the
-    scheme `f = −5.5e-20` at `t = 22.0`, with the Courant number at 1.41, and
-    −3.9e-3 by 23.4, and went non-finite at 24.15. The scheme refuses that now,
-    so `two_stream` runs with `stop_at_courant = true` and each run ends at its
-    own limit: `a = 0.4` with the step from `t = 23.2`, `0.6` from 21.1, and the
-    `vt = 0.6` run from 22.2. `a = 0.8` does not reach it by `t = 24` (0.94), nor
-    `a = 1.0` by 80 (0.94).
+**The x grid has `Nx` points by construction.** It was `collect(Δx:Δx:L)`, and a
+floating-point range works its length out from its endpoints: at `a = 0.4`,
+`Nx` is 96 but `Δx + 95Δx` rounds past `L`, and the range stopped at 95. That
+run's box was `95Δx = 46.63` against `L = 47.12`, so its fundamental was
+`k·96/95` -- `a = 0.4042`, where the warm root is 0.30536 rather than 0.30362 --
+and the seeded `cos kx`, a 96-point period on 95 points, left 0.76% of its
+amplitude outside that fundamental. It measured `γ = 0.30245`, 0.39% under the
+root at 0.4 and 0.95% under the root of the wavenumber it ran; on 96 points it
+measures 0.30173, 0.62% under. `range(Δx; step = Δx, length = Nx)` is the old
+grid to the bit at every other `a` the suite runs, where the colon form had the
+length right; the colon form comes up short at 14 of the 156 values of `a` in
+`0.05:0.01:1.6`, so the trap is not peculiar to 0.4.
 
-    The fits are over long before: `hi = 5` holds the Courant number at 0.52 to
-    0.66 in these runs, and at 0.73 in the `a = 1.0` one, and none of the rates
-    moved when the runs started stopping. What bounds `tmax` is the slowest fit
-    completing -- the `a = 0.8` one needs `ε_e` to reach 5.0, which happens at
-    `t = 22.85`, and below that `growth_rate` raises rather than guessing. It
-    used to be bounded above as well, by the fastest run diverging, which left a
-    window of three steps; that bound is gone. `growth_rate` still raises on a
-    window containing a non-finite sample, for a run set up to cross the limit
-    inside its own fit.
+!!! note "`tmax = 24.0` is bounded below, and no longer above"
+    The `a = 0.8` fit needs `ε_e` to reach `hi = 5.0`, which happens at
+    `t = 22.85`; below that `growth_rate` raises rather than guessing.
 
-    **`a = 1.0` is a different regime and takes `tmax = 80`.** There the cold
-    rate is zero and the warm one is 0.098, a third of the branch maximum, so
-    `ε_e` needs 78 time units to cross the same amplitude band the other cases
-    cross in twenty.
+    It used to be bounded above as well, at 24.15, by the fastest run
+    diverging. The field keeps growing after the fit, and the velocity sweep it
+    drives passed `PFC`'s Courant limit -- at `t = 21.10` for `a = 0.6`, 22.20
+    for the `vt = 0.6` run and 23.25 for `a = 0.4` -- and went on to 217 cells a
+    step and `ε_e = 7.8e4` by `t = 24`, then `NaN`. `advect!` now refuses such a
+    step and [`line_advector`](@ref) splits it into sub-steps that fit, so the
+    runs stay valid past their fits and saturate instead: `ε_e` peaks at 106 at
+    `t = 24.95` for `a = 0.6`, and every run here is finite to `t = 40`. The
+    fits are over before the first split -- the velocity Courant number is 0.53
+    to 0.73 when `ε_e` first reaches 5.0 -- so the growth rates are what they
+    were, to the bit.
+
+    **`a = 1.0` takes `tmax = 80`.** There the cold rate is zero and the warm
+    one is 0.098, a third of the branch maximum, so `ε_e` needs 78 time units to
+    cross the same amplitude band the other cases cross in twenty. It stays
+    under the Courant limit to `tmax`, at 0.94 at most, and with the split it is
+    finite to `t = 100`, where it used to go non-finite at 86.2.
 """
 function two_stream(a; v₀ = 3.0, vt = 0.3, Δv = 0.05, vmax = 6.0,
                        Δt = 0.05, tmax = 24.0)
@@ -1161,14 +1185,13 @@ function two_stream(a; v₀ = 3.0, vt = 0.3, Δv = 0.05, vmax = 6.0,
     L = 2π/k
     Nx = round(Int, L/0.49)
     Δx = L/Nx
-    x = collect(Δx:Δx:L)
+    x = collect(range(Δx; step = Δx, length = Nx))    # not Δx:Δx:L -- see above
     v = collect(-vmax:Δv:vmax)
     t = collect(0.0:Δt:tmax)
     beams = @. 0.5/sqrt(2π*vt^2)*(exp(-(v - v₀)^2/(2vt^2)) +
                                   exp(-(v + v₀)^2/(2vt^2)))
     f₀ = beams * (@. (1.0 + 1e-3*cos(k*x)))'
-    r = vlasov_poisson(x, v, f₀, t; stop_at_courant = true)
-    n = length(r.ε_e) - 1
-    return t[1:n], r.ε_e[1:n]
+    r = vlasov_poisson(x, v, f₀, t)
+    return t[1:end-1], r.ε_e[1:end-1]
 end
 

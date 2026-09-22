@@ -17,6 +17,16 @@
 # Deliberately a separate file rather than part of `verification_harness.jl`:
 # nothing here runs a simulation, and `test_dispersion.jl` needs it without
 # paying for the harness's Strang loop.
+#
+# The files in `test/` include it as `@isdefined(landau_root) || include(...)`,
+# so that each still runs on its own while a full test run, which puts them all
+# in `Main`, evaluates this one once: a repeat would redefine every method here,
+# and `Pkg.test` runs with `--warn-overwrite=yes`. The guard is `landau_root`
+# and not `Z`, the first name defined here: a session with a `Z` of its own -- a
+# charge number, say -- would skip this file on `Z`, and the tests would run
+# against that `Z` instead. Measured on `test_dispersion.jl`: 12 failures and 2
+# errors for a function `Z(x) = x`, 14 errors for `Z = 1`. Included, the file
+# replaces the first and refuses the second on the spot, saying why.
 
 using SpecialFunctions: erfcx
 
@@ -146,7 +156,7 @@ returns 0.0 rather than a value nobody should trust.
 suite fits, with the beams at `vt = 0.3` the runs actually use:
 
     a     warm      cold      measured   vs warm   vs cold
-    0.4   0.30362   0.30819   0.30245    -0.39%    -1.86%
+    0.4   0.30362   0.30819   0.30173    -0.62%    -2.10%
     0.6   0.34909   0.35339   0.34228    -1.95%    -3.14%
     0.8   0.31201   0.31134   0.31229    +0.09%    +0.31%
     1.0   0.09823   0         0.09516    -3.12%      --

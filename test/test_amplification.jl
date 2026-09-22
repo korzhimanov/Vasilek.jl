@@ -20,7 +20,8 @@ elementwise over `j`, that the output is a pure mode at all. A scheme that is
 not translation-invariant fails the second even where it passes the first.
 
 Measured agreement, worst over `m ∈ {1,2,4,8,16,24,31}` and `c ∈ {0.4, 0.8}` at
-`N = 64`: 8.9e-15 for the three-point schemes, 4.6e-14 for `PFC`.
+`N = 64`: 1.6e-14 to 1.8e-14 for the three-point schemes, 4.6e-14 for `PFC`,
+the same on Julia 1.10.12 and 1.13.0. (It was quoted as 8.9e-15 for the first.)
 
 **The negative branch is not repeated here.** `test_symmetry` establishes
 `R∘A(+c) == A(−c)∘R` to machine precision, which carries every result below to
@@ -65,17 +66,6 @@ g_upwind(θ, c) = 1 - c*(1 - exp(-1im*θ))
 g_lax_wendroff(θ, c) = 1 - 1im*c*sin(θ) + c^2*(cos(θ) - 1)
 
 """
-`Godunov(PiecewiseLinear(), NoLimiter())`.
-
-With the limiter identically 1 the interface value collapses to `(fᵢ₋₁ + fᵢ)/2`
--- a centred flux -- and the update to `fᵢ + c/2(fᵢ₋₁ − fᵢ₊₁)`, whose symbol is
-purely `1 − ic·sinθ`. `|g| = √(1 + c²sin²θ) > 1` for every mode that is not
-constant or exactly at the grid scale, which is the unconditional instability
-`PiecewiseLinear`'s docstring warns about, stated analytically.
-"""
-g_godunov_linear(θ, c) = 1 - 1im*c*sin(θ)
-
-"""
 `PFC` in the regime where its limiter does not engage.
 
 `_ϵ⁺` and `_ϵ⁻` reduce to the plain differences `f₊ − f₀` and `f₀ − f₋` as long
@@ -98,15 +88,17 @@ amp_cases() = [
     ("Godunov constant",   Godunov(PiecewiseConstant()),          g_upwind,          0.0, 1.0),
     ("SemiLagrangian lin", SemiLagrangian(LinearSpline()),        g_upwind,          0.0, 1.0),
     ("LaxWendroff",        LaxWendroff(),                         g_lax_wendroff,    0.0, 1.0),
-    ("Godunov linear",     Godunov(PiecewiseLinear()),            g_godunov_linear,  0.0, 1.0),
+    ("Godunov linear",     Godunov(PiecewiseLinear()),            g_lax_wendroff,    0.0, 1.0),
     ("PFC",                PFC(fmin = 0.0, fmax = 2.0),           g_pfc,             1.0, 0.01),
 ]
 
 @testset "Amplification factor against the closed form" begin
     # Godunov(PiecewiseConstant) and SemiLagrangian(LinearSpline) share upwind's
-    # symbol. `test_convergence` already asserts both equivalences, but on one
-    # dataset after one step; here they hold mode by mode, which is the stronger
-    # statement and the one that says *why* they are equal.
+    # symbol, and Godunov(PiecewiseLinear) without a limiter shares
+    # Lax–Wendroff's. `test_convergence` already asserts the three
+    # equivalences, but on one dataset after one step; here they hold mode by
+    # mode, which is the stronger statement and the one that says *why* they
+    # are equal.
     worst = Dict{String,Float64}()
     for (name, scheme, g, mean, amplitude) in amp_cases()
         for c in AMP_COURANTS, m in AMP_MODES
@@ -132,7 +124,6 @@ end
     #   scheme            |g| m=1     |g| m=16    phase m=1   phase m=16
     #   Upwind            0.998844    0.721110    0.9998      0.9358
     #   LaxWendroff       0.999998    0.930376    0.9987      0.7073
-    #   Godunov linear    1.000768    1.077033    0.9979      0.6056
     #   PFC               0.999998    0.890016    1.0000      0.9755
     #
     # where "phase" is arg(g)/(−cθ), which the exact solution makes 1.
@@ -152,17 +143,14 @@ end
     for c in AMP_COURANTS
         for m in AMP_MODES
             θ = 2π*m/AMP_N
-            # Stable and dissipative: no mode grows, for the three schemes that
-            # are stable at 0 < c < 1.
+            # Stable and dissipative: no mode grows under any of the three
+            # symbols. There used to be a fourth, the unlimited
+            # piecewise-linear flux before it carried its (1 − |c|) factor:
+            # `1 − ic·sinθ`, which grew on every one of these modes, worst
+            # 1.077 per step at c = 0.4.
             @test abs(g_of(g_upwind, m, c))       ≤ 1.0 + 1e-14
             @test abs(g_of(g_lax_wendroff, m, c)) ≤ 1.0 + 1e-14
             @test abs(g_of(g_pfc, m, c))          ≤ 1.0 + 1e-14
-
-            # And the unlimited piecewise-linear flux grows on every one of
-            # them. This is the analytic statement of what `test_convergence`
-            # demonstrates by marching 4N/c steps and watching the amplitude
-            # reach 6.66e+24: worst per-step growth 1.077 at c = 0.4.
-            @test abs(g_of(g_godunov_linear, m, c)) > 1.0
         end
     end
 
@@ -190,7 +178,7 @@ end
         # `|g|^(N/c)` is the amplitude a mode retains after being carried once
         # around the domain -- the exact quantity `test_convergence` measures by
         # marching. Measured for m = 1 at c = 0.4, N = 64: Upwind 0.831004,
-        # LaxWendroff 0.999751, PFC 0.999667, Godunov linear 1.130748.
+        # LaxWendroff 0.999751, PFC 0.999667.
         #
         # The first of those is the 17% amplitude loss that shows up in the
         # work-precision table as upwind's L² error, arrived at independently.
@@ -204,6 +192,5 @@ end
         @test abs(g_of(g_upwind, 1, c))^steps < 0.85
         @test abs(g_of(g_lax_wendroff, 1, c))^steps > 0.999
         @test abs(g_of(g_pfc, 1, c))^steps > 0.999
-        @test abs(g_of(g_godunov_linear, 1, c))^steps > 1.1
     end
 end
