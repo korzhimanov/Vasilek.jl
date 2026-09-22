@@ -10,8 +10,12 @@ end
 
 _Φ(f, i, i⁻, i⁻², c, ::PiecewiseConstant, limiter) = abs(c)*f[i⁻]
 
+# the linear reconstruction in the upwind cell, averaged over the strip that
+# crosses the interface in one step: its midpoint is |c|Δx/2 upwind of the
+# interface, (1 - |c|)Δx/2 downwind of the cell's centre
 function _Φ(f, i, i⁻, i⁻², c, ::PiecewiseLinear, limiter)
-    return abs(c)*(f[i⁻] + limiter(_ratio(f, i⁻, i⁻², i))*0.5*(f[i] - f[i⁻]))
+    a = abs(c)
+    return a*(f[i⁻] + limiter(_ratio(f, i⁻, i⁻², i))*0.5*(1 - a)*(f[i] - f[i⁻]))
 end
 
 @inline function _godunov(f, i, i⁻, i⁺, i⁻², c, r, l)
@@ -19,7 +23,7 @@ end
 end
 
 function advect!(dest, src, g::Godunov, c, ws)
-    _validate(dest, src, g, ws)
+    _validate(dest, src, g, c, ws)
     n = length(dest)
     r, l = g.reconstruction, g.limiter
     if c > 0

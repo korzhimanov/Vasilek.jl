@@ -1,5 +1,10 @@
 # The canonical scheme list and stepping helper, shared by the golden,
-# convergence, invariant and allocation suites so the four cannot drift apart.
+# convergence and invariant suites, among others, so they cannot drift apart.
+#
+# The files in `test/` include it as `@isdefined(march!) || include(...)`, so
+# that each still runs on its own while a full test run, which puts them all in
+# `Main`, evaluates this one once: a repeat would redefine every method here,
+# and `Pkg.test` runs with `--warn-overwrite=yes`.
 
 using Vasilek
 
@@ -26,6 +31,7 @@ uniform_schemes(; fmin = 0.0, fmax = 2.0) = [
     ("Godunov_constant",         Godunov(PiecewiseConstant())),
     ("Godunov_linear",           Godunov(PiecewiseLinear())),
     ("Godunov_linear_VanLeer",   Godunov(PiecewiseLinear(), VanLeer())),
+    ("Godunov_linear_Superbee",  Godunov(PiecewiseLinear(), Superbee())),
     ("SemiLagrangian_linear",    SemiLagrangian(LinearSpline())),
     ("SemiLagrangian_quadratic", SemiLagrangian(QuadraticSpline())),
     ("SemiLagrangian_cubic",     SemiLagrangian(CubicSpline())),

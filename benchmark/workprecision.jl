@@ -42,6 +42,7 @@ schemes() = (
     ("Upwind",                   Upwind()),
     ("Godunov constant",         Godunov(PiecewiseConstant())),
     ("Godunov VanLeer",          Godunov(PiecewiseLinear(), VanLeer())),
+    ("Godunov Superbee",         Godunov(PiecewiseLinear(), Superbee())),
     ("LaxWendroff",              LaxWendroff()),
     ("SemiLagrangian linear",    SemiLagrangian(LinearSpline())),
     ("SemiLagrangian quadratic", SemiLagrangian(QuadraticSpline())),

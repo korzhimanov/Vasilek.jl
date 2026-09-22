@@ -2,8 +2,6 @@ using Vasilek
 using Vasilek.Collisions: Landau1P, collide!, workspace as collision_workspace
 using Vasilek: PoissonFourier1D, FDTD1D
 
-include(joinpath(@__DIR__, "scheme_cases.jl"))
-
 """
 Allocation gate.
 
@@ -58,6 +56,7 @@ end
             ("Godunov constant",      Godunov(PiecewiseConstant())),
             ("Godunov linear",        Godunov(PiecewiseLinear())),
             ("Godunov VanLeer",       Godunov(PiecewiseLinear(), VanLeer())),
+            ("Godunov Superbee",      Godunov(PiecewiseLinear(), Superbee())),
             ("PFC",                   PFC(fmin = 0.0, fmax = 2.0)),
             ("SemiLagrangian linear", SemiLagrangian(LinearSpline())),
         ]

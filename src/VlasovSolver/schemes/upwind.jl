@@ -2,7 +2,7 @@
 @inline _upwind⁻(f, i, i⁺, c) = f[i] - c*(f[i⁺] - f[i])
 
 function advect!(dest, src, scheme::Upwind, c, ws)
-    _validate(dest, src, scheme, ws)
+    _validate(dest, src, scheme, c, ws)
     n = length(dest)
     if c > 0
         dest[1] = _upwind⁺(src, 1, n, c)

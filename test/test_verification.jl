@@ -7,7 +7,7 @@
 # These promote the claims the verification notebooks make in prose into
 # assertions. Until they run, those claims are a 2021 HTML file.
 
-include(joinpath(@__DIR__, "verification_harness.jl"))
+@isdefined(vlasov_poisson) || include(joinpath(@__DIR__, "verification_harness.jl"))
 
 # The Landau roots are **computed**, by `landau_root` in `test/dispersion.jl`,
 # which the harness includes. This file used to carry three of them as typed-in
@@ -767,6 +767,13 @@ end
             # the sharp gradients its limiter exists for. Measured against the
             # uniform grid at the same Δt: γ₁ 0.2793 against 0.2794 (0.05%) and
             # γ₂ 0.0721 against 0.0716 (0.6%).
+            #
+            # This grid is the one run in the suite whose velocity sweep starts
+            # past its Courant limit: the field's amplitude is 1.0017 on the
+            # first step and Δt = 0.05 is the width of the narrow cells, so it
+            # asks for 1.0017 of them. `advect!` refuses that, `line_advector`
+            # splits those four calls in two, and γ₁ and γ₂ move in the sixth
+            # digit (0.279257 → 0.279258, 0.072051 → 0.072050).
             stretched = strong_case(64, 0.1, 0.05;
                 v = vcat(collect(-6:0.1:-1.1), collect(-1:0.05:1), collect(1.1:0.1:6)))
             println("  non-uniform Δv: γ₁ = ", round(stretched.γ₁; digits = 4),
@@ -1248,9 +1255,8 @@ end
                 # Measured γ = 0.09516 against 0.09823, which is 3.12%, fitted
                 # over t ∈ [45.6, 78.2]. The band is the same `[100ε₀, 5.0]`
                 # every other case uses; `tmax = 80` is what it takes to reach
-                # 5.0 at a tenth of the growth rate, and the run goes non-finite
-                # at t = 86.2, so the margin is six time units rather than the
-                # three steps the `a = 0.6` case gets at `tmax = 24`.
+                # 5.0 at a tenth of the growth rate, and the velocity sweep stays
+                # under its Courant limit throughout, at 0.94 at most.
                 #
                 # Held to 8% rather than the 3% above, and the reason is in
                 # `growth_rate`: the beat between the growing root and the
