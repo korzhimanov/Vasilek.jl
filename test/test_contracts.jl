@@ -1,6 +1,6 @@
 using Vasilek
 
-include(joinpath(@__DIR__, "scheme_cases.jl"))
+@isdefined(march!) || include(joinpath(@__DIR__, "scheme_cases.jl"))
 
 # API contract tests: the promises the types make outside the numerics.
 #
@@ -131,6 +131,90 @@ end
     end
 end
 
+# The fourth check `advect!` runs: the Courant bound. Every scheme but
+# SemiLagrangian is explicit and unstable past |c| = 1, and one step there
+# looks right -- LaxWendroff at c = 1.2 is 5.2e-6 from the exact shift of a
+# smooth profile, against 1.7e-6 at 0.9 -- where a hundred steps are 9.1e10
+# from it. The measurements are in the `_validate_courant` docstring.
+@testset "advect! refuses a Courant number the scheme cannot take" begin
+    N = 64
+    f = [1.0 + 0.5*sin(2π*(i-1)/N) for i = 1:N]
+    bounded = [(name, s) for (name, s) in uniform_schemes(fmin = 0.0, fmax = 2.0)
+               if !startswith(name, "SemiLagrangian")]
+
+    @testset "past |c| = 1 is refused, both ways, before anything is written" begin
+        # The first float above one, a plain case, and the free-streaming row
+        # that found this -- v = 6, Δt = 0.02, Δx = 4π/128 -- which PFC took
+        # silently until its own bounds assertion fired 218 steps later.
+        free_streaming_row = 6*0.02/(4π/128)
+        for (name, scheme) in bounded, c in (nextfloat(1.0), free_streaming_row, 2.0),
+                sgn in (1, -1)
+            dst = fill(-7.0, N)
+            @test_throws DomainError advect!(dst, f, scheme, sgn*c, workspace(scheme, N))
+            @test all(==(-7.0), dst)
+        end
+    end
+
+    @testset "c = ±1 exactly is accepted, and is a one-cell shift" begin
+        # The bound is `≤`. Measured at c = ±1: Upwind exact; LaxWendroff, the
+        # three Godunov and PFC at most one ulp (2.2e-16) from circshift.
+        # Godunov(PiecewiseLinear()) is a shift here because its slope term
+        # carries (1 − |c|), which vanishes. Before it did, the scheme was 2.4e-3
+        # off without a limiter and 2.7e-3 with VanLeer, and this test excused it.
+        for (name, scheme) in bounded, c in (1.0, -1.0)
+            out = march!(f, scheme, c, 1)
+            @test maximum(abs, out .- circshift(f, Int(c))) ≤ 2eps()
+        end
+    end
+
+    @testset "NaN is refused" begin
+        # No comparison with NaN holds, so the check refuses it without a case
+        # of its own. It used to go through and come back NaN everywhere.
+        for (name, scheme) in bounded
+            @test_throws DomainError advect!(similar(f), f, scheme, NaN, workspace(scheme, N))
+        end
+    end
+
+    @testset "checked = false does not switch it off" begin
+        # `checked` compiles away PFC's minimum/maximum pass. The Courant check
+        # is one comparison and stays: a PFC run past the limit is exactly what
+        # that pass used to be the only thing catching.
+        @test_throws DomainError advect!(similar(f), f,
+                                         PFC(fmin = 0.0, fmax = 2.0, checked = false), 1.2)
+    end
+
+    @testset "SemiLagrangian has no Courant limit, and is not checked" begin
+        # Its accuracy past |c| = 1 is test_symmetry's business (c = 3.7, and
+        # c ± N); here, only that the check does not reach it.
+        for spline in (LinearSpline(), QuadraticSpline(), CubicSpline()), c in (1.2, -2.0, 3.7)
+            s = SemiLagrangian(spline)
+            @test advect!(similar(f), f, s, c, workspace(s, N)) isa Vector{Float64}
+        end
+    end
+
+    @testset "PFCNonUniform is held to its narrowest cell" begin
+        # Its fourth argument is a displacement, and every cell gives up its
+        # flux alone, so the bound is the narrowest width however wide the rest
+        # are. On a 1:2 grid a step of 1.1 narrow widths -- 0.55 of the wide one
+        # -- took data with an exact zero to -7.6e-6.
+        s = PFCNonUniform(vcat(fill(0.1, 16), fill(0.05, 32), fill(0.1, 16));
+                          fmin = 0.0, fmax = 2.0)
+        ws = workspace(s, N)
+        for α in (0.05, -0.05)
+            @test advect!(similar(f), f, s, α, ws) isa Vector{Float64}
+        end
+        for α in (nextfloat(0.05), -nextfloat(0.05), 0.055, 0.1)
+            @test_throws DomainError advect!(similar(f), f, s, α, ws)
+        end
+    end
+
+    @testset "the error carries the value and names the scheme" begin
+        err = try advect!(similar(f), f, LaxWendroff(), 1.2) catch e; e end
+        @test err isa DomainError && err.val == 1.2
+        @test occursin("LaxWendroff", sprint(showerror, err))
+    end
+end
+
 @testset "a workspace carries no state between calls" begin
     # `workspace` hands back `undef` memory, so a scheme that ever read a slot
     # before writing it would give a different answer on a reused workspace
@@ -182,6 +266,7 @@ end
     g = Float32[1.0 + 0.5*sin(2π*(i-1)/N) for i = 1:N]
     for (name, scheme) in [("Upwind", Upwind()), ("LaxWendroff", LaxWendroff()),
                            ("Godunov", Godunov(PiecewiseLinear(), VanLeer())),
+                           ("Godunov Superbee", Godunov(PiecewiseLinear(), Superbee())),
                            ("SemiLagrangian", SemiLagrangian(CubicSpline())),
                            ("PFC", PFC(fmin = 0.0f0, fmax = 2.0f0))]
         dst = similar(g)

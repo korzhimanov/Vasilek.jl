@@ -7,7 +7,7 @@
 # These promote the claims the verification notebooks make in prose into
 # assertions. Until they run, those claims are a 2021 HTML file.
 
-include(joinpath(@__DIR__, "verification_harness.jl"))
+@isdefined(vlasov_poisson) || include(joinpath(@__DIR__, "verification_harness.jl"))
 
 # The Landau roots are **computed**, by `landau_root` in `test/dispersion.jl`,
 # which the harness includes. This file used to carry three of them as typed-in
@@ -89,7 +89,9 @@ widening a velocity window, which is why it is the one shown.
 function landau_case(k, Nx, vmax, Δt, tmax; α = 1e-3)
     L = 2*(2π/k)
     Δx = L/Nx
-    x = collect(Δx:Δx:L)
+    # Nx points by construction. `Δx:Δx:L` rounds its length out of the
+    # endpoints and can come up a point short; see `two_stream`.
+    x = collect(range(Δx; step = Δx, length = Nx))
     v = collect(-vmax:0.1:vmax)
     t = collect(0.0:Δt:tmax)
     f₀ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. (1.0 + α*cos(k*x)))'
@@ -239,8 +241,9 @@ end
             # better invariant here, and it is the one asserted.
             function arrest_time(α; k = 0.3, tmax)
                 L = 2*(2π/k)
-                Δx = L/108
-                x = collect(Δx:Δx:L)
+                Nx = 108
+                Δx = L/Nx
+                x = collect(range(Δx; step = Δx, length = Nx))
                 v = collect(-6:0.1:6)
                 t = collect(0.0:0.05:tmax)
                 f₀ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. (1.0 + α*cos(k*x)))'
@@ -575,7 +578,7 @@ end
             L = 2*(2π/k)
             function round_trip(Nx, Δv, Δt, T, α; scheme = nothing)
                 Δx = L/Nx
-                x = collect(Δx:Δx:L)
+                x = collect(range(Δx; step = Δx, length = Nx))
                 v = collect(-6:Δv:6)
                 @assert v[1] == -v[end] && iseven(length(v) - 1)
                 t = collect(0.0:Δt:T)
@@ -720,7 +723,7 @@ end
             L = 2*(2π/k)
             function strong_case(Nx, Δv, Δt; v = collect(-6:Δv:6))
                 Δx = L/Nx
-                x = collect(Δx:Δx:L)
+                x = collect(range(Δx; step = Δx, length = Nx))
                 t = collect(0.0:Δt:45.0)
                 f₀ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. (1.0 + 0.5*cos(k*x)))'
                 r = vlasov_poisson(x, v, f₀, t; invariants = true)
@@ -764,6 +767,13 @@ end
             # the sharp gradients its limiter exists for. Measured against the
             # uniform grid at the same Δt: γ₁ 0.2793 against 0.2794 (0.05%) and
             # γ₂ 0.0721 against 0.0716 (0.6%).
+            #
+            # This grid is the one run in the suite whose velocity sweep starts
+            # past its Courant limit: the field's amplitude is 1.0017 on the
+            # first step and Δt = 0.05 is the width of the narrow cells, so it
+            # asks for 1.0017 of them. `advect!` refuses that, `line_advector`
+            # splits those four calls in two, and γ₁ and γ₂ move in the sixth
+            # digit (0.279257 → 0.279258, 0.072051 → 0.072050).
             stretched = strong_case(64, 0.1, 0.05;
                 v = vcat(collect(-6:0.1:-1.1), collect(-1:0.05:1), collect(1.1:0.1:6)))
             println("  non-uniform Δv: γ₁ = ", round(stretched.γ₁; digits = 4),
@@ -817,8 +827,9 @@ end
             # time step apart.
             k, α, u = 0.5, 1e-3, 0.5
             L = 2*(2π/k)
-            Δx = L/64
-            x = collect(Δx:Δx:L)
+            Nx = 64
+            Δx = L/Nx
+            x = collect(range(Δx; step = Δx, length = Nx))
             v = collect(-6:0.1:6)       # wide enough for the boosted resonance at 3.33
             t = collect(0.0:0.05:40.0)
             drifting(u) = vlasov_poisson(x, v,
@@ -900,7 +911,7 @@ end
             dissipation = Float64[]
             for (Nx, Δv, Δt) in ((32, 0.2, 0.16), (64, 0.1, 0.08), (128, 0.05, 0.04))
                 Δx = L/Nx
-                x = collect(Δx:Δx:L)
+                x = collect(range(Δx; step = Δx, length = Nx))
                 v = collect(-4:Δv:4)
                 t = collect(0.0:Δt:70.0)
                 f₀ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. (1.0 + 0.01*cos(k*x)))'
@@ -959,8 +970,9 @@ end
             # entropy, and a step of either the wrong way is a bug.
             k = 0.5
             L = 2*(2π/k)
-            Δx = L/64
-            x = collect(Δx:Δx:L)
+            Nx = 64
+            Δx = L/Nx
+            x = collect(range(Δx; step = Δx, length = Nx))
             v = collect(-4:0.1:4)
             t = collect(0.0:0.08:70.0)
             f₀ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. (1.0 + 0.01*cos(k*x)))'
@@ -1135,9 +1147,13 @@ end
                 # ε_e rising from 100x its initial value to 5.0:
                 #
                 #   a = kv₀   γ measured   γ warm     error    γ cold     error
-                #   0.4       0.30245      0.30362   -0.39%    0.30819   -1.86%
+                #   0.4       0.30173      0.30362   -0.62%    0.30819   -2.10%
                 #   0.6       0.34228      0.34909   -1.95%    0.35339   -3.14%
                 #   0.8       0.31229      0.31201   +0.09%    0.31134   +0.31%
+                #
+                # The a = 0.4 row read 0.30245, -0.39%, while `two_stream` built
+                # that grid a point short: 95 cells, whose fundamental is
+                # a = 0.4042, and against the root there it was -0.95%.
                 #
                 # Held to 3% against the warm root, about 1.5x the worst. The
                 # cold column is printed alongside because the two disagree by
@@ -1239,9 +1255,8 @@ end
                 # Measured γ = 0.09516 against 0.09823, which is 3.12%, fitted
                 # over t ∈ [45.6, 78.2]. The band is the same `[100ε₀, 5.0]`
                 # every other case uses; `tmax = 80` is what it takes to reach
-                # 5.0 at a tenth of the growth rate, and the run goes non-finite
-                # at t = 86.2, so the margin is six time units rather than the
-                # three steps the `a = 0.6` case gets at `tmax = 24`.
+                # 5.0 at a tenth of the growth rate, and the velocity sweep stays
+                # under its Courant limit throughout, at 0.94 at most.
                 #
                 # Held to 8% rather than the 3% above, and the reason is in
                 # `growth_rate`: the beat between the growing root and the

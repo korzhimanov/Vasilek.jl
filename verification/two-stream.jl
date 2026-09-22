@@ -11,11 +11,11 @@
 #
 # `two_stream`, `γ_cold` and the rest come from `test/verification_harness.jl`,
 # not from a copy here. They were copied once, and the copy carried `tmax = 24.0`
-# without the paragraph explaining that it sits in a window of about [22.9,
-# 24.15] -- bounded below by the slowest fit completing and above by the fastest
-# run diverging. A bare number that cannot move, with nothing saying so, is
-# worse than the duplication it came from. Shared for the reason `wakefield` is
-# shared: the script and the test that asserts its claims run the same setup.
+# without the paragraph explaining what bounds it -- the slowest fit completing,
+# and until `advect!` refused a step past the Courant limit, the fastest run
+# diverging after its fit. A bare number with nothing saying why is worse than
+# the duplication it came from. Shared for the reason `wakefield` is shared: the
+# script and the test that asserts its claims run the same setup.
 
 using Plots
 
@@ -48,7 +48,7 @@ for (a, color) in zip(measured_a, (:steelblue, :crimson, :seagreen))
     # *amplitude*, defined by `ε_e ∝ exp(2γt)`, which is the convention that
     # lets it be compared with `γ_cold` directly. Drawn with one γ the dashed
     # line peeled a decade below the curve it is supposed to lie along by the
-    # end of the window -- 6.1x, 11.6x and 18.0x at these three wavenumbers --
+    # end of the window -- 6.0x, 11.6x and 18.0x at these three wavenumbers --
     # so the plot showed a correct fit failing.
     i0 = argmin(abs.(t .- t0))
     tt = range(t0, t1; length = 50)

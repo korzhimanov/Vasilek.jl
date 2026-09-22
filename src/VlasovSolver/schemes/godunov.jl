@@ -14,13 +14,17 @@
 end
 
 # The flux through the face between cell i and its upwind neighbour i⁻, which
-# leaves i⁻ and enters i. `@inline`, like `_ratio`: left to itself, the inliner
-# declined `_Φ` with a limiter on Julia 1.13, and `_ratio` with or without one on
-# 1.10, where the call stayed even when `NoLimiter` discards its result, because
-# its bounds checks can throw. Either way the loop made two calls per cell,
-# vectorized nothing, and bounds-checked every read inside them.
+# leaves i⁻ and enters i: the linear reconstruction in i⁻, averaged over the
+# strip that crosses the face in one step, whose midpoint is |c|Δx/2 upwind of
+# the face, (1 - |c|)Δx/2 downwind of the cell's centre. `@inline`, like
+# `_ratio`: left to itself, the inliner declined `_Φ` with a limiter on Julia
+# 1.13, and `_ratio` with or without one on 1.10, where the call stayed even when
+# `NoLimiter` discards its result, because its bounds checks can throw. Either
+# way the loop made two calls per cell, vectorized nothing, and bounds-checked
+# every read inside them.
 @inline function _Φ(f, i, i⁻, i⁻², c, ::PiecewiseLinear, limiter)
-    return abs(c)*(f[i⁻] + limiter(_ratio(f, i⁻, i⁻², i))*0.5*(f[i] - f[i⁻]))
+    a = abs(c)
+    return a*(f[i⁻] + limiter(_ratio(f, i⁻, i⁻², i))*0.5*(1 - a)*(f[i] - f[i⁻]))
 end
 
 # One `advect!` for every reconstruction, so the step is validated in one place;
@@ -30,7 +34,7 @@ end
 # elsewhere merges without a conflict and leaves a call it missed failing at run
 # time.
 function advect!(dest, src, g::Godunov, c, ws)
-    _validate(dest, src, g, ws)
+    _validate(dest, src, g, c, ws)
     return _godunov!(dest, src, c, g.reconstruction, g.limiter)
 end
 

@@ -1,4 +1,4 @@
-include(joinpath(@__DIR__, "verification_harness.jl"))
+@isdefined(vlasov_poisson) || include(joinpath(@__DIR__, "verification_harness.jl"))
 
 using Vasilek.FDTD1D
 

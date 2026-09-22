@@ -75,6 +75,13 @@ further, being exact on grid modes.
 A non-uniform grid has no single Courant number to quote, so there is no
 common dimensionless form. This is a wart; it is documented rather than hidden.
 
+Both are bounded, and `advect!` refuses a step past the bound with a
+`DomainError`: `|c| ≤ 1` for every uniform-grid scheme but `SemiLagrangian`,
+which has no Courant limit, and `|vΔt| ≤ minimum(Δx)` for `PFCNonUniform` -- the
+narrowest cell, because every cell gives up its outgoing flux alone. A caller
+whose displacement is larger splits it into sub-steps that fit, as the
+verification harness does for the field-driven velocity sweep.
+
 ## Currents in the FDTD solver
 
 `make_advance_fields` adds its current argument **straight into the field**:
