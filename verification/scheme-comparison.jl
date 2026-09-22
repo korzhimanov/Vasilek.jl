@@ -29,8 +29,11 @@ const ω_ANALYTIC = 1.41566
 "The k = 0.5 Landau configuration the extended test asserts, at its own grid."
 function landau_grid()
     L = 2*(2π/K)
-    Δx = L/64
-    x = collect(Δx:Δx:L)
+    Nx = 64
+    Δx = L/Nx
+    # Nx points by construction. `Δx:Δx:L` rounds its length out of the
+    # endpoints and can come up a point short; see `two_stream` in the harness.
+    x = collect(range(Δx; step = Δx, length = Nx))
     v = collect(-4:0.1:4)
     t = collect(0.0:0.08:70.0)
     f₀ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. (1.0 + 0.01*cos(K*x)))'
@@ -51,8 +54,9 @@ starts to matter, and the schemes separate immediately.
 """
 function nonlinear_grid()
     L = 2*(2π/K)
-    Δx = L/64
-    x = collect(Δx:Δx:L)
+    Nx = 64
+    Δx = L/Nx
+    x = collect(range(Δx; step = Δx, length = Nx))
     v = collect(-6:0.1:6)
     t = collect(0.0:0.05:40.0)
     f₀ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. (1.0 + 0.5*cos(K*x)))'

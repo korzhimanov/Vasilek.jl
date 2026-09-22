@@ -1005,8 +1005,8 @@ transferable between wavenumbers: the growth rate varies over the branch, so a
 fixed time window covers a different stretch of the exponential at each `k` and
 the fitted value wobbles by several percent with it. Measured at `kv₀ = 0.4`
 over the same run, fitting `t ∈ [8,18]`, `[10,20]`, `[12,22]`, `[14,24]` gives
-9.75%, 5.63%, 4.35% and 0.55% error; the amplitude band gives 1.86% and does the
-same thing at every `k`.
+10.65%, 6.43%, 3.99% and 0.19% error from `γ_cold`; the amplitude band gives
+2.10% and does the same thing at every `k`.
 
 !!! note "Why a fixed window wobbles: `ε_e` is not one exponential"
     The quadratic in `γ_cold` has **four** roots -- the growing pair `±iγ` and
@@ -1019,9 +1019,10 @@ same thing at every `k`.
 
     Measured at `a = 0.6`: the instantaneous rate oscillates with period 4.5
     against the `2π/ω₊ = 4.626` this predicts, swinging between 0.21 and 0.41
-    around a `γ_cold` of 0.353. Fitting over an integer number of beat periods
-    instead of an arbitrary window cuts the spread over start points from
-    39.6%, 14.4% and 22.3% (at `a` = 0.4, 0.6, 0.8) to 9.0%, 5.6% and 4.8%.
+    around a `γ_cold` of 0.353. Fitting over two beat periods instead of one
+    cuts the spread of the rate over start points `t₀ ∈ [10, 14]` from 41.4%,
+    14.4% and 22.3% of `γ_cold` (at `a` = 0.4, 0.6, 0.8) to 9.4%, 5.6% and
+    4.8%.
 
     The ripple is worst where `γ` is smallest, since that is what sets how fast
     it decays away -- which is why `a = 0.4` and `a = 0.9`, at either end of the
@@ -1031,8 +1032,8 @@ same thing at every `k`.
     anything cleverer: it spans 1.15 to 2.22 beat periods across the three cases
     in use, enough to average the ripple. Adding `cos ω₊t` and `sin ω₊t` to the
     design matrix -- still a linear fit, since `ω₊` is known in closed form --
-    was tried and moves the band results by at most one point (−1.86% to
-    −2.86%, −3.14% to −3.08%, +0.31% to +0.44%). It is not worth the machinery.
+    was tried and moves the band results by 1.1 points at most (−2.10% to
+    −3.24%, −3.14% to −3.08%, +0.31% to +0.44%). It is not worth the machinery.
 
     This is what produced the apparent overshoot above `γ_cold` at small beam
     temperature: `vt` changes `γ` slightly, which moves the beat's phase within
@@ -1050,7 +1051,7 @@ the mode and displaces the velocity sweep by `E·Δt`, and a large enough `ε_e`
 took that sweep past `PFC`'s Courant limit and the run to `NaN`. `advect!` now
 refuses such a step and [`line_advector`](@ref) splits it, so that bound is
 gone. At the `hi = 5.0` this package uses, the velocity Courant number -- the
-largest `|E|Δt/Δv` over `x` when `ε_e` first reaches it -- is 0.52 to 0.73, and
+largest `|E|Δt/Δv` over `x` when `ε_e` first reaches it -- is 0.53 to 0.73, and
 no fit contains a split step.
 """
 function growth_rate(t, ε_e; lo, hi)
@@ -1139,6 +1140,19 @@ measurement, taken before the beams have spread, so it does not see the window
 at all -- measured identical to five digits at `vmax` 5, 6 and 8 -- and the
 narrower grid halves the cost.
 
+**The x grid has `Nx` points by construction.** It was `collect(Δx:Δx:L)`, and a
+floating-point range works its length out from its endpoints: at `a = 0.4`,
+`Nx` is 96 but `Δx + 95Δx` rounds past `L`, and the range stopped at 95. That
+run's box was `95Δx = 46.63` against `L = 47.12`, so its fundamental was
+`k·96/95` -- `a = 0.4042`, where the warm root is 0.30536 rather than 0.30362 --
+and the seeded `cos kx`, a 96-point period on 95 points, left 0.76% of its
+amplitude outside that fundamental. It measured `γ = 0.30245`, 0.39% under the
+root at 0.4 and 0.95% under the root of the wavenumber it ran; on 96 points it
+measures 0.30173, 0.62% under. `range(Δx; step = Δx, length = Nx)` is the old
+grid to the bit at every other `a` the suite runs, where the colon form had the
+length right; the colon form comes up short at 14 of the 156 values of `a` in
+`0.05:0.01:1.6`, so the trap is not peculiar to 0.4.
+
 !!! note "`tmax = 24.0` is bounded below, and no longer above"
     The `a = 0.8` fit needs `ε_e` to reach `hi = 5.0`, which happens at
     `t = 22.85`; below that `growth_rate` raises rather than guessing.
@@ -1146,12 +1160,12 @@ narrower grid halves the cost.
     It used to be bounded above as well, at 24.15, by the fastest run
     diverging. The field keeps growing after the fit, and the velocity sweep it
     drives passed `PFC`'s Courant limit -- at `t = 21.10` for `a = 0.6`, 22.20
-    for the `vt = 0.6` run and 23.20 for `a = 0.4` -- and went on to 217 cells a
+    for the `vt = 0.6` run and 23.25 for `a = 0.4` -- and went on to 217 cells a
     step and `ε_e = 7.8e4` by `t = 24`, then `NaN`. `advect!` now refuses such a
     step and [`line_advector`](@ref) splits it into sub-steps that fit, so the
     runs stay valid past their fits and saturate instead: `ε_e` peaks at 106 at
     `t = 24.95` for `a = 0.6`, and every run here is finite to `t = 40`. The
-    fits are over before the first split -- the velocity Courant number is 0.52
+    fits are over before the first split -- the velocity Courant number is 0.53
     to 0.73 when `ε_e` first reaches 5.0 -- so the growth rates are what they
     were, to the bit.
 
@@ -1167,7 +1181,7 @@ function two_stream(a; v₀ = 3.0, vt = 0.3, Δv = 0.05, vmax = 6.0,
     L = 2π/k
     Nx = round(Int, L/0.49)
     Δx = L/Nx
-    x = collect(Δx:Δx:L)
+    x = collect(range(Δx; step = Δx, length = Nx))    # not Δx:Δx:L -- see above
     v = collect(-vmax:Δv:vmax)
     t = collect(0.0:Δt:tmax)
     beams = @. 0.5/sqrt(2π*vt^2)*(exp(-(v - v₀)^2/(2vt^2)) +
