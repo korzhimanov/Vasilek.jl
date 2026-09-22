@@ -155,6 +155,81 @@ This project has not been released; entries below describe work on `master`.
   through deep nulls, and the first version of this test reported a 900%
   discrepancy that was entirely two nulls landing a time step apart.
 
+### Changed
+
+- **`Godunov(PiecewiseLinear(), VanLeer())` steps 7 to 14 times faster, to the
+  same bits, and on Julia 1.10 the scheme without a limiter 17 to 45 times.**
+  With `VanLeer` the step cost 16.6 ns per cell on a smooth sine and 8.2 ns on
+  a square pulse, where the scheme without a limiter costs 0.4 ns and
+  `LaxWendroff` 0.35 ns (Julia 1.13, N = 10000). None of that was the
+  limiter's arithmetic. Taking the kernel apart one change at a time, in the
+  order below, put 60% of the step on the sine in two calls per cell, 27% in
+  `≈ 0.0` and 5.5% in evaluating every flux twice, and left 7%. Two runs, of one
+  and of three processes, agree on each share to within a percent.
+
+  * **The inliner declined part of the flux.** On 1.13 it declined `_Φ` once a
+    limiter was in it. On 1.10 it declined `_ratio` instead, with or without a
+    limiter, and the call stayed even where `NoLimiter` discards the ratio,
+    because its bounds checks can throw. Either way the loop made two calls per
+    cell, vectorized nothing, and bounds-checked every read inside them, which
+    the loop's `@inbounds` does not reach. On 1.10 that made the unlimited
+    scheme cost 13.5 ns per cell too. Both functions are `@inline` now.
+  * **`≈ 0.0`.** `_ratio` tested both differences with it. With its default
+    tolerances it is `== 0.0` for every Float64, NaN and ±0 included, but it
+    gets there through `isfinite` tests and a NaN-aware `max`. In the
+    vectorized loop that cost twice the rest of the step, and a sampling
+    profile of the old kernel put 28% of its samples in `isapprox`. It is
+    `iszero` now. The branches were not the cost: once `≈` was gone, LLVM
+    turned them into selects by itself. They are `ifelse` now so that
+    vectorizing does not rest on that, which measured under 5% faster.
+  * **Every flux twice.** Each cell evaluated both of its faces, so every
+    face's flux, the limiter's two divisions included, was computed once as
+    one cell's outflow and again as the next one's inflow. The loop now
+    evaluates each face once and carries it to the next cell, which LLVM
+    vectorizes as a first-order recurrence.
+
+  `Godunov(PiecewiseConstant())` keeps a loop that evaluates both faces of
+  every cell. Its flux is one multiplication, and carrying it takes two vector
+  shuffles per four cells, which measured 8% to 27% slower.
+
+  Before and after on Julia 1.13, from six processes each, alternating between
+  master and this change. Each process was pinned to one CPU at high priority,
+  and each entry is the median over processes of the median over five rounds
+  of BenchmarkTools' minimum:
+
+  | ns per cell per step     | sine, N = 512 | sine, 10000 | pulse, 512  | pulse, 10000 |
+  |--------------------------|---------------|-------------|-------------|--------------|
+  | `VanLeer`                | 16.5 → 1.20   | 16.6 → 1.17 | 8.32 → 1.16 | 8.15 → 1.14  |
+  | no limiter               | 0.37 → 0.33   | 0.43 → 0.40 | 0.38 → 0.32 | 0.43 → 0.39  |
+  | `PiecewiseConstant`      | 0.17 → 0.17   | 0.21 → 0.20 | 0.17 → 0.17 | 0.20 → 0.19  |
+  | `LaxWendroff`, untouched | 0.31 → 0.30   | 0.36 → 0.35 | 0.31 → 0.30 | 0.35 → 0.35  |
+  | `Upwind`, untouched      | 0.15 → 0.17   | 0.19 → 0.19 | 0.15 → 0.16 | 0.19 → 0.18  |
+
+  The two controls moved by −4% to +10%. On Julia 1.10, timed against a
+  verbatim copy of the old kernel in the same process, over six processes,
+  `VanLeer` went from 15.3 to 1.1 ns on the sine (14 times) and from 6.9 to
+  1.1 ns on the pulse (6.5 times). The unlimited scheme went from 13.5 to
+  0.3–0.4 ns on the sine and from 6.2 to 0.3–0.4 ns on the pulse. `VanLeer`
+  still costs three to four times the unlimited scheme, and that is the
+  limiter's own arithmetic. Its two divisions are a little over a fifth of the
+  step, measured by replacing them with multiplications.
+
+  Every output is the same to the bit. `test/data/golden.txt` is unchanged, and
+  `test_golden.jl` passes on Julia 1.10 and 1.13. `test_symmetry.jl` still
+  finds the mirrored Godunov expression exact. A verbatim copy of the old
+  kernel agrees with the new one for all three `Godunov` variants, bit for bit,
+  on 4.0 million cells of single steps. Those cover both directions, 13 sizes
+  from 3 to 1000, 14 Courant numbers from −1 to 1 including ±0, and data with
+  signed zeros, subnormals and differences that overflow. The two also agree
+  after 500 steps. Given Inf or NaN in the input, both return NaN in the same
+  cells, but the NaN's sign bit can differ; IEEE 754 leaves it unspecified.
+
+  In the work–precision report the square pulse's frontier changes.
+  `Godunov`+`VanLeer` now costs 0.62 ms per traversal at N = 512, down from
+  4.38 ms, which makes it cheaper and more accurate than `PFC` at 2.3 ms, and
+  `PFC` drops off the frontier. The sine's and the gaussian's frontiers are
+  unchanged, and so is every error.
+
 ### Fixed
 
 - **`PFC` in the remaining verification runs is bounded by the distribution it

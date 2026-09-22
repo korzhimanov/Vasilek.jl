@@ -86,7 +86,7 @@ end
     # Consistency: every scheme's stencil weights sum to one, so a uniform
     # field is a fixed point. This is the cheapest test that catches a
     # mis-weighted flux, and it exercises `Godunov._ratio` on the exactly-zero
-    # difference its `≈ 0.0` branch is written for.
+    # differences its `iszero` tests are written for.
     #
     # Measured worst relative deviation: 0.0 for Upwind, LaxWendroff and the
     # linear spline; 1.9e-16 for Godunov and PFC; 4.4e-16 for the cubic spline.
