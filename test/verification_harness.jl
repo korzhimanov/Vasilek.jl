@@ -48,9 +48,9 @@ A scalar function rather than an `ifelse` inside the broadcast, because
 `ifelse` is an ordinary call and evaluates **both** arguments: written that way
 the guard does not guard, and `log` is handed the negative value anyway. That is
 not hypothetical here -- `LaxWendroff` and cubic `SemiLagrangian` drive `f` to
--0.094 and -0.098 on the large-amplitude case in
+-0.093 and -0.105 on the large-amplitude case in
 `verification/scheme-comparison.jl`, against a peak of 0.6, and the entropy
-diagnostic threw `DomainError` on both until this was split out. That is a 16%
+diagnostic threw `DomainError` on both until this was split out. That is an 18%
 undershoot of the peak rather than round-off leaking below zero, which is worth
 stating precisely: it is the size of the overshoot that makes the guard a
 statement about the schemes rather than about floating point.
@@ -74,13 +74,14 @@ the one place the verification runs have to absorb it.
 sub-steps that fit ([`substeps`](@ref)). `advect!` refuses it whole, and a
 translation by `α` is `m` translations by `α/m`. Every call the suite makes
 through here is within the bound, and so one call exactly as before, except in
-two runs, both of them the field driving the velocity sweep. The two-stream runs
-keep growing after their fits, into saturation, and the fastest would ask for
-217 cells a step by `tmax`. The strong-damping run on the notebook's
-non-uniform grid has its field at amplitude 1.0017 on the first step with `Δt`
-equal to the narrow cells' width, so it asks for 1.0017 of them. Neither moves a
-measured number: no fit contains a split step, and the second run's four split
-calls move its rates in the sixth digit.
+the two-stream runs, where the field drives the velocity sweep: they keep growing
+after their fits, into saturation, and the fastest would ask for 217 cells a
+step by `tmax`. That moves no measured number, since no fit contains a split
+step. The strong-damping run on the notebook's non-uniform grid, with `Δt` equal
+to the narrow cells' width, used to split as well: its field started at 1.0017
+of them, 0.79% too strong through the charge rescaling's error (see
+[`vlasov_poisson`](@ref)). With the charges balanced it starts at 0.9938 and
+never splits.
 
 The uniform-grid method does not split. Nothing here asks a uniform scheme for
 more than `c = 0.50`, and `advect!` says so if something ever does.
@@ -151,7 +152,7 @@ exactly. The trapezoid halves the two endpoint weights, which no flux
 conservation law protects, and measuring with it reports a drift that belongs to
 the quadrature rather than to the scheme. Measured over the k = 0.5 Landau run,
 875 steps: mass drifts 2.8e-16 by the cell-width sum against **2.4e-4** by the
-trapezoid, and momentum stays at 5.3e-16 against 7.3e-4. Both trapezoid figures
+trapezoid, and momentum stays at 7.9e-16 against 7.3e-4. Both trapezoid figures
 are the endpoint weighting, not the solver.
 
 The energy histories above keep `integrate`, because they are compared with
@@ -160,17 +161,34 @@ changing them would silently move numbers the notebooks quote.
 
 **The ions are a fixed background**, a Maxwellian's density on the grid unless
 `nᵢ` gives a profile over `x`. Without `nᵢ`, `f` is rescaled on entry so that the
-two integrate to the same charge; with it, `f` is taken as it comes; and
-`renormalize` overrides either. The rescaling is the trapezoid over `x` of both,
-which on a periodic grid weights the two end points by half, so it is exact only
-while `nₑ` and `nᵢ` are proportional -- a uniform background, which is what a
-caller that does not pass `nᵢ` gets. One that does is handing over a matched
-pair, and the rescaling would unmatch it: for the equilibrium of
-[`bgk_equilibrium`](@ref) it is 1 − 1.9e-3, and applying it doubles the
-equilibrium's departure from itself through `t = 50`, from 3.85e-3 to 8.07e-3 in
-the field and from 1.52e-3 to 3.17e-3 in `f`. That is inside the tolerances the
-equilibrium is held to, so nothing downstream would catch a caller who forgot to
-switch it off; passing `nᵢ` switches it off instead.
+two carry the same charge; with it, `f` is taken as it comes; and `renormalize`
+overrides either. **The charges are the sums the scheme conserves**, `Σ f ΔvΔx`
+and `Σ nᵢΔx`, and the default ions are the Maxwellian's density taken as the step
+takes the electrons', `Σ f Δv` down each column. Over those sums a `cos kx`
+perturbation of the periodic grid cancels, so the seeds `M(v)(1 + α cos kx)` the
+suite runs are rescaled by 1 to within 4.4e-16, and the matched pair of
+[`bgk_equilibrium`](@ref) by exactly 1. What is left for the rescaling to do is
+match a seed whose own density differs from the ions' Maxwellian: by 1.3e-8 for
+the drifting plasma, whose shifted Maxwellian loses a different tail to the
+velocity window, and by 1.7e-9 to 2.3e-7 for the two-stream beams.
+
+It used to take `integrate`'s trapezoid over `x`, which halves the two end points
+of the periodic grid and leaves out the cell between them. That is exact only for
+proportional profiles, and a perturbed seed on uniform ions is not one, though
+this docstring used to say the uniform background made it so: the trapezoid gave
+`M(v)(1 + α cos kx)` `1/(1 − α(1 + cos kΔx)/(2(N − 1))) ≈ 1 + α/(N − 1)` of the
+ions' charge, 0.79% at α = 0.5 on 64 cells. The Poisson solve drops the `k = 0`
+mode, so the excess raised no field. It raised the plasma frequency squared by
+the same 0.79% instead, and the strong-damping rates moved by up to 0.9% when it
+went. (The default ions' own `v` trapezoid, `Δv·M(vmax)` short of the step's
+moment, would have left 1.3e-5 of it at `vmax = 4` with the `x` sums fixed.) On
+the matched pair of `bgk_equilibrium` the trapezoid's factor was 1 − 1.9e-3, and
+applying it doubled the equilibrium's departure from itself through `t = 50`,
+from 3.85e-3 to 8.07e-3 in the field and from 1.52e-3 to 3.17e-3 in `f` -- inside
+the tolerances the equilibrium is held to, which is why passing `nᵢ` switches the
+rescaling off. It stays off by default: the caller has made the ions, and a pair
+built with different charges on purpose, as `bgk_equilibrium` builds one for a
+potential its ions do not hold, is taken as handed.
 
 `scheme_x` and `scheme_v` default to `PFCNonUniform` on the two grids, which is
 what the verification notebooks use and what every previous caller got. They are
@@ -181,9 +199,12 @@ so that a refinement study can hold the scheme fixed while moving the grid.
 **Either may also be a function of the initial `f` that returns a scheme**, as
 in `f -> PFC(fmin = 0.0, fmax = maximum(f))`, and is called with the `f` the run
 actually starts from. That is the only way for a caller to bound a scheme by
-that distribution: the driver rescales what it is handed before it runs -- by
-0.8% at α = 0.5 -- so a bound taken from `f₀` beforehand sits below the rescaled
-maximum and trips `PFC`'s own check on the first call.
+that distribution: the driver rescales what it is handed before it runs, so a
+bound taken from `f₀` beforehand sits below the rescaled maximum and trips
+`PFC`'s own check on the first call. Round-off is enough for that. The seeds the
+suite hands a `PFC` this way are rescaled by 1 + 2.2e-16 to 1 + 4.4e-16, which
+puts the maximum an ulp or two above `maximum(f₀)` and trips the check just as
+the 0.8% at α = 0.5 did while the rescaling was a trapezoid.
 
 **The defaults' bounds are those of `f` on entry: 0 and its maximum.** By
 Liouville's theorem the exact solution keeps both, and PFC's limiter exists to
@@ -197,7 +218,7 @@ sat, the bound never engaged at all.
 
 Tight, it does engage, at the maximum, and that has a measured price: the limiter
 clips the reconstruction in the peak cell, and the α = 0.05 round trip in
-`test_verification.jl` converges at second order (×4.4, then ×4.1) where it
+`test_verification.jl` converges at second order (×4.3, then ×4.1) where it
 converged at third (×5.7, ×7.1). Elsewhere the numbers moved little and are
 updated where they are quoted. No run leaves its bound: the `fmax` history of a
 Landau, a strong Landau, a two-stream and an equilibrium run tops out exactly at
@@ -214,16 +235,17 @@ function vlasov_poisson(x, v, f₀, t;
 
     if nᵢ === nothing
         fᵢ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. Δx/Δx)'
-        nᵢ = integrate(v, fᵢ)
+        nᵢ = vec(sum(fᵢ.*Δv, dims = 1))      # as the step takes the electrons'
     else
         length(nᵢ) == length(x) || throw(DimensionMismatch(
             "nᵢ has $(length(nᵢ)) points, the x grid $(length(x))"))
         nᵢ = collect(float.(nᵢ))
     end
-    Nᵢ = integrate(x, nᵢ)
+    Nᵢ = sum(nᵢ.*Δx)
 
+    # The charges by the sums the scheme conserves, not `integrate`: see above.
     f = copy(f₀)
-    renormalize && (f .*= Nᵢ/integrate(x, integrate(v, f)))
+    renormalize && (f .*= Nᵢ/sum(f.*Δv.*Δx'))
     g = f'
 
     bound = maximum(f)
@@ -475,16 +497,17 @@ Fitting every sample instead -- which is what this suite did until now -- fits
 oscillation. The result is dominated by how close the window edges happen to
 land to a null, and it moves discontinuously as the window is nudged.
 
-Measured at k = 0.5, where the tabulated root is 0.15336. Fitting every sample:
-0.14837 to 0.15755 as the window varies over plausible choices, a spread of 6.2%
-of the value -- and the window this file used, `t ∈ [5.9, 29.9]`, began *exactly*
-on a minimum, which is the entire reason it reported 0.1498 (2.3% low). Moving
-the start one step, to 6.0, gives 0.1532 (0.1%) from the same data.
+Measured on the k = 0.5 run of `verification/landau-damping-1d1v.jl` (α = 0.01,
+Δt = 0.1), where the tabulated root is 0.15336. Fitting every sample: 0.14840 to
+0.15527 as the window varies over nine plausible choices, a spread of 4.6% --
+and the window this file used, `t ∈ [5.9, 29.9]`, begins *exactly* on a minimum,
+which is the entire reason it reported 0.1498 (2.3% low) and reads 0.15023 (2.0%
+low) now. Moving the start one step, to 6.0, gives 0.15356 (0.13% high) from the
+same data.
 
-Through the maxima the same sweep gives 0.15451 to 0.15571, a spread of 0.8%,
-consistently about 1% above the analytic value. That residue is numerical
-damping and does not move under refinement; the 6.2% was an artefact of the
-estimator.
+Through the maxima the same sweep gives 0.15442 to 0.15536, a spread of 0.6%,
+0.7% to 1.3% above the analytic value. That residue is numerical damping and
+does not move under refinement; the 4.6% was an artefact of the estimator.
 """
 function damping_rate(t, ε_e; tmin, tmax)
     p = local_extrema(t, ε_e; tmin = tmin, tmax = tmax, maxima = true)
@@ -1037,15 +1060,17 @@ over the same run, fitting `t ∈ [8,18]`, `[10,20]`, `[12,22]`, `[14,24]` gives
     in use, enough to average the ripple. Adding `cos ω₊t` and `sin ω₊t` to the
     design matrix -- still a linear fit, since `ω₊` is known in closed form --
     was tried and moves the band results by 1.1 points at most (−2.10% to
-    −3.24%, −3.14% to −3.08%, +0.31% to +0.44%). It is not worth the machinery.
+    −3.24%, −3.14% to −3.08%, +0.30% to +0.43%). It is not worth the machinery.
 
     This is what produced the apparent overshoot above `γ_cold` at small beam
     temperature: `vt` changes `γ` slightly, which moves the beat's phase within
     a fixed window, and the fitted rate follows it across the cold value. Two
     other explanations were measured and rejected first -- refining `Δv` moves
-    the result by 1e-5, and the driver's renormalisation leaves the effective
-    density at 1.0000158, worth 0.0008% on `γ`. So was a third: at `a = 0.4` the
-    second harmonic really is more unstable than the fundamental
+    the result by 1e-5, and the driver's charge rescaling, which then left the
+    effective density at 1.0000158, was worth 0.0007% on `γ`: that is what the
+    rate moved by when the rescaling took the sums the scheme conserves, which
+    leave the density at 1 − 1.7e-9 (see `vlasov_poisson`). So was a third: at
+    `a = 0.4` the second harmonic really is more unstable than the fundamental
     (`γ(0.8) = 0.311` against `γ(0.4) = 0.308`), but it starts at `O(α²)` and
     gains 13% over the run against a head start of 1e-6, so it contributes
     nothing here.

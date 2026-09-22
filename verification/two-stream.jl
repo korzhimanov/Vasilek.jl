@@ -48,7 +48,7 @@ for (a, color) in zip(measured_a, (:steelblue, :crimson, :seagreen))
     # *amplitude*, defined by `ε_e ∝ exp(2γt)`, which is the convention that
     # lets it be compared with `γ_cold` directly. Drawn with one γ the dashed
     # line peeled a decade below the curve it is supposed to lie along by the
-    # end of the window -- 6.0x, 11.6x and 18.0x at these three wavenumbers --
+    # end of the window -- 6.0x, 11.6x and 17.9x at these three wavenumbers --
     # so the plot showed a correct fit failing.
     i0 = argmin(abs.(t .- t0))
     tt = range(t0, t1; length = 50)

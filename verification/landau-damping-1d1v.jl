@@ -23,11 +23,13 @@ figure(name) = joinpath(@__DIR__, "$name.png")
 # because StrangSplitting is itself due for replacement when the 2D sweeps
 # land -- its transposes are the thing that has to go.
 #
-# `advect!` refuses a displacement wider than the narrowest cell, and the
-# strong-damping run at the end asks for 1.0017 of one on its first step: the
-# field's amplitude is 1.0017 there, and Δt is the width of the narrow cells. A
-# step like that is split into the fewest sub-steps that fit, as `line_advector`
-# in the test harness does; every other call here is one call, as before.
+# `advect!` refuses a displacement wider than the narrowest cell, and a step like
+# that is split into the fewest sub-steps that fit, as `line_advector` in the
+# test harness does. None of the runs here asks for one now. The strong-damping
+# run at the end comes closest: Δt is the width of the narrow cells, and the
+# field's amplitude on its first step is 0.9938 of one. It was 1.0017, and four
+# calls split, while the charges were balanced by a trapezoid that put 0.79%
+# more electrons into that run's seed (see below).
 function inplace_advect(scheme::PFCNonUniform, n)
     ws = workspace(scheme, n)
     buf = Vector{Float64}(undef, n)
@@ -70,13 +72,18 @@ x = collect(π/8:π/8:8π)
 v = collect(-4:0.1:4)
 Δv = vcat([v[2]-v[1]], 0.5*(v[3:end] - v[1:end-2]), [v[end]-v[end-1]])
 
+# Electrons and ions are given the same charge by the sums the step itself
+# takes, Σ f Δv and Σ n Δx, over which the perturbation cancels. The trapezoid
+# this used to take halves the two end points of the periodic x grid, where the
+# perturbation does not vanish, and left the electrons ≈ 1 + α/(N − 1) of the
+# ions' charge: 0.79% too high a plasma frequency squared in the α = 0.5 run.
 fi = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. Δx/Δx)'
-ni = integrate(v, fi)
-Ni = integrate(x, ni)
+ni = vec(sum(fi.*Δv, dims=1))
+Ni = sum(ni.*Δx)
 
 f0 = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. (1.0 + 0.01*cos(0.5*x)))'
-n0 = integrate(v, f0)
-N0 = integrate(x, n0)
+n0 = vec(sum(f0.*Δv, dims=1))
+N0 = sum(n0.*Δx)
 f0 *= Ni/N0;
 
 # The limiter is bounded by the initial condition: by Liouville's theorem the
@@ -210,12 +217,12 @@ v = vcat(collect(-4:0.1:-1.1), collect(-1:0.05:1), collect(1.1:0.1:4))
 Δv = vcat([v[2]-v[1]], 0.5*(v[3:end] - v[1:end-2]), [v[end]-v[end-1]])
 
 fi = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. Δx/Δx)'
-ni = integrate(v, fi)
-Ni = integrate(x, ni)
+ni = vec(sum(fi.*Δv, dims=1))
+Ni = sum(ni.*Δx)
 
 f0 = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. (1.0 + 0.01*cos(0.5*x)))'
-n0 = integrate(v, f0)
-N0 = integrate(x, n0)
+n0 = vec(sum(f0.*Δv, dims=1))
+N0 = sum(n0.*Δx)
 f0 *= Ni/N0;
 
 # The limiter is bounded by the initial condition: by Liouville's theorem the
@@ -307,12 +314,12 @@ v = vcat(collect(-6:0.1:-1.1), collect(-1:0.05:1), collect(1.1:0.1:6))
 Δv = vcat([v[2]-v[1]], 0.5*(v[3:end] - v[1:end-2]), [v[end]-v[end-1]])
 
 fi = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. Δx/Δx)'
-ni = integrate(v, fi)
-Ni = integrate(x, ni)
+ni = vec(sum(fi.*Δv, dims=1))
+Ni = sum(ni.*Δx)
 
 f0 = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. (1.0 + 0.5*cos(0.5*x)))'
-n0 = integrate(v, f0)
-N0 = integrate(x, n0)
+n0 = vec(sum(f0.*Δv, dims=1))
+N0 = sum(n0.*Δx)
 f0 *= Ni/N0;
 
 # The limiter is bounded by the initial condition: by Liouville's theorem the
@@ -374,4 +381,4 @@ savefig(figure("landau-damping-1d1v-05"))
 #
 # There is no analytical solution for strong Landau damping, so the comparison is against the literature. Our parameters are essentially the same as in [Filbet et al. J. Comp. Phys. 172, 166-187 (2001)](https://doi.org/10.1006/jcph.2001.6818), and the curve above is the one plotted in its Fig. 6(a): the field damps, the resonant particles trap, and it grows again.
 #
-# That comparison used to be made by eye. It is now two numbers, asserted in `test/test_verification.jl` on a finer grid than this figure uses: the field decays at 0.2863 over the four maxima of the decay proper and grows at 0.0789 over the eight of the regrowth, against a literature that reports −0.281 to −0.292 for the first and 0.0815 to 0.08584 for the second, which γ₂ sits just under. Both rates depend on the window — γ₁ reads 0.38 over three maxima and 0.23 over five, because the envelope is not an exponential — and refining the grid moves γ₂ from 0.0716 to 0.0814, toward the published value.
+# That comparison used to be made by eye. It is now two numbers, asserted in `test/test_verification.jl` on a finer grid than this figure uses: the field decays at 0.2863 over the four maxima of the decay proper and grows at 0.0787 over the eight of the regrowth, against a literature that reports −0.281 to −0.292 for the first and 0.0815 to 0.08584 for the second, which γ₂ sits just under. Both rates depend on the window — γ₁ reads 0.38 over three maxima and 0.23 over five, because the envelope is not an exponential — and refining the grid moves γ₂ from 0.0714 to 0.0813, toward the published value.
