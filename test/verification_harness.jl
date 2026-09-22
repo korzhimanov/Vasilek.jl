@@ -1,5 +1,11 @@
 # Shared 1D1V Vlasov–Poisson driver for the extended verification tests.
 # Deliberately close to what the verification notebooks do, so the two agree.
+#
+# The files in `test/` include it as
+# `@isdefined(vlasov_poisson) || include(...)`, so that each still runs on its
+# own while a full test run, which puts them all in `Main`, evaluates this one
+# once: a repeat would redefine every method here, and `Pkg.test` runs with
+# `--warn-overwrite=yes`.
 
 using Vasilek
 using Vasilek: StrangSplitting, FDTD1D, PoissonFourier1D
@@ -8,12 +14,12 @@ using NumericalIntegration, FFTW
 # The kinetic dispersion relation: `landau_root`, `two_stream_warm` and the
 # pieces they are built from. Separate file because nothing in it runs a
 # simulation, and `test_dispersion.jl` exercises it without the Strang loop.
-include(joinpath(@__DIR__, "dispersion.jl"))
+@isdefined(landau_root) || include(joinpath(@__DIR__, "dispersion.jl"))
 
 # The plasma echo's closed form, its second-order theory, and the free-streaming
 # run; `self_consistent_echo` below is the same experiment through
 # `vlasov_poisson`.
-include(joinpath(@__DIR__, "echo.jl"))
+@isdefined(echo_closed_form) || include(joinpath(@__DIR__, "echo.jl"))
 
 "Spectral Poisson solve on a uniform x grid, e = -dφ/dx with φ'' = -ρ."
 function make_poisson(x)

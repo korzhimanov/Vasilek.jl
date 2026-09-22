@@ -1,7 +1,7 @@
 using Vasilek
 using Vasilek.Collisions: Landau1P, collide!, workspace as collision_workspace
 
-include(joinpath(@__DIR__, "scheme_cases.jl"))
+@isdefined(march!) || include(joinpath(@__DIR__, "scheme_cases.jl"))
 
 """
 What the suite could not answer until now: **how the schemes compare with each

@@ -220,9 +220,10 @@ This project has not been released; entries below describe work on `master`.
   diminishing to `|c| = 1`.** Its flux was the reconstruction's value at the
   interface, `|c|(fᵢ₋₁ + φ(r)(fᵢ − fᵢ₋₁)/2)`, which makes the update forward
   Euler on a limited slope. It is now the reconstruction averaged over the strip
-  that crosses the interface in one step. That strip's midpoint lies
-  `(1 − |c|)Δx/2` upwind of the interface, so the slope term gains a factor
-  `(1 − |c|)`, and the scheme becomes what its name says: Godunov's
+  that crosses the interface in one step. That strip's midpoint lies `|c|Δx/2`
+  upwind of the interface, `(1 − |c|)Δx/2` downwind of the cell's centre, so the
+  slope term gains a factor `(1 − |c|)`, and the scheme becomes what its name
+  says: Godunov's
   reconstruct–evolve–average with a linear reconstruction, which is Sweby's
   flux-limited Lax–Wendroff. The old flux is Sweby's as well, with the limiter
   `φ/(1 − c)` in place of `φ` (the two agree to 6.7e-16 after 50 steps), and
@@ -365,6 +366,39 @@ This project has not been released; entries below describe work on `master`.
   And the velocity Courant number `growth_rate` quoted for the two-stream fits,
   0.46 to 0.65, was the single-mode estimate `√(2ε_e/L)·Δt/Δv`; the largest over
   `x` is 0.52 to 0.73.
+
+- **A full test run evaluates each shared test file once.** `runtests.jl`
+  includes every test file into `Main`, and the files several of them share were
+  evaluated once per file that included them: `scheme_cases.jl` ten times,
+  `dispersion.jl` six, `echo.jl` three and `verification_harness.jl` twice. Each
+  repeat redefined the file's methods, and `Pkg.test` runs with
+  `--warn-overwrite=yes`: 150 warnings, in the default run and the extended one
+  alike, among which one that mattered would not have been read. Each include of
+  a shared file in `test/` is now guarded on a function that file defines —
+  `@isdefined(march!) || include(…)`, the idiom Julia's own test suite uses for
+  its helpers — so every test file still runs on its own and a full run prints
+  none of the 150. Guarded on a name rather than on the path, because an
+  `include_once` helper would itself have to be included, and guarded, by every
+  file that used it. The name is one a session would not have for itself:
+  `dispersion.jl` is guarded on `landau_root` rather than `Z`, whose skip made
+  `test_dispersion.jl` test a session's own `Z(x) = x` — 12 failures — where the
+  file would have replaced it. The scripts in `verification/` and `benchmark/`
+  keep their plain `include`: each is the first thing in its process to include
+  the file. The harness's own includes are guarded as well, so a script that
+  includes it now evaluates `dispersion.jl` once where it did twice.
+  `test_allocations.jl`, which included `scheme_cases.jl` but keeps its own list
+  — the canonical one less the two spline schemes, whose prefilter allocates and
+  is bounded apart — no longer includes it. Pass and broken counts are
+  unchanged: 1499 and 2 by default, 1632 and 2 extended.
+
+- **`test_free_streaming.jl` replaced the harness's `mode_amplitude` for every
+  file that ran after it.** Its own `mode_amplitude(n, x, k)`, the real `cos kx`
+  projection, had the signature of the harness's complex one, and a full run
+  puts both files in `Main`: from there on, a mode the harness measured would
+  have come back as its real part alone. Nothing measures one after it yet; the
+  warning `Pkg.test` printed for it was the one of 151 that was not a repeat. The
+  free-streaming helper is `cos_amplitude` now, and neither run prints a
+  method-overwrite warning.
 
 - **`PFC` in the remaining verification runs is bounded by the distribution it
   carries.** The harness took its own defaults' bounds from `f` above; the runs

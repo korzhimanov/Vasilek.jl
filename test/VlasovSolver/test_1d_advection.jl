@@ -1,6 +1,6 @@
 using Vasilek
 
-include(joinpath(@__DIR__, "..", "scheme_cases.jl"))
+@isdefined(march!) || include(joinpath(@__DIR__, "..", "scheme_cases.jl"))
 
 """
     check_step(name, scheme, Δx, Δt, v, f₀, f₁, tol)

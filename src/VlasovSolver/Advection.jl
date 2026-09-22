@@ -142,7 +142,8 @@ and average it back onto the cells.
 The flux through an interface is the upwind cell's reconstruction averaged over
 the strip that crosses the interface in one step. For `PiecewiseLinear` and
 `c > 0` (the other direction is the mirror image) the strip's midpoint lies
-`(1 − c)Δx/2` upwind of the interface, so
+`cΔx/2` upwind of the interface, which is `(1 − c)Δx/2` downwind of the upwind
+cell's centre, so
 
     Φᵢ₋½ = c·(fᵢ₋₁ + φ(r)(1 − c)(fᵢ − fᵢ₋₁)/2),    r = (fᵢ₋₁ − fᵢ₋₂)/(fᵢ − fᵢ₋₁),
 

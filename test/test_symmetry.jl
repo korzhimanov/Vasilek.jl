@@ -1,6 +1,6 @@
 using Vasilek
 
-include(joinpath(@__DIR__, "scheme_cases.jl"))
+@isdefined(march!) || include(joinpath(@__DIR__, "scheme_cases.jl"))
 
 """
 Direction symmetry, and the degenerate cases either side of it.

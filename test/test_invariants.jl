@@ -1,6 +1,6 @@
 using Vasilek
 
-include(joinpath(@__DIR__, "scheme_cases.jl"))
+@isdefined(march!) || include(joinpath(@__DIR__, "scheme_cases.jl"))
 
 """
 Structural properties of the advection schemes: conservation, monotonicity,
