@@ -1,6 +1,6 @@
 using Vasilek
 
-include(joinpath(@__DIR__, "..", "echo.jl"))
+@isdefined(echo_closed_form) || include(joinpath(@__DIR__, "..", "echo.jl"))
 
 """
 The plasma echo: phase mixing run backwards by a second perturbation.
