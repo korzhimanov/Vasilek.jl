@@ -18,7 +18,7 @@ using Vasilek
 using SpecialFunctions: besselj1
 
 # `Z`, `Zprime` and `dielectric`, for the second-order theory.
-@isdefined(Z) || include(joinpath(@__DIR__, "dispersion.jl"))
+@isdefined(landau_root) || include(joinpath(@__DIR__, "dispersion.jl"))
 
 """
     echo_closed_form(t; α, ε, τ, k₁, k₂)

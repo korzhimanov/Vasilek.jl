@@ -169,14 +169,17 @@ This project has not been released; entries below describe work on `master`.
   its helpers — so every test file still runs on its own and a full run prints
   none of the 150. Guarded on a name rather than on the path, because an
   `include_once` helper would itself have to be included, and guarded, by every
-  file that used it. The scripts in `verification/` and `benchmark/` keep their
-  plain `include`: each is the first thing in its process to include the file.
-  The harness's own includes are guarded as well, so a script that includes it
-  now evaluates `dispersion.jl` once where it did twice. `test_allocations.jl`,
-  which included `scheme_cases.jl` but keeps its own list — the canonical one
-  less the two spline schemes, whose prefilter allocates and is bounded apart —
-  no longer includes it. Pass and broken counts are unchanged: 1499 and 2 by
-  default, 1632 and 2 extended.
+  file that used it. The name is one a session would not have for itself:
+  `dispersion.jl` is guarded on `landau_root` rather than `Z`, whose skip made
+  `test_dispersion.jl` test a session's own `Z(x) = x` — 12 failures — where the
+  file would have replaced it. The scripts in `verification/` and `benchmark/`
+  keep their plain `include`: each is the first thing in its process to include
+  the file. The harness's own includes are guarded as well, so a script that
+  includes it now evaluates `dispersion.jl` once where it did twice.
+  `test_allocations.jl`, which included `scheme_cases.jl` but keeps its own list
+  — the canonical one less the two spline schemes, whose prefilter allocates and
+  is bounded apart — no longer includes it. Pass and broken counts are
+  unchanged: 1499 and 2 by default, 1632 and 2 extended.
 
 - **`test_free_streaming.jl` replaced the harness's `mode_amplitude` for every
   file that ran after it.** Its own `mode_amplitude(n, x, k)`, the real `cos kx`

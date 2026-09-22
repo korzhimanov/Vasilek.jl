@@ -14,7 +14,7 @@ using NumericalIntegration, FFTW
 # The kinetic dispersion relation: `landau_root`, `two_stream_warm` and the
 # pieces they are built from. Separate file because nothing in it runs a
 # simulation, and `test_dispersion.jl` exercises it without the Strang loop.
-@isdefined(Z) || include(joinpath(@__DIR__, "dispersion.jl"))
+@isdefined(landau_root) || include(joinpath(@__DIR__, "dispersion.jl"))
 
 # The plasma echo's closed form, its second-order theory, and the free-streaming
 # run; `self_consistent_echo` below is the same experiment through

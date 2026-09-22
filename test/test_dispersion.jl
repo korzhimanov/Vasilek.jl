@@ -1,4 +1,4 @@
-@isdefined(Z) || include(joinpath(@__DIR__, "dispersion.jl"))
+@isdefined(landau_root) || include(joinpath(@__DIR__, "dispersion.jl"))
 
 """
 The kinetic dispersion relation, checked before anything is allowed to be
