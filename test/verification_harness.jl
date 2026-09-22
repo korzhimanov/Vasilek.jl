@@ -189,10 +189,11 @@ maximum and trips `PFC`'s own check on the first call.
 Liouville's theorem the exact solution keeps both, and PFC's limiter exists to
 keep a run between the bounds it is given, so they belong to the run rather than
 to the driver. They were the constant 1, which nothing chose and `PFCNonUniform`
-does not check. Above it the limiter's `2(fmax − f)` goes negative and the scheme
-corrupts the run without a word: an equilibrium whose trapped population peaks at
-1.79 ended 44% of its peak away from itself with the bound at 1. Below it, where
-every run until then sat, the bound never engaged at all.
+did not then check. Above it the limiter's `2(fmax − f)` goes negative and the
+scheme corrupted the run without a word: an equilibrium whose trapped population
+peaks at 1.79 ended 44% of its peak away from itself with the bound at 1 -- a run
+the scheme now refuses on its first call. Below it, where every run until then
+sat, the bound never engaged at all.
 
 Tight, it does engage, at the maximum, and that has a measured price: the limiter
 clips the reconstruction in the peak cell, and the α = 0.05 round trip in
@@ -200,7 +201,10 @@ clips the reconstruction in the peak cell, and the α = 0.05 round trip in
 converged at third (×5.7, ×7.1). Elsewhere the numbers moved little and are
 updated where they are quoted. No run leaves its bound: the `fmax` history of a
 Landau, a strong Landau, a two-stream and an equilibrium run tops out exactly at
-it, or below, to the last bit.
+it, or below, to the last bit. `PFCNonUniform` now checks every call it takes,
+sub-steps included, and none of them is out of bounds -- the two-stream runs
+carried past their velocity Courant limits into saturation among them, since
+[`line_advector`](@ref) splits every step that would cross a cell.
 """
 function vlasov_poisson(x, v, f₀, t;
                         scheme_x = nothing, scheme_v = nothing, invariants = false,

@@ -26,9 +26,15 @@ _nuΦ⁻(α, f₋, f₀, f₊, d₋, d₀, d₊, ξ, lo, hi) = α*(f₀ - (d₀ 
 For `PFCNonUniform` the fourth argument is the displacement `vΔt`, a length,
 not a Courant number: a non-uniform grid has no single Courant number to quote.
 """
-function advect!(dest, src, p::PFCNonUniform, α, ws::PFCWorkspace)
+function advect!(dest, src, p::PFCNonUniform{T,Checked}, α,
+                 ws::PFCWorkspace) where {T,Checked}
     _validate(dest, src, p, α, ws)
     Δx, ξ, lo, hi = p.Δx, p.ξ, p.fmin, p.fmax
+    if Checked
+        # PFC's minimum/maximum pass, about 5% of this step at N = 10000 on
+        # Julia 1.13 and 10% on 1.10. Compiled away when checked = false.
+        _check_bounds(src, lo, hi)
+    end
     n = length(Δx)
     acc = ws.accumulator
     copyto!(acc, src)

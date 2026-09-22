@@ -71,6 +71,7 @@ closed form remains as its zero-temperature limit and is checked as such.
 | with a kink in F on the separatrix, the error sits on it | the worst cell within one of the separatrix at two resolutions, converging at first order | on it both times, 1.75× |
 | and the equilibrium is this one | ions built on the Poisson sign the docs used to give hold the reversed field; a potential 10% off the ions' drifts 10× more | E/E₀ = −1.000, 16%; 24×, 27× |
 | a trapped population above f = 1 holds too | within 3% of its peak, now that PFC's bound comes from f₀ | 0.99%, against 43.6% at the old bound |
+| and the old bound is refused rather than run | at fmax = 1 `PFCNonUniform` throws on its first call; unchecked, it takes f over 30% of its peak away | first call; 43.6% |
 | plasma oscillation frequency | ω within 0.2% of Bohm–Gross √(1+3k²), and the cold ωₚ excluded | 0.018%, against 0.57% for cold |
 | nor does that frequency depend on its window | two windows agree within 0.2% | 0.006% |
 | two-stream growth rate, kv₀ = 0.4, 0.6, 0.8 | γ within 3% of the warm kinetic root, and the peak in the right place | 0.62%, 1.95%, 0.09% |

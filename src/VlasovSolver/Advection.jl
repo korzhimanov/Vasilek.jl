@@ -199,9 +199,10 @@ two former overloads disagreed by a factor of 740 because one defaulted
 `fmax = 1`.
 
 `checked` guards against exactly that, at the cost of a `minimum`/`maximum` pass
-per call: measured at 13% of the step at N = 10000. It is a type parameter, so
-`checked = false` compiles the check away entirely for production runs where the
-bounds are known good.
+per call: measured at 7% of the step at N = 10000 on Julia 1.13 and 17% on 1.10,
+whose `minimum` and `maximum` take two and a half times as long. It is a type
+parameter, so `checked = false` compiles the check away entirely for production
+runs where the bounds are known good.
 """
 struct PFC{T<:AbstractFloat, Checked} <: AbstractAdvection1D
     fmin::T
@@ -214,7 +215,7 @@ function PFC(; fmin, fmax, checked::Bool = true)
 end
 
 """
-    PFCNonUniform(Δx; fmin, fmax)
+    PFCNonUniform(Δx; fmin, fmax, checked = true)
 
 Positive Flux Conservative scheme on a static non-uniform grid, `Δx` being the
 cell widths. Needs a [`workspace`](@ref).
@@ -222,11 +223,22 @@ cell widths. Needs a [`workspace`](@ref).
 The limiter coefficient is computed per cell triple. A single global value
 would let one refined region tighten the limiter across the whole domain.
 
+`fmin`, `fmax` and `checked` are [`PFC`](@ref)'s, and so is the check. The bounds
+are built into the limiter -- its `ξ(fmax − f)`, `2(fmax − f)` on a uniform grid,
+turns negative above `fmax` -- so data outside them is not clipped but corrupted.
+Until the check was added here nothing said so: the verification harness ran
+every case at `fmax = 1`, and an equilibrium peaking at 1.79 ended 43.6% of its
+peak away from itself by `t = 50` without an error.
+
+The check is the same pass over the same data as `PFC`'s, and the step around it
+is dearer, so it is a smaller share: measured at 5% of the step at N = 10000 on
+Julia 1.13 and 10% on 1.10, against `PFC`'s 7% and 17%.
+
 `advect!` takes a displacement here, not a Courant number, and it is bounded by
 the *narrowest* cell: `|α| ≤ minimum(Δx)`, computed once here and checked on
 every call. See [`_validate_courant`](@ref) for why the narrowest.
 """
-struct PFCNonUniform{T<:AbstractFloat} <: AbstractAdvection1D
+struct PFCNonUniform{T<:AbstractFloat, Checked} <: AbstractAdvection1D
     Δx::Vector{T}
     ξ::Vector{T}
     Δxmin::T
@@ -242,7 +254,12 @@ ratio is `r ∈ (0, 1]`. Equals 2 on a locally uniform grid.
 """
 slope_limit(r) = (1.0 + r)*(1.0 + 2r)/(3.0 + (r - 1.0/r)^2)
 
-function PFCNonUniform(Δx_::AbstractVector{T}; fmin, fmax) where {T<:AbstractFloat}
+# `@constprop :aggressive` so that `checked`, a value, still reaches the type.
+# Without it inference did not carry the default `true` through this constructor,
+# on 1.10 or 1.13, and `PFCNonUniform(Δx; fmin, fmax)` inferred only as
+# `PFCNonUniform{Float64}`, where before the flag it was concrete.
+Base.@constprop :aggressive function PFCNonUniform(Δx_::AbstractVector{T}; fmin, fmax,
+                                                   checked::Bool = true) where {T<:AbstractFloat}
     Δx = collect(Δx_)
     n = length(Δx)
     ξ = similar(Δx)
@@ -252,7 +269,7 @@ function PFCNonUniform(Δx_::AbstractVector{T}; fmin, fmax) where {T<:AbstractFl
         ξ[i] = slope_limit(min(d₋, Δx[i], d₊)/max(d₋, Δx[i], d₊))
     end
     fmn, fmx = promote(float(fmin), float(fmax))
-    return PFCNonUniform{T}(Δx, ξ, minimum(Δx), T(fmn), T(fmx))
+    return PFCNonUniform{T, checked}(Δx, ξ, minimum(Δx), T(fmn), T(fmx))
 end
 
 # ------------------------------------------------------------------ workspace
@@ -368,6 +385,21 @@ _validate_workspace(::SemiLagrangian, ws::SplineWorkspace, n::Integer) =
 function _validate_workspace(p::PFCNonUniform, ws::PFCWorkspace, n::Integer)
     length(p.Δx) == n || _err_length(n, length(p.Δx))
     length(ws.accumulator) == n || _err_workspace(length(ws.accumulator), n)
+    return nothing
+end
+
+"""
+    _check_bounds(src, fmin, fmax)
+
+The check `PFC` and `PFCNonUniform` run on every call when built with
+`checked = true`: that `src` lies inside the `[fmin, fmax]` their limiters are
+built on. Both call this one function, so they refuse the same data with the
+same message. Inlined, so a checked call compiles to the two assertions in place,
+and each scheme's `if Checked` removes it whole.
+"""
+@inline function _check_bounds(src, lo, hi)
+    @assert lo ≤ minimum(src) "fmin = $lo exceeds minimum(src) = $(minimum(src))"
+    @assert maximum(src) ≤ hi "fmax = $hi is below maximum(src) = $(maximum(src))"
     return nothing
 end
 

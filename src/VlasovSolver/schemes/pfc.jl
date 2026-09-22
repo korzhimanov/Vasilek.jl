@@ -27,10 +27,10 @@ function advect!(dest, src, p::PFC{T,Checked}, c, ws) where {T,Checked}
     n = length(dest)
     lo, hi = p.fmin, p.fmax
     if Checked
-        # A minimum/maximum pass per call, about 13% of the step at N = 10000.
-        # Compiled away entirely when the scheme is built with checked = false.
-        @assert lo ≤ minimum(src) "fmin = $lo exceeds minimum(src) = $(minimum(src))"
-        @assert maximum(src) ≤ hi "fmax = $hi is below maximum(src) = $(maximum(src))"
+        # A minimum/maximum pass per call, about 7% of the step at N = 10000 on
+        # Julia 1.13 and 17% on 1.10. Compiled away entirely when the scheme is
+        # built with checked = false.
+        _check_bounds(src, lo, hi)
     end
 
     if c > 0

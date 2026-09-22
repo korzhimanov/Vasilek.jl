@@ -302,6 +302,46 @@ This project has not been released; entries below describe work on `master`.
 
 ### Fixed
 
+- **`PFCNonUniform` checks its data against its bounds, as `PFC` does**
+  (`src/VlasovSolver/Advection.jl`, `test/test_contracts.jl`). It takes the same
+  `fmin` and `fmax` and builds them into the same limiter — its `ξ(fmax − f)`
+  turns negative above `fmax` — but it never looked at the data, so data outside
+  the bounds was not clipped but corrupted, with no error. That is how the
+  harness's old bound of 1 took an equilibrium peaking at 1.79 to 43.6% of its
+  peak away from itself (below). It now has `PFC`'s `checked` keyword and type
+  parameter, on by default, and runs `PFC`'s own assertion — one function for
+  both, so the two refuse the same data with the same message. The old bound on
+  that equilibrium is refused on the first call; built with `checked = false`
+  the scheme runs it to the same 43.6%, and the extended suite asserts both.
+  Existing calls `PFCNonUniform(Δx; fmin, fmax)` keep working, checked, and
+  still infer to a concrete type, which took `@constprop :aggressive` on the
+  constructor: without it the default never reached the type.
+
+  The fast suite runs `PFC`'s bounds tests over again for it, and adds the
+  damage: one unchecked step from a peak of 5 against `fmax = 2` lands 0.048
+  from the same step bounded at 5, and conserves mass to round-off, so a mass
+  check downstream would pass it.
+
+  The cost, measured as for `PFC` — one call at N = 10000, checked against
+  unchecked — is 5% of the step on Julia 1.13 and 10% on 1.10. Measured
+  alongside it, `PFC`'s is 7% and 17%, where its docstring said 13%: the pass is
+  `minimum` and `maximum`, which 1.10 runs two and a half times slower, so both
+  docstrings now name the version. Each figure is a median over six processes.
+  Within one process a kernel timed against itself agrees to 0.2%, but the
+  check's share moved from one process to the next, 4.5% to 6.2% for this one
+  on 1.13.
+
+  Every run in both suites stays inside its bounds on every call, sub-steps
+  included: over the two-stream cases, carried past their velocity Courant
+  limits into saturation, and the three equilibria, 3.8 million calls and not
+  one out of bounds, not even by round-off. That rests on the Courant bound
+  below. Before it, the harness handed the velocity sweep whole steps past one
+  cell, and the check caught what that did: the `a = 0.6` run crossed its limit
+  at t = 21.1, and at t = 22.0, with the Courant number at 1.41, handed the
+  scheme f = −5.5e-20, then −3.9e-3 by t = 23.4 -- no rounding tolerance would
+  have let it through. With the bound, `line_advector` splits such a step into
+  sub-steps that fit, and those stay inside.
+
 - **`two_stream(0.4)` ran on 95 cells rather than 96.** `two_stream` built its
   grid as `collect(Δx:Δx:L)`, and a floating-point range works its length out
   from its endpoints: at `a = 0.4`, `Δx + 95Δx` rounds past `L` and the range
@@ -561,9 +601,10 @@ This project has not been released; entries below describe work on `master`.
 
 - **The verification harness gave PFC an upper bound of 1 whatever `f` was.**
   `vlasov_poisson` built its default `PFCNonUniform` schemes with `fmax = 1.0`,
-  a number nothing chose, and `PFCNonUniform` does not check its data against
-  it. A trapped population at half the passing temperature peaks at 1.79, and
-  the limiter took it 43.6% of its peak away from equilibrium by t = 50. The
+  a number nothing chose, and `PFCNonUniform` did not then check its data
+  against it (it does now; above). A trapped population at half the passing
+  temperature peaks at 1.79, and the limiter took it 43.6% of its peak away
+  from equilibrium by t = 50. The
   bounds are now those of `f` on entry, 0 and its maximum, which by Liouville
   the exact solution keeps: that run holds to 0.99%. The same goes for the
   other two places the harness chose a bound — the echo's kick (1) and
