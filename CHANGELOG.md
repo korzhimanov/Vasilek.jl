@@ -9,6 +9,51 @@ This project has not been released; entries below describe work on `master`.
 
 ### Added
 
+- **The bump-on-tail instability, carried through saturation**
+  (`test/test_verification.jl`; `bump_on_tail` and `mode_rates` in the harness;
+  `bump_on_tail_root` and `BUMP_ON_TAIL` in `test/dispersion.jl`;
+  `verification/bump-on-tail.jl`). The beam is Arber and Vann's [J. Comput.
+  Phys. 180, 339 (2002)], `F = [0.9·exp(−v²/2) + 0.2·exp(−2(v − 4.5)²)]/√(2π)`,
+  over one wavelength of k = 0.3. The two-stream case grows as a standing wave
+  that does not oscillate. This one is a Langmuir wave that travels with a weak
+  beam over a warm bulk, and it is the first run held to numbers after its
+  linear phase. At this beam's temperature the instability is mostly reactive: a
+  cold beam would grow 18% faster, and `test_dispersion.jl` follows the root to
+  that limit as the beam cools. The beam's temperature cuts the rate by 15%,
+  and the run has to resolve that cut. Measured on 64 × 361 with Δt = 0.05:
+
+  * **Growth.** γ = 0.19784 and ω = 1.00108 over t ∈ [30, 50], from a seed of
+    1e-6. That is 0.131% and 0.014% below the kinetic root,
+    1.001218 + 0.198098i. Nearly all of the gap is the Poisson solve's centred
+    difference, which gives a mode `sin(kΔx)/(kΔx)` of its field. Put that
+    factor on the susceptibilities, as `dielectric` now does given `Δx`, and
+    the root sits 0.016% and 0.003% from the run. The rate is set in x, not v:
+    Δv from 0.025 to 0.2 moves γ by 0.017% at most, while Nx = 32 puts it
+    0.69% off the continuum and Nx = 128 puts it 0.020% off. The phase of the
+    mode amplitude shows the wave travelling with the beam.
+  * **Saturation.** The mode peaks at |E_k| = 0.4979 at t = 74.32. There the
+    bounce frequency is 1.951γ, and 1.945–1.952 over the grids tried. A seed a
+    thousand times larger peaks at 0.4981, 35.00 earlier, against
+    ln(1000)/γ = 34.91.
+  * **Trapping.** Past the peak the amplitude swings down to 0.2645 and back to
+    0.4137. The period is 21.40, 1.32 times the bounce period at the bottom of
+    the well. The steepest slope of the x-averaged f on the beam's flank falls
+    from 0.096 to 0.0048 by t = 120. It rises and falls with the swing, from
+    0.0013 to 0.026 over t ∈ [80, 160], so the test asks only for a factor of
+    3.
+  * **f stays a distribution function.** Its minimum is 3.6e-23, its mass holds
+    to 3.4e-16, and its maximum stays below the initial one.
+
+  The seed is not the literature's 0.04. At 0.04 the mode starts at a quarter
+  of its saturated amplitude, so there is no linear phase to fit. The default
+  test suite checks the root against a quadrature of the formula exactly as
+  Arber and Vann write it. That check never calls `Z` and leaves 5.2e-15. A beam
+  twice as narrow would leave 0.21, and a beam density of 0.2 would leave 0.64.
+  It also cools the beam and follows the root down to the cold-beam fluid
+  limit, which it meets to 0.026%. And it finds the band's edge at k = 0.4824,
+  where the phase velocity equals the bottom of the valley in F to the last
+  digit, as Penrose's criterion requires.
+
 - **`Superbee`**, `r -> max(0, min(2r, 1), min(r, 2))` [Roe, Annu. Rev. Fluid
   Mech. 18, 337 (1986)]: the upper edge of Sweby's region, and so the most
   compressive limiter that keeps `Godunov(PiecewiseLinear())` second order and
