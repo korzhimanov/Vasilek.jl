@@ -31,6 +31,7 @@ uniform_schemes(; fmin = 0.0, fmax = 2.0) = [
     ("Godunov_constant",         Godunov(PiecewiseConstant())),
     ("Godunov_linear",           Godunov(PiecewiseLinear())),
     ("Godunov_linear_VanLeer",   Godunov(PiecewiseLinear(), VanLeer())),
+    ("Godunov_linear_Superbee",  Godunov(PiecewiseLinear(), Superbee())),
     ("SemiLagrangian_linear",    SemiLagrangian(LinearSpline())),
     ("SemiLagrangian_quadratic", SemiLagrangian(QuadraticSpline())),
     ("SemiLagrangian_cubic",     SemiLagrangian(CubicSpline())),

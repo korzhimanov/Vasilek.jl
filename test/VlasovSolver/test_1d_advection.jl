@@ -25,6 +25,7 @@ function scheme_table(t, fmax)
             ("Godunov constant",         Godunov(PiecewiseConstant()),            t.gc),
             ("Godunov linear",           Godunov(PiecewiseLinear()),              t.gl),
             ("Godunov VanLeer",          Godunov(PiecewiseLinear(), VanLeer()),   t.glv),
+            ("Godunov Superbee",         Godunov(PiecewiseLinear(), Superbee()),  t.gls),
             ("SemiLagrangian linear",    SemiLagrangian(LinearSpline()),          t.sl1),
             ("SemiLagrangian quadratic", SemiLagrangian(QuadraticSpline()),       t.sl2),
             ("SemiLagrangian cubic",     SemiLagrangian(CubicSpline()),           t.sl3),
@@ -39,17 +40,18 @@ end
     # `gl` is LaxWendroff's tolerance, being the same scheme. `glv` sits over its
     # measured 2.5e-8 and 4.0e-6, the backward step being the worse. Without the
     # flux's (1 − |c|) factor both measured 8.9e-7 to 9.0e-7 and 1.1e-4, and
-    # would fail.
+    # would fail. `gls` sits over Superbee's measured 4.3e-8 and 6.8e-6, again
+    # backward.
     smooth = (
         ("sine",
          [1.0 + 0.01*sin(2π*i*Δx) for i = 0:99],
          [1.0 + 0.01*sin(2π*(i*Δx - v*Δt)) for i = 0:99],
-         (upwind = 3e-7, lw = 1e-8, gc = 1e-6, gl = 1e-8, glv = 3e-8,
+         (upwind = 3e-7, lw = 1e-8, gc = 1e-6, gl = 1e-8, glv = 3e-8, gls = 5e-8,
           sl1 = 3e-7, sl2 = 2e-9, sl3 = 2e-11, pfc = 3e-8)),
         ("gaussian",
          [exp(-((i*Δx - 0.5)/0.15)^2) for i = 0:100],
          [exp(-((i*Δx - v*Δt - 0.5)/0.15)^2) for i = 0:100],
-         (upwind = 1e-4, lw = 1e-5, gc = 1e-4, gl = 1e-5, glv = 5e-6,
+         (upwind = 1e-4, lw = 1e-5, gc = 1e-4, gl = 1e-5, glv = 5e-6, gls = 8e-6,
           sl1 = 3e-5, sl2 = 4e-7, sl3 = 4e-8, pfc = 5e-6)),
     )
 
@@ -68,14 +70,14 @@ end
 
     # A square pulse at c = 0.8. The monotone schemes reproduce the exact
     # donor-cell answer; the non-monotone ones must not be held to it. Godunov
-    # VanLeer is among the first, measured 5.6e-19 like upwind: its limiter is
-    # zero at both edges, so on this step it is upwind.
+    # with VanLeer or Superbee is among the first, measured 5.6e-19 like upwind:
+    # either limiter is zero at both edges, so on this step it is upwind.
     f₀ = zeros(Float64, 100); f₀[40:50] .= 1.0
     f₁ = zeros(Float64, 100); f₁[41:50] .= 1.0; f₁[40] = 0.2; f₁[51] = 0.8
     f₂ = zeros(Float64, 100); f₂[40:49] .= 1.0; f₂[39] = 0.8; f₂[50] = 0.2
 
     pulse_tols = (upwind = 1e-18, lw = 1.6e-3, gc = 1e-18, gl = 2e-3, glv = 1e-18,
-                  sl1 = 5e-17, sl2 = 2e-3, sl3 = 2e-3, pfc = 1e-18)
+                  gls = 1e-18, sl1 = 5e-17, sl2 = 2e-3, sl3 = 2e-3, pfc = 1e-18)
 
     @testset "square pulse, forward" begin
         for (name, scheme, tol) in scheme_table(pulse_tols, 1.0)

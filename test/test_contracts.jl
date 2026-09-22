@@ -266,6 +266,7 @@ end
     g = Float32[1.0 + 0.5*sin(2π*(i-1)/N) for i = 1:N]
     for (name, scheme) in [("Upwind", Upwind()), ("LaxWendroff", LaxWendroff()),
                            ("Godunov", Godunov(PiecewiseLinear(), VanLeer())),
+                           ("Godunov Superbee", Godunov(PiecewiseLinear(), Superbee())),
                            ("SemiLagrangian", SemiLagrangian(CubicSpline())),
                            ("PFC", PFC(fmin = 0.0f0, fmax = 2.0f0))]
         dst = similar(g)

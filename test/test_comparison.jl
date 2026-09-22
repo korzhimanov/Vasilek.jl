@@ -56,6 +56,7 @@ cmp_schemes() = [
     ("SemiLagrangian linear",    SemiLagrangian(LinearSpline())),
     ("LaxWendroff",              LaxWendroff()),
     ("Godunov VanLeer",          Godunov(PiecewiseLinear(), VanLeer())),
+    ("Godunov Superbee",         Godunov(PiecewiseLinear(), Superbee())),
     ("SemiLagrangian quadratic", SemiLagrangian(QuadraticSpline())),
     ("SemiLagrangian cubic",     SemiLagrangian(CubicSpline())),
     ("PFC",                      PFC(fmin = 0.0, fmax = 2.5)),
@@ -100,12 +101,16 @@ cmp_schemes() = [
         #   SemiLagrangian quadratic  5.02e-06
         #   LaxWendroff               4.68e-05
         #   Godunov VanLeer           8.55e-05
+        #   Godunov Superbee          1.74e-04
         #   Upwind                    8.08e-03
         #
         # `Godunov VanLeer` is second order, like LaxWendroff, and 1.8 times
         # behind it, because the limiter flattens the slope at each extremum:
-        # `test_convergence` measures 2.09 in L¹ but 1.42 in L∞. Remember where
-        # it is: the next testset is the same list on a discontinuity.
+        # `test_convergence` measures 2.09 in L¹ but 1.42 in L∞. `Godunov
+        # Superbee` is second order too, and 2.0 times further behind: of the
+        # limiters in Sweby's region it is the most compressive, and on smooth
+        # data that is no help. Remember where the two are: the next testsets
+        # are the same list on a discontinuity.
         #
         # It read 7.03e-3 here, barely ahead of upwind, until its flux carried
         # the (1 − |c|) factor. Without it the update was Sweby's with the
@@ -113,7 +118,7 @@ cmp_schemes() = [
         # order needs 1, so it steepened every smooth slope and was first order.
         smooth = [err[(n, :sine)] for n in
                   ("SemiLagrangian cubic", "PFC", "SemiLagrangian quadratic",
-                   "LaxWendroff", "Godunov VanLeer", "Upwind")]
+                   "LaxWendroff", "Godunov VanLeer", "Godunov Superbee", "Upwind")]
         @test issorted(smooth)
         # and the spread is five decades, not a tie being reported as an order
         @test smooth[end]/smooth[1] > 1e5
@@ -122,6 +127,7 @@ cmp_schemes() = [
     @testset "on a discontinuity, order stops mattering" begin
         # On the square pulse:
         #
+        #   Godunov Superbee          1.58e-02    <- best
         #   SemiLagrangian cubic      2.01e-02
         #   PFC                       2.65e-02
         #   SemiLagrangian quadratic  2.72e-02
@@ -130,14 +136,14 @@ cmp_schemes() = [
         #   Upwind                    6.32e-02
         #
         # The five decades between first and last on the sine shrink to a
-        # factor of 3.1, and the two second-order schemes change places, which
-        # is Godunov's theorem as a measurement. LaxWendroff is linear, so it
-        # cannot be both second order and monotone, and it rings (to -0.227 in
-        # `test_invariants`). The limiter makes Godunov VanLeer nonlinear, which
-        # lets it be both away from extrema, at the price of the extrema it
-        # clips on the sine. That is the single most useful thing to know when
-        # choosing a scheme: no ordering of these survives a change of problem
-        # class.
+        # factor of 4.0, and LaxWendroff and Godunov VanLeer change
+        # places, which is Godunov's theorem as a measurement. LaxWendroff is
+        # linear, so it cannot be both second order and monotone, and it rings
+        # (to -0.227 in `test_invariants`). The limiter makes Godunov VanLeer
+        # nonlinear, which lets it be both away from extrema, at the price of the
+        # extrema it clips on the sine. That is the single most useful thing to
+        # know when choosing a scheme: no ordering of these survives a change of
+        # problem class.
         @test err[("LaxWendroff", :sine)] < err[("Godunov VanLeer", :sine)]
         @test err[("Godunov VanLeer", :square)] < err[("LaxWendroff", :square)]
 
@@ -148,15 +154,14 @@ cmp_schemes() = [
         @test spread(:sine) > 1e5
         @test spread(:square) < 5
 
-        # Quantified against the leader: 3470 times the cubic spline's error on
-        # the sine, 1.37 times it on the pulse.
+        # Quantified against the cubic spline, which leads the sine: Godunov
+        # VanLeer is 3470 times its error there, 1.37 times it on the pulse.
         #
         # Godunov VanLeer led this table, at 8.45e-3, until its flux carried the
         # (1 − |c|) factor. Its limiter was then VanLeer/(1 − c), which from
         # c = 1/3 up lies above Superbee -- the most compressive limiter in
         # Sweby's region -- at every r, so it sharpened the jump. It was also
-        # first order on the sine and unstable past c = 1/2. Superbee itself
-        # measures 1.58e-2 here.
+        # first order on the sine and unstable past c = 1/2.
         smooth_ratio = err[("Godunov VanLeer", :sine)]/err[("SemiLagrangian cubic", :sine)]
         rough_ratio  = err[("Godunov VanLeer", :square)]/err[("SemiLagrangian cubic", :square)]
         println("  Godunov VanLeer / SemiLagrangian cubic: ",
@@ -164,6 +169,30 @@ cmp_schemes() = [
                 round(rough_ratio; sigdigits = 3), " on the pulse")
         @test smooth_ratio > 1e3
         @test rough_ratio < 2
+    end
+
+    @testset "on a discontinuity, compression leads" begin
+        # Superbee sits on the upper edge of Sweby's region, and it leads the
+        # pulse, ahead of the cubic spline, while on the sine only upwind and
+        # its two equivalents are behind it. That is the inversion this table
+        # used to show for Godunov VanLeer, when its flux lacked the (1 − |c|)
+        # factor and its limiter was VanLeer/(1 − c), past Superbee. It now comes
+        # from a limiter inside the region, second order in `test_convergence`
+        # and TVD to |c| = 1 in `test_invariants`. Against the cubic spline it
+        # swings from 7070 times its error on the sine to 0.786 times it on the
+        # pulse, nearly four decades.
+        sb = "Godunov Superbee"
+        others = [n for (n, _) in cmp_schemes() if n != sb]
+        @test all(err[(sb, :square)] < err[(n, :square)] for n in others)
+        @test count(n -> err[(n, :sine)] > err[(sb, :sine)], others) == 3
+
+        smooth_ratio = err[(sb, :sine)]/err[("SemiLagrangian cubic", :sine)]
+        rough_ratio  = err[(sb, :square)]/err[("SemiLagrangian cubic", :square)]
+        println("  Godunov Superbee / SemiLagrangian cubic: ",
+                round(smooth_ratio; sigdigits = 3), " on the sine, ",
+                round(rough_ratio; sigdigits = 3), " on the pulse")
+        @test smooth_ratio > 1e3
+        @test rough_ratio < 1
     end
 
     @testset "PFC beats the quadratic spline where it is not a tie" begin

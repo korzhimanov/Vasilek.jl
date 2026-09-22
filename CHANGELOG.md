@@ -9,6 +9,65 @@ This project has not been released; entries below describe work on `master`.
 
 ### Added
 
+- **`Superbee`**, `r -> max(0, min(2r, 1), min(r, 2))` [Roe, Annu. Rev. Fluid
+  Mech. 18, 337 (1986)]: the upper edge of Sweby's region, and so the most
+  compressive limiter that keeps `Godunov(PiecewiseLinear())` second order and
+  total-variation diminishing to `|c| = 1`. `VanLeer` used to lead the square
+  pulse in `test_comparison.jl` only because the flux lacked its `(1 − |c|)`
+  factor (see Fixed). That made its limiter `VanLeer/(1 − c)`, past this edge,
+  which also made the scheme first order and unstable past `c = 1/2`. Superbee
+  sharpens a jump from on the edge rather than outside it.
+
+  Measured with `c = 0.4` and N = 512 unless noted:
+
+  * **The pulse.** The L² error after one traversal is 1.58e-2, the lowest in
+    `test_comparison.jl`; the cubic spline leaves 2.01e-2 and `VanLeer`
+    2.77e-2. In `benchmark/workprecision.jl` Superbee joins the pulse's
+    frontier at 7.2 ms and pushes the cubic spline, at 49 ms for 2.01e-2, off
+    it.
+  * **Smooth data.** 1.74e-4 on the sine and 1.98e-3 on the gaussian, twice
+    `VanLeer`'s 8.55e-5 and 9.50e-4. Against the cubic spline it goes from 7070
+    times its error on the sine to 0.786 times it on the pulse. It is second
+    order in L¹, but gets there late: the local slopes from N = 32 to 2048 are
+    1.19, 1.81, 1.91, 1.96, 1.98 and 1.99, so a fit over 32 to 256 reads 1.65.
+    `test_convergence.jl` holds it to 2 over 128 to 1024, where it measures
+    1.95. L² settles near 1.69 and L∞ near 1.3.
+  * **Stability.** It is TVD from `c = 0.5` to 1 in both directions: the
+    pulse's total-variation ratio is 0.99999999 to 1, `f` stays inside
+    `[0, 1]`, and a sine touching zero stays non-negative through 1000 steps.
+    The mirror is exact, the step at `c = ±1` is one ulp from a shift, and it
+    allocates nothing.
+  * **Anti-diffusion.** Compression has a price the TVD property does not
+    show. Under Superbee the L² norm of a smooth perturbation *grows*: +1.3e-3
+    on the sine and +1.2e-2 on the gaussian after a traversal at N = 128, where
+    every other scheme's shrinks. `test_invariants.jl` asserts the sign. In
+    `verification/scheme-comparison.jl` this puts Superbee at the head of the
+    Landau table, 0.39% off in the rate and 0.14% in the frequency. It gets
+    there from below, with the only growing L² in the table, +8.9e-5. Refined
+    at a fixed Courant number from Nx = 32 to 256:
+
+    | scheme | γ error | L² change |
+    |---|---|---|
+    | Superbee | −2.41%, −0.39%, −0.68%, +0.13% | rises at every level, +5.0e-4 to +7.3e-6 |
+    | `VanLeer` | +7.76%, +1.43%, +0.52%, +0.43% (monotone) | falls |
+    | `PFC` | +6.41% to +0.47% (monotone) | falls |
+
+    Its lead is a cancellation. At 50% amplitude it stays positive (3.08e-9).
+  * **Cost.** 18.5 ns per cell per step on smooth data and 10.7 on the pulse,
+    against `VanLeer`'s 17.2 and 9.1 in the same run.
+
+  It joins `uniform_schemes`, so the golden, symmetry, contract and
+  type-stability suites cover it. `test/data/golden.txt` gains one line; the
+  other nine are unchanged bit for bit. It also joins:
+
+  * the allocation gate;
+  * the flux-limiter tests, which check Superbee piece by piece and `VanLeer`
+    below it everywhere;
+  * `test_1d_advection`, where it gives the donor-cell answer on the pulse;
+  * the benchmark suite, which times it but does not judge it until the next
+    `--rebaseline` stores a baseline;
+  * both reports.
+
 - **A nonlinear equilibrium, run to see whether it stays put**
   (`test/test_verification.jl`, `bgk_equilibrium` in the harness,
   `verification/bgk-equilibrium.jl`). Every other Vlasov–Poisson run in the
@@ -207,8 +266,9 @@ This project has not been released; entries below describe work on `master`.
   * square pulse: 8.45e-3 → 2.77e-2, a rise. The scheme led that column and now
     sits fourth of six.
 
-  Superbee itself measures 1.58e-2 on the pulse, 1.74e-4 on the sine and an L¹
-  order of 1.65. It is not added here. In the Landau damping comparison
+  Superbee itself, which keeps the scheme second order and total-variation
+  diminishing to `|c| = 1`, measures 1.58e-2 on the pulse; it is now a limiter
+  of its own (see Added). In the Landau damping comparison
   (`verification/scheme-comparison.jl`) the rate error goes from 3.99% to 1.43%
   and the frequency error from 16.0% to 0.54%. In the work–precision report the
   scheme is now dominated on every profile, by `PFC`.
@@ -876,7 +936,9 @@ This project has not been released; entries below describe work on `master`.
   `Godunov`+`VanLeer` are dominated on every profile, the latter by `PFC`, which
   on the pulse is both more accurate, 2.65e-2 against 2.77e-2, and about half
   the cost. (`Godunov`+`VanLeer` was on the pulse's frontier, and pushed the cubic
-  spline off it, while its flux lacked a `(1 − |c|)` factor; see Fixed.)
+  spline off it, while its flux lacked a `(1 − |c|)` factor; see Fixed.
+  `Godunov`+`Superbee`, added since, does the same without it: on the pulse it
+  reaches 1.58e-2 at 7.2 ms where the cubic spline takes 49 ms for 2.01e-2.)
 
   Timing goes through `BenchmarkTools.@belapsed` rather than `@elapsed`, which
   is what keeps it from measuring the compiler — the mistake caught in
@@ -971,6 +1033,9 @@ This project has not been released; entries below describe work on `master`.
   negative — `LaxWendroff` to −0.094 and cubic `SemiLagrangian` to −0.098,
   against a peak of 0.6. That is Godunov's theorem arriving in the physics, and
   it is why the harness defaults to `PFC` despite it not leading the first table.
+  (`Godunov`+`Superbee`, added since, now heads the first table at 0.39% and
+  stays positive. It gets there from below, by anti-diffusion rather than
+  accuracy; see Added.)
 
 ### Fixed
 

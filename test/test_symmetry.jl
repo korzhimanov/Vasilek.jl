@@ -57,7 +57,7 @@ end
 
 "Schemes whose mirrored expression is operand-for-operand identical."
 const SYM_EXACT = ("Upwind", "Godunov_constant", "Godunov_linear",
-                   "Godunov_linear_VanLeer")
+                   "Godunov_linear_VanLeer", "Godunov_linear_Superbee")
 
 sym_tol(name) = name in SYM_EXACT           ? 0.0   :   # measured 0.0
                 startswith(name, "SemiLag") ? 1e-12 :   # measured 4.5e-14
