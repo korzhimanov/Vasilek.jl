@@ -23,8 +23,8 @@ This project has not been released; entries below describe work on `master`.
   * **The pulse.** The L² error after one traversal is 1.58e-2, the lowest in
     `test_comparison.jl`; the cubic spline leaves 2.01e-2 and `VanLeer`
     2.77e-2. In `benchmark/workprecision.jl` Superbee joins the pulse's
-    frontier at 7.2 ms and pushes the cubic spline, at 49 ms for 2.01e-2, off
-    it.
+    frontier at 0.87 ms per traversal (5.8 ms before the kernel was sped up;
+    see Changed) and pushes the cubic spline, at 40 ms for 2.01e-2, off it.
   * **Smooth data.** 1.74e-4 on the sine and 1.98e-3 on the gaussian, twice
     `VanLeer`'s 8.55e-5 and 9.50e-4. Against the cubic spline it goes from 7070
     times its error on the sine to 0.786 times it on the pulse. It is second
@@ -53,8 +53,9 @@ This project has not been released; entries below describe work on `master`.
     | `PFC` | +6.41% to +0.47% (monotone) | falls |
 
     Its lead is a cancellation. At 50% amplitude it stays positive (3.08e-9).
-  * **Cost.** 18.5 ns per cell per step on smooth data and 10.7 on the pulse,
-    against `VanLeer`'s 17.2 and 9.1 in the same run.
+  * **Cost.** 1.38 ns per cell per step on smooth data and 1.35 on the pulse,
+    against `VanLeer`'s 1.07 and 1.06, at N = 512 on Julia 1.13 (see Changed;
+    with the kernel as it was, 15.2 and 8.8 against 14.0 and 7.3).
 
   It joins `uniform_schemes`, so the golden, symmetry, contract and
   type-stability suites cover it. `test/data/golden.txt` gains one line; the
@@ -216,15 +217,15 @@ This project has not been released; entries below describe work on `master`.
 
 ### Changed
 
-- **`Godunov(PiecewiseLinear(), VanLeer())` steps 7 to 14 times faster, to the
-  same bits, and on Julia 1.10 the scheme without a limiter 17 to 45 times.**
-  With `VanLeer` the step cost 16.6 ns per cell on a smooth sine and 8.2 ns on
-  a square pulse, where the scheme without a limiter costs 0.4 ns and
-  `LaxWendroff` 0.35 ns (Julia 1.13, N = 10000). None of that was the
-  limiter's arithmetic. Taking the kernel apart one change at a time, in the
-  order below, put 60% of the step on the sine in two calls per cell, 27% in
-  `≈ 0.0` and 5.5% in evaluating every flux twice, and left 7%. Two runs, of one
-  and of three processes, agree on each share to within a percent.
+- **`Godunov(PiecewiseLinear(), VanLeer())` steps 7 to 14 times faster and
+  `Superbee` 6.5 to 11.5 times, to the same bits, and on Julia 1.10 the scheme
+  without a limiter 18 to 42 times.** With `VanLeer` the step cost 14.1 ns per
+  cell on a smooth sine and 7.2 ns on a square pulse, where the scheme without a
+  limiter costs 0.35 ns and `LaxWendroff` 0.28 ns (Julia 1.13, N = 10000). None
+  of that was the limiter's arithmetic. Taking the kernel apart one change at a
+  time, in the order below, put 61% of the step on the sine in two calls per
+  cell, 26% in `≈ 0.0` and 5% in evaluating every flux twice, and left 7%
+  (medians of three processes).
 
   * **The inliner declined part of the flux.** On 1.13 it declined `_Φ` once a
     limiter was in it. On 1.10 it declined `_ratio` instead, with or without a
@@ -232,15 +233,15 @@ This project has not been released; entries below describe work on `master`.
     because its bounds checks can throw. Either way the loop made two calls per
     cell, vectorized nothing, and bounds-checked every read inside them, which
     the loop's `@inbounds` does not reach. On 1.10 that made the unlimited
-    scheme cost 13.5 ns per cell too. Both functions are `@inline` now.
+    scheme cost 12.0 ns per cell on the sine too. Both functions are
+    `@inline` now.
   * **`≈ 0.0`.** `_ratio` tested both differences with it. With its default
     tolerances it is `== 0.0` for every Float64, NaN and ±0 included, but it
     gets there through `isfinite` tests and a NaN-aware `max`. In the
-    vectorized loop that cost twice the rest of the step, and a sampling
-    profile of the old kernel put 28% of its samples in `isapprox`. It is
-    `iszero` now. The branches were not the cost: once `≈` was gone, LLVM
-    turned them into selects by itself. They are `ifelse` now so that
-    vectorizing does not rest on that, which measured under 5% faster.
+    vectorized loop that cost twice the rest of the step. It is `iszero` now.
+    The branches were not the cost: once `≈` was gone, LLVM turned them into
+    selects by itself. They are `ifelse` now so that vectorizing does not rest
+    on that, which measured at most 5% faster.
   * **Every flux twice.** Each cell evaluated both of its faces, so every
     face's flux, the limiter's two divisions included, was computed once as
     one cell's outflow and again as the next one's inflow. The loop now
@@ -258,36 +259,46 @@ This project has not been released; entries below describe work on `master`.
 
   | ns per cell per step     | sine, N = 512 | sine, 10000 | pulse, 512  | pulse, 10000 |
   |--------------------------|---------------|-------------|-------------|--------------|
-  | `VanLeer`                | 16.5 → 1.20   | 16.6 → 1.17 | 8.32 → 1.16 | 8.15 → 1.14  |
-  | no limiter               | 0.37 → 0.33   | 0.43 → 0.40 | 0.38 → 0.32 | 0.43 → 0.39  |
-  | `PiecewiseConstant`      | 0.17 → 0.17   | 0.21 → 0.20 | 0.17 → 0.17 | 0.20 → 0.19  |
-  | `LaxWendroff`, untouched | 0.31 → 0.30   | 0.36 → 0.35 | 0.31 → 0.30 | 0.35 → 0.35  |
-  | `Upwind`, untouched      | 0.15 → 0.17   | 0.19 → 0.19 | 0.15 → 0.16 | 0.19 → 0.18  |
+  | `VanLeer`                | 14.0 → 1.07   | 14.1 → 1.04 | 7.31 → 1.06 | 7.24 → 1.03  |
+  | `Superbee`               | 15.2 → 1.38   | 15.3 → 1.33 | 8.82 → 1.35 | 8.77 → 1.31  |
+  | no limiter               | 0.31 → 0.31   | 0.35 → 0.32 | 0.31 → 0.27 | 0.35 → 0.32  |
+  | `PiecewiseConstant`      | 0.14 → 0.17   | 0.17 → 0.17 | 0.14 → 0.14 | 0.16 → 0.16  |
+  | `LaxWendroff`, untouched | 0.25 → 0.28   | 0.28 → 0.29 | 0.25 → 0.25 | 0.28 → 0.28  |
+  | `Upwind`, untouched      | 0.12 → 0.16   | 0.16 → 0.16 | 0.12 → 0.13 | 0.15 → 0.15  |
 
-  The two controls moved by −4% to +10%. On Julia 1.10, timed against a
-  verbatim copy of the old kernel in the same process, over six processes,
-  `VanLeer` went from 15.3 to 1.1 ns on the sine (14 times) and from 6.9 to
-  1.1 ns on the pulse (6.5 times). The unlimited scheme went from 13.5 to
-  0.3–0.4 ns on the sine and from 6.2 to 0.3–0.4 ns on the pulse. `VanLeer`
+  The two controls moved by 0% to +3.4%, except in the first column, where
+  `LaxWendroff` read 11% and `Upwind` 33% slower after. At a fraction of a
+  nanosecond per cell that column is noise, the constant reconstruction's +20%
+  there included: in the same process on Julia 1.10 its kernel measures 0.98
+  of the old one. On Julia 1.10, timed against a verbatim copy of the old
+  kernel in the same process, over six processes, `VanLeer` went from 13.8 to
+  0.95–0.99 ns on the sine (14 to 15 times) and from 6.4–6.5 to 0.92–0.95 ns on
+  the pulse (7 times), and `Superbee` from 17.1 to 1.6–1.7 ns (10 times) and
+  from 10.1 to 1.7 ns (6 times). The unlimited scheme went from 11.8–12.0 to
+  0.28–0.29 ns on the sine and from 5.4–5.5 to 0.29 ns on the pulse. `VanLeer`
   still costs three to four times the unlimited scheme, and that is the
-  limiter's own arithmetic. Its two divisions are a little over a fifth of the
-  step, measured by replacing them with multiplications.
+  limiter's own arithmetic. Its two divisions are about a quarter of the step,
+  measured by replacing them with multiplications.
 
   Every output is the same to the bit. `test/data/golden.txt` is unchanged, and
   `test_golden.jl` passes on Julia 1.10 and 1.13. `test_symmetry.jl` still
   finds the mirrored Godunov expression exact. A verbatim copy of the old
-  kernel agrees with the new one for all three `Godunov` variants, bit for bit,
-  on 4.0 million cells of single steps. Those cover both directions, 13 sizes
-  from 3 to 1000, 14 Courant numbers from −1 to 1 including ±0, and data with
-  signed zeros, subnormals and differences that overflow. The two also agree
-  after 500 steps. Given Inf or NaN in the input, both return NaN in the same
-  cells, but the NaN's sign bit can differ; IEEE 754 leaves it unspecified.
+  kernel agrees with the new one for all four `Godunov` variants, `Superbee`
+  included, bit for bit, on 5.4 million cells of single steps, on Julia 1.10
+  and 1.13. Those cover both directions, 13 sizes from 3 to 1000, 14 Courant
+  numbers from −1 to 1 including ±0, and data with signed zeros, subnormals and
+  differences that overflow. The two also agree after 500 steps. Given Inf or
+  NaN in the input, both return NaN in the same cells, but the NaN's sign bit
+  can differ; IEEE 754 leaves it unspecified.
 
-  In the work–precision report the square pulse's frontier changes.
-  `Godunov`+`VanLeer` now costs 0.62 ms per traversal at N = 512, down from
-  4.38 ms, which makes it cheaper and more accurate than `PFC` at 2.3 ms, and
-  `PFC` drops off the frontier. The sine's and the gaussian's frontiers are
-  unchanged, and so is every error.
+  In the work–precision report, at N = 512, the gaussian's and the square
+  pulse's frontiers change. `Godunov`+`VanLeer` now costs 0.68 ms per traversal
+  on the gaussian, down from 8.8 ms, and 0.69 ms on the pulse, down from
+  4.9 ms, which puts it on both: on the gaussian at 9.50e-4, between
+  `LaxWendroff` and `PFC`, and on the pulse at 2.77e-2, a little behind `PFC`'s
+  2.65e-2 at under a third of its cost. `Godunov`+`Superbee` goes from 5.8 ms to
+  0.87 ms on the pulse for 1.58e-2, which takes `PFC` off that frontier. The
+  sine's frontier is unchanged, and so is every error.
 
 ### Fixed
 
@@ -385,12 +396,14 @@ This project has not been released; entries below describe work on `master`.
   diminishing to `|c| = 1`, measures 1.58e-2 on the pulse; it is now a limiter
   of its own (see Added). In the Landau damping comparison
   (`verification/scheme-comparison.jl`) the rate error goes from 3.99% to 1.43%
-  and the frequency error from 16.0% to 0.54%. In the work–precision report the
-  scheme is now dominated on every profile, by `PFC`.
+  and the frequency error from 16.0% to 0.54%. In the work–precision report,
+  at the step's cost as it then was, the scheme was dominated on every profile
+  by `PFC`; the faster kernel under Changed puts it on the gaussian's and the
+  pulse's frontiers.
 
   The factor costs one subtraction and one multiplication per flux. The
-  `VanLeer` step, 17 ns per cell on the sine and 9 on the pulse, measured 2% to
-  9% slower with it. Those are medians of three alternations at N = 512 and
+  `VanLeer` step, then 17 ns per cell on the sine and 9 on the pulse (about 1
+  since; see Changed), measured 2% to 9% slower with it. Those are medians of three alternations at N = 512 and
   10000, and the step was slower in every configuration. `LaxWendroff` and
   `Upwind`, whose code is untouched, moved by −11% to +10% over the same runs.
   Without a limiter the step costs 0.4 ns per cell and did not move measurably.
@@ -1047,13 +1060,14 @@ This project has not been released; entries below describe work on `master`.
   resolution, with the Pareto frontier at the bottom — the schemes no other
   scheme beats on both axes. On smooth data that is `Upwind`, `LaxWendroff`,
   `PFC` and cubic `SemiLagrangian` spanning 0.12 ms to 40 ms and 8.1e-3 to
-  2.5e-8, and it is the same four on the pulse. The quadratic spline and
-  `Godunov`+`VanLeer` are dominated on every profile, the latter by `PFC`, which
-  on the pulse is both more accurate, 2.65e-2 against 2.77e-2, and about half
-  the cost. (`Godunov`+`VanLeer` was on the pulse's frontier, and pushed the cubic
-  spline off it, while its flux lacked a `(1 − |c|)` factor; see Fixed.
-  `Godunov`+`Superbee`, added since, does the same without it: on the pulse it
-  reaches 1.58e-2 at 7.2 ms where the cubic spline takes 49 ms for 2.01e-2.)
+  2.5e-8. The quadratic spline is dominated on every profile. (So was
+  `Godunov`+`VanLeer`, by `PFC`, until its kernel was sped up; see Changed. It
+  now sits on the gaussian's and the pulse's frontiers. It had been on the
+  pulse's once before, and pushed the cubic spline off it, while its flux lacked
+  a `(1 − |c|)` factor; see Fixed. `Godunov`+`Superbee`, added since, does that
+  without it: on the pulse it reaches 1.58e-2 at 0.87 ms where the cubic spline
+  takes 40 ms for 2.01e-2, and with `Godunov`+`VanLeer` it takes the pulse's
+  frontier from `PFC` and the spline.)
 
   Timing goes through `BenchmarkTools.@belapsed` rather than `@elapsed`, which
   is what keeps it from measuring the compiler — the mistake caught in
