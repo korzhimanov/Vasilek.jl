@@ -26,7 +26,8 @@ using Vasilek
         end
     end
 
-    # NoLimiter is the identity that makes PiecewiseLinear unstable
+    # NoLimiter is the identity, with which Godunov(PiecewiseLinear()) is
+    # LaxWendroff (`test_convergence`, `test_amplification`)
     @test NoLimiter()(0.0) == 1.0
     @test NoLimiter()(17.0) == 1.0
 

@@ -157,6 +157,75 @@ This project has not been released; entries below describe work on `master`.
 
 ### Fixed
 
+- **`Godunov(PiecewiseLinear())` is second order, and total-variation
+  diminishing to `|c| = 1`.** Its flux was the reconstruction's value at the
+  interface, `|c|(fᵢ₋₁ + φ(r)(fᵢ − fᵢ₋₁)/2)`, which makes the update forward
+  Euler on a limited slope. It is now the reconstruction averaged over the strip
+  that crosses the interface in one step. That strip's midpoint lies
+  `(1 − |c|)Δx/2` upwind of the interface, so the slope term gains a factor
+  `(1 − |c|)`, and the scheme becomes what its name says: Godunov's
+  reconstruct–evolve–average with a linear reconstruction, which is Sweby's
+  flux-limited Lax–Wendroff. The old flux is Sweby's as well, with the limiter
+  `φ/(1 − c)` in place of `φ` (the two agree to 6.7e-16 after 50 steps), and
+  that one substitution accounts for all of its behaviour:
+
+  * **It was stable only to `|c| ≤ 1/2`**, the limit to which `φ/(1 − c)`
+    satisfies Harten's condition. With `VanLeer` at N = 128, 200 steps
+    multiplied a square pulse's total variation by 2.05 at `c = 0.6`, 39 at
+    0.7, 4.8e5 at 0.8 and 1.0e7 at 0.9. `0.5(1 + sin)` went negative in one
+    step from `c = 0.58`, to −9.0e-6. `1 + 0.5 sin` was 84 from the exact
+    answer after 300 steps at 0.7, and 893 after 100 at 0.9. Now the pulse's
+    total-variation ratio is 0.999992 to 1 at every `c` from 0.5 to 1 in both
+    directions, `f` stays inside `[0, 1]`, and the sine stays non-negative
+    through 1000 steps (`test_invariants.jl`). In the same two runs
+    `1 + 0.5 sin` is 3.5e-3 and 1.1e-3 from the exact answer.
+  * **It was first order.** `φ/(1 − c)` is `1/(1 − c)` at `r = 1`, where second
+    order needs 1, so it steepened every smooth slope. At `c = 0.4` the L¹, L²
+    and L∞ orders were 1.00, 1.01 and 0.82; the last had been quoted as 0.69.
+    They are now 2.09, 1.77 and 1.42, and `test_convergence.jl` holds the L¹
+    order to 2 where it held it to 1.
+  * **Without a limiter it was unstable at every `c`.** `NoLimiter`'s 1 made
+    the flux centred, `|g| = √(1 + c²sin²θ)`, and it reached 1.4e25 times its
+    amplitude in four traversals at `c = 0.4`. It is now `LaxWendroff`: 2.2e-16
+    from it after one step and 1.4e-14 after 1280, and `test_amplification.jl`
+    checks it against Lax–Wendroff's symbol mode by mode.
+
+  At `|c| = 1` the factor vanishes and the step is an exact shift. It is now one
+  ulp from `circshift`; it was 2.4e-3 off without a limiter and 2.7e-3 with
+  `VanLeer`, and `test_contracts.jl` no longer excuses it. The `|c| ≤ 1` that
+  `advect!` enforces is now this scheme's real limit.
+
+  The same substitution is what made the old scheme good at a jump. From
+  `c = 1/3` up, `VanLeer/(1 − c)` lies above Superbee, the most compressive
+  limiter inside Sweby's region, at every `r`, and it steepened the pulse just
+  as it steepened the sine. With `VanLeer` at N = 512 and `c = 0.4`, the L²
+  error after one traversal (`test_comparison.jl`) moves as follows:
+
+  * sine: 7.03e-3 → 8.55e-5;
+  * gaussian: 1.61e-2 → 9.50e-4;
+  * square pulse: 8.45e-3 → 2.77e-2, a rise. The scheme led that column and now
+    sits fourth of six.
+
+  Superbee itself measures 1.58e-2 on the pulse, 1.74e-4 on the sine and an L¹
+  order of 1.65. It is not added here. In the Landau damping comparison
+  (`verification/scheme-comparison.jl`) the rate error goes from 3.99% to 1.43%
+  and the frequency error from 16.0% to 0.54%. In the work–precision report the
+  scheme is now dominated on every profile, by `PFC`.
+
+  The factor costs one subtraction and one multiplication per flux. The
+  `VanLeer` step, 17 ns per cell on the sine and 9 on the pulse, measured 2% to
+  9% slower with it. Those are medians of three alternations at N = 512 and
+  10000, and the step was slower in every configuration. `LaxWendroff` and
+  `Upwind`, whose code is untouched, moved by −11% to +10% over the same runs.
+  Without a limiter the step costs 0.4 ns per cell and did not move measurably.
+
+  `test/data/golden.txt` is regenerated for `Godunov_linear` and
+  `Godunov_linear_VanLeer`. The other seven lines are unchanged bit for bit.
+
+  Found on the way: `test_amplification.jl` quoted its three-point schemes as
+  agreeing with their symbols to 8.9e-15. They agree to 1.6e-14 to 1.8e-14, on
+  Julia 1.10.12 and 1.13.0 alike, and the quote is corrected.
+
 - **`advect!` refuses a step past the scheme's Courant limit.** `_validate`
   checked aliasing, the lengths and the workspace, and not the one bound every
   explicit scheme here has. `Upwind`, `LaxWendroff`, `Godunov` and `PFC` are
@@ -170,9 +239,14 @@ This project has not been released; entries below describe work on `master`.
   | `Upwind` | 5.4e-5 | 0 | 1.4e-4 | 1.2e-3 | 1.40 | 2.7e-2, and 2.0e27 at 300 |
   | `Godunov(PiecewiseConstant())` | 5.4e-5 | 2.2e-16 | 1.4e-4 | 1.2e-3 | 1.40 | 6.8e-2, and 5.2e27 at 300 |
   | `LaxWendroff` | 1.7e-6 | 2.2e-16 | 5.2e-6 | 5.9e-5 | 1.88 | 9.1e10 |
-  | `Godunov(PiecewiseLinear(), VanLeer())` | 5.5e-4 | 6.8e-4 | 9.6e-4 | 2.6e-3 | (nonlinear) | 1.6e13 |
+  | `Godunov(PiecewiseLinear(), VanLeer())` | 1.4e-5 | 2.2e-16 | 3.6e-5 | 3.0e-4 | (nonlinear) | 2.2e10 |
   | `PFC` | 2.3e-8 | 2.2e-16 | 5.1e-8 | 8.9e-16 | 1.18 | 5.1e-6, and 4.9e15 at 300 |
   | `SemiLagrangian` cubic | 9.8e-10 | 2.2e-16 | 3.1e-9 | 2.2e-16 | 1.00 | 3.1e-7 |
+
+  The `Godunov(PiecewiseLinear(), VanLeer())` row is for the flux as corrected
+  in the entry above, measured past `|c| = 1` on a copy of the kernel that
+  matches it bit for bit where `advect!` accepts the step. Before the
+  correction the row read 5.5e-4, 6.8e-4, 9.6e-4, 2.6e-3 and 1.6e13.
 
   `PFC` loses first the property it exists for: one step at 1.2 takes
   `0.5(1 + sin)`, which touches zero, to −2.9e-5, and to 1 + 2.9e-5 against an
@@ -188,7 +262,7 @@ This project has not been released; entries below describe work on `master`.
 
   `|c| > 1` is now a `DomainError`, raised before anything is written, and so is
   `NaN`. `c = ±1` is accepted: it is an exact one-cell shift for every bounded
-  scheme but `Godunov(PiecewiseLinear())`. The bounded method is the default, and
+  scheme. The bounded method is the default, and
   `SemiLagrangian`, whose characteristic tracing has no Courant limit, opts out,
   so a scheme added later is checked unless it says otherwise. `PFCNonUniform`
   takes a displacement and is held to its narrowest cell, stored at
@@ -225,13 +299,9 @@ This project has not been released; entries below describe work on `master`.
   bound left. `test_invariants.jl` marched `Upwind` at c = 1.05 for 2000 steps
   to show the instability; it asserts the refusal instead.
 
-  Measured on the way, and not enforced: **`Godunov(PiecewiseLinear())` is
-  stable only to `|c| ≤ 1/2`.** Its interface value carries no `(1 − |c|)`
-  factor, so the update is forward Euler on a limited slope, and Harten's
-  condition makes that total-variation diminishing for `|c| ≤ 1/2`. A square
-  pulse keeps its total variation over 200 steps at c = 0.5 and doubles it at
-  0.6; `0.5(1 + sin)` goes negative in one step from c = 0.58; `1 + 0.5 sin` is
-  890 from the exact answer after 100 steps at 0.9. The docstring now says so.
+  Measured on the way: `Godunov(PiecewiseLinear())` was stable only to
+  `|c| ≤ 1/2`, because its flux lacked a `(1 − |c|)` factor. That is fixed in
+  its own entry above, and `|c| ≤ 1` is now its limit as well.
   And the velocity Courant number `growth_rate` quoted for the two-stream fits,
   0.46 to 0.65, was the single-mode estimate `√(2ε_e/L)·Δt/Δv`; the largest over
   `x` is 0.52 to 0.73.
@@ -716,17 +786,21 @@ This project has not been released; entries below describe work on `master`.
   | `PFC` | 2.30e-7 | 3.30e-5 | 2.65e-2 |
   | `SemiLagrangian` quadratic | 5.02e-6 | 1.37e-4 | 2.72e-2 |
   | `LaxWendroff` | 4.68e-5 | 1.28e-3 | 4.53e-2 |
-  | `Godunov`+`VanLeer` | 7.03e-3 | 1.61e-2 | **8.45e-3** |
+  | `Godunov`+`VanLeer` | 8.55e-5 | 9.50e-4 | 2.77e-2 |
   | `Upwind` | 8.08e-3 | 4.11e-2 | 6.32e-2 |
 
   The ranking is strictly ordered by scheme order on the sine, over five
-  decades — and **inverts on the discontinuity**. `Godunov`+`VanLeer` sits
-  second from the bottom on smooth data, because the limiter clips smooth
-  extrema, and first on the pulse; against the cubic spline it goes from 2.9e5
-  times worse to 0.42 times as bad, a swing of six decades in relative standing.
-  That is Godunov's theorem as a measurement, and it is the most useful single
-  thing to know when choosing a scheme: no ordering of these survives a change
-  of problem class.
+  decades, and **collapses on the discontinuity** to a factor of 3.1 between
+  best and worst. The two second-order schemes change places there.
+  `LaxWendroff` is linear and so, by Godunov's theorem, cannot be monotone; it
+  rings, and falls behind `Godunov`+`VanLeer`, whose limiter buys monotonicity
+  with the extrema it clips on the sine. That is the most useful single thing
+  to know when choosing a scheme: no ordering of these survives a change of
+  problem class. (`Godunov`+`VanLeer` read 7.03e-3, 1.61e-2 and 8.45e-3 while
+  its flux lacked a `(1 − |c|)` factor. That put it second from the bottom on
+  the sine and first on the pulse, a swing of six decades against the cubic
+  spline. Both came from the missing factor, which steepened every slope,
+  smooth or not; see Fixed.)
 
   Errors are asserted; wall-clock is not, for the reasons `runbenchmarks.jl`
   already sets out. The equivalence of `Upwind`, `Godunov(PiecewiseConstant)`
@@ -764,9 +838,11 @@ This project has not been released; entries below describe work on `master`.
   resolution, with the Pareto frontier at the bottom — the schemes no other
   scheme beats on both axes. On smooth data that is `Upwind`, `LaxWendroff`,
   `PFC` and cubic `SemiLagrangian` spanning 0.12 ms to 40 ms and 8.1e-3 to
-  2.5e-8; on the pulse `Godunov`+`VanLeer` joins it and the cubic spline drops
-  off, being both slower and less accurate there than `Godunov`+`VanLeer`. The
-  quadratic spline is dominated on every profile.
+  2.5e-8, and it is the same four on the pulse. The quadratic spline and
+  `Godunov`+`VanLeer` are dominated on every profile, the latter by `PFC`, which
+  on the pulse is both more accurate, 2.65e-2 against 2.77e-2, and about half
+  the cost. (`Godunov`+`VanLeer` was on the pulse's frontier, and pushed the cubic
+  spline off it, while its flux lacked a `(1 − |c|)` factor; see Fixed.)
 
   Timing goes through `BenchmarkTools.@belapsed` rather than `@elapsed`, which
   is what keeps it from measuring the compiler — the mistake caught in
@@ -847,10 +923,12 @@ This project has not been released; entries below describe work on `master`.
   times a bare kernel and `test_convergence` measures an order on a shifted
   sine; neither says what a scheme costs *in the physics*. Ranked by error in
   the Landau damping rate at k = 0.5: `LaxWendroff` 0.64%, cubic
-  `SemiLagrangian` 1.07%, `PFC` 1.31%, `Godunov`+`VanLeer` 3.99%, and upwind —
+  `SemiLagrangian` 1.07%, `PFC` 1.31%, `Godunov`+`VanLeer` 1.43%, and upwind —
   with `Godunov(PiecewiseConstant)` and linear `SemiLagrangian`, identical to it
   as `test_amplification` requires — at **48.8%**, its own dissipation being two
   orders of magnitude larger than the physical damping it is trying to measure.
+  (`Godunov`+`VanLeer` was 3.99% off in the rate, and 16.0% in the frequency
+  where it is now 0.54%, while its flux lacked a `(1 − |c|)` factor; see Fixed.)
 
   The interesting half is the second table. A 1% perturbation cannot rank the
   schemes on positivity at all: every one returns the same `min f = 1.3e-4`,
@@ -963,24 +1041,26 @@ This project has not been released; entries below describe work on `master`.
 - **Von Neumann amplification factors, against closed forms**
   (`test/test_amplification.jl`). Each scheme is linear, so a Fourier mode is an
   eigenvector and one step multiplies it by a `g(kΔx, c)` available in closed
-  form. Six symbols are derived from the update formulas and asserted mode by
-  mode: `Upwind`, `Godunov(PiecewiseConstant)` and `SemiLagrangian(LinearSpline)`
-  share `1 − c(1 − e^{−iθ})`; `LaxWendroff` is `1 − ic·sinθ + c²(cosθ − 1)`;
-  `Godunov(PiecewiseLinear, NoLimiter)` collapses to the centred flux
-  `1 − ic·sinθ`; and `PFC`'s unlimited branch is its third-order flux. Measured
-  agreement over `m ∈ {1,2,4,8,16,24,31}` and `c ∈ {0.4, 0.8}`: 8.9e-15 for the
-  three-point schemes, 4.6e-14 for `PFC`.
+  form. Six schemes are asserted mode by mode against symbols derived from the
+  update formulas: `Upwind`, `Godunov(PiecewiseConstant)` and
+  `SemiLagrangian(LinearSpline)` share `1 − c(1 − e^{−iθ})`; `LaxWendroff` and
+  `Godunov(PiecewiseLinear, NoLimiter)` share `1 − ic·sinθ + c²(cosθ − 1)`; and
+  `PFC`'s unlimited branch is its third-order flux. Measured agreement over
+  `m ∈ {1,2,4,8,16,24,31}` and `c ∈ {0.4, 0.8}`: 1.6e-14 to 1.8e-14 for the
+  three-point schemes, 4.6e-14 for `PFC`. (The first was quoted as 8.9e-15;
+  Julia 1.10.12 and 1.13.0 both give 1.8e-14 for upwind.)
 
   This is sharper than what guarded these kernels before. `test_convergence`
   fits a slope to ±0.15 and `test_golden` pins one dataset for eight steps;
   this pins every mode from the fundamental to the grid scale against an
   analytic value, and because the comparison runs elementwise it asserts at the
-  same time that the output *is* a pure mode. Two consequences worth naming: the
-  two claimed scheme equivalences now hold mode by mode rather than on one
-  profile, and `PiecewiseLinear`'s unconditional instability is stated
-  analytically — `|g| > 1` for every mode, worst 1.077 per step at `c = 0.4` —
-  where it was previously demonstrated by marching `4N/c` steps and watching the
-  amplitude reach 6.66e+24.
+  same time that the output *is* a pure mode. One consequence worth naming: the
+  three claimed scheme equivalences now hold mode by mode rather than on one
+  profile. (There was a fourth symbol, the centred `1 − ic·sinθ` of
+  `Godunov(PiecewiseLinear, NoLimiter)`, with `|g| > 1` for every mode — worst
+  1.077 per step at `c = 0.4`. That stated its unconditional instability
+  analytically, until its flux gained the `(1 − |c|)` factor that makes it
+  `LaxWendroff`'s; see Fixed.)
 
 - **Dissipation and dispersion, per scheme per wavenumber**, from the same
   symbols at no extra cost: `|g|` is the amplitude lost per step and
@@ -1239,7 +1319,8 @@ This project has not been released; entries below describe work on `master`.
 
   Numerics are unchanged. Every scheme is bit-for-bit identical to 0.1 in
   both directions, and the golden values recorded before the change still
-  match.
+  match. (`Godunov(PiecewiseLinear())` has since changed on purpose, gaining the
+  `(1 − |c|)` factor its flux lacked in 0.1; see Fixed.)
 
 
 ### Added

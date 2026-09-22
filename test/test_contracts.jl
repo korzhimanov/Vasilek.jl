@@ -156,18 +156,14 @@ end
     end
 
     @testset "c = ±1 exactly is accepted, and is a one-cell shift" begin
-        # The bound is `≤`. Measured at c = ±1: Upwind exact, LaxWendroff,
-        # Godunov(PiecewiseConstant()) and PFC one ulp (2.2e-16) from circshift.
-        # Godunov(PiecewiseLinear()) is accepted as well, but is no shift there
-        # -- 2.4e-3 off without a limiter, 2.7e-3 with VanLeer -- because its
-        # own limit is |c| ≤ 1/2 (see its docstring), which is not enforced.
+        # The bound is `≤`. Measured at c = ±1: Upwind exact; LaxWendroff, the
+        # three Godunov and PFC at most one ulp (2.2e-16) from circshift.
+        # Godunov(PiecewiseLinear()) is a shift here because its slope term
+        # carries (1 − |c|), which vanishes. Before it did, the scheme was 2.4e-3
+        # off without a limiter and 2.7e-3 with VanLeer, and this test excused it.
         for (name, scheme) in bounded, c in (1.0, -1.0)
             out = march!(f, scheme, c, 1)
-            if startswith(name, "Godunov_linear")
-                @test all(isfinite, out)
-            else
-                @test maximum(abs, out .- circshift(f, Int(c))) ≤ 2eps()
-            end
+            @test maximum(abs, out .- circshift(f, Int(c))) ≤ 2eps()
         end
     end
 

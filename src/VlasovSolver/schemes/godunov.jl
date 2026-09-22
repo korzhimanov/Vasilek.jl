@@ -10,8 +10,11 @@ end
 
 _Φ(f, i, i⁻, i⁻², c, ::PiecewiseConstant, limiter) = abs(c)*f[i⁻]
 
+# the linear reconstruction in the upwind cell, averaged over the strip that
+# crosses the interface in one step: its midpoint is (1 - |c|)Δx/2 upwind of it
 function _Φ(f, i, i⁻, i⁻², c, ::PiecewiseLinear, limiter)
-    return abs(c)*(f[i⁻] + limiter(_ratio(f, i⁻, i⁻², i))*0.5*(f[i] - f[i⁻]))
+    a = abs(c)
+    return a*(f[i⁻] + limiter(_ratio(f, i⁻, i⁻², i))*0.5*(1 - a)*(f[i] - f[i⁻]))
 end
 
 @inline function _godunov(f, i, i⁻, i⁺, i⁻², c, r, l)

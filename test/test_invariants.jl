@@ -71,6 +71,47 @@ end
     @test total_variation(f)/tv₀ ≤ 1 + 1e-12
 end
 
+@testset "Godunov VanLeer is TVD up to the Courant limit" begin
+    # The testset above runs it at c = 0.4 only. Sweby's flux-limited
+    # Lax–Wendroff with a limiter inside his region -- φ(r) ≤ 2 and φ(r)/r ≤ 2,
+    # which VanLeer keeps -- is TVD for every |c| ≤ 1, and so obeys a discrete
+    # maximum principle: each new value is a convex combination of two old ones.
+    # Measured over 200 steps of the pulse, both directions: TV ratio 0.999992
+    # to 1, with f inside [0, 1], at every c below; and a sine that touches
+    # zero stays above it at every one of 1000 steps.
+    #
+    # Its flux used to lack the (1 − |c|) factor, and the update was then TVD
+    # only to |c| ≤ 1/2: over the same 200 steps the TV ratio was 2.05 at 0.6,
+    # 39 at 0.7, 4.8e5 at 0.8 and 1.0e7 at 0.9, and the sine went negative in
+    # one step from c = 0.58, to -9.0e-6.
+    scheme = Godunov(PiecewiseLinear(), VanLeer())
+    f₀ = inv_pulse()
+    tv₀ = total_variation(f₀)
+    touching = [0.5*(1 + sin(2π*(i-1)/INV_N)) for i = 1:INV_N]    # min is 0
+    worst = (ratio = 0.0, min = Inf, max = -Inf, lowest = Inf)
+    for c in (0.5, 0.58, 0.6, 0.7, 0.8, 0.9, 1.0), s in (1, -1)
+        f = march!(f₀, scheme, s*c, 200)
+        ratio = total_variation(f)/tv₀
+
+        g = copy(touching)
+        h = similar(g)
+        lowest = minimum(g)
+        for _ = 1:1000
+            advect!(h, g, scheme, s*c)
+            g, h = h, g
+            lowest = min(lowest, minimum(g))
+        end
+        worst = (ratio = max(worst.ratio, ratio), min = min(worst.min, minimum(f)),
+                 max = max(worst.max, maximum(f)), lowest = min(worst.lowest, lowest))
+        @test ratio ≤ 1 + 1e-12
+        @test minimum(f) ≥ 0.0
+        @test maximum(f) ≤ 1.0
+        @test lowest ≥ 0.0
+    end
+    println("  Godunov VanLeer, c = ±0.5 to ±1: worst TV ratio ", worst.ratio,
+            ", f in [", worst.min, ", ", worst.max, "], sine's lowest ", worst.lowest)
+end
+
 @testset "PFC positivity and maximum principle" begin
     # Preserving positivity is the entire reason this scheme exists, and there
     # was no test for it. 1000 steps on a square pulse: measured min = 1.4e-31,
