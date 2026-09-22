@@ -206,3 +206,101 @@ end
         end
     end
 end
+
+@testset "Bump-on-tail roots" begin
+    # The runs start from the formula as Arber and Vann write it,
+    #
+    #     F(v) = [0.9·exp(−v²/2) + 0.2·exp(−2(v − 4.5)²)]/√(2π)
+    #
+    # and the theory from `BUMP_ON_TAIL`, the two Maxwellians it is made of. The
+    # rewriting is where a slip would hide -- the beam's density is 0.1 rather
+    # than the 0.2 in front of it -- so the root is checked against the formula
+    # itself. A growing root is the one case where that needs no continuation:
+    # with Im ω > 0 the Landau contour *is* the real line, and
+    # χ = -(1/k²)∫F'(v)/(v - ω/k)dv is a plain quadrature that never calls `Z`
+    # and never reads `BUMP_ON_TAIL`. The pole sits 0.66 above the contour, where
+    # the trapezoid is spectrally accurate. Measured |ε| at the root: 5.2e-15
+    # (continuum) and 4.9e-15 (the grid's, below).
+    F′(v) = (-0.9v*exp(-v^2/2) - 0.8(v - 4.5)*exp(-2(v - 4.5)^2))/sqrt(2π)
+    k = 0.3
+    ω = bump_on_tail_root(k)
+    ε = 1 - quad(v -> F′(v)/(v - ω/k))/k^2
+    println("  bump-on-tail root at k = 0.3: ", round(ω; digits = 6),
+            "   |ε| by quadrature of F itself = ", abs(ε))
+    @test abs(ε) < 1e-12
+    @test abs(dielectric(ω, k, BUMP_ON_TAIL)) < 1e-12
+
+    # And the check can tell a misread formula from the right one: the same
+    # quadrature at this root leaves |ε| = 0.21 for a beam twice as narrow,
+    # exp(-4(v - 4.5)²), and 0.64 for a beam of density 0.2 at the right width.
+    F′narrow(v) = (-0.9v*exp(-v^2/2) - 1.6(v - 4.5)*exp(-4(v - 4.5)^2))/sqrt(2π)
+    @test abs(1 - quad(v -> F′narrow(v)/(v - ω/k))/k^2) > 0.1
+    heavy = ((density = 0.9, drift = 0.0, vt = 1.0), (density = 0.2, drift = 4.5, vt = 0.5))
+    @test abs(dielectric(ω, k, heavy)) > 0.1
+
+    # It grows, travelling with the beam, its phase velocity on the beam's
+    # rising flank: at v_φ = 3.337 the slope of F is +0.0203.
+    @test imag(ω) > 0
+    @test F′(real(ω)/k) > 0
+
+    # And the beam's temperature is a correction to it, not its mechanism.
+    # Cooled from vt = 0.5 to 0.025, the root followed step by step, the rate
+    # rises monotonically from 0.19810 to 0.23327 and meets the fluid limit --
+    # a cold beam on the warm bulk, 1 + χ_bulk(ω) = n_b/(ω - ku)² -- whose root
+    # is 1.03125 + 0.23333i, to -0.026% in γ and -0.011% in ω. This is the
+    # beam-plasma instability, reactive rather than resonant at this beam's
+    # temperature: γ is 1.3 times k·vt of the beam, where Landau damping run in
+    # reverse wants it much smaller. The warmth takes 15% off the rate, and
+    # that 15% is what the runs resolve.
+    cold(z) = 1 + susceptibility(z, k; density = 0.9, drift = 0.0, vt = 1.0) - 0.1/(z - 4.5k)^2
+    ω_cold = kinetic_root(cold, 1.1 + 0.2im, 1.11 + 0.2im)
+    z = ω
+    rates = Float64[]
+    for vt in 0.475:-0.025:0.025
+        beams = ((density = 0.9, drift = 0.0, vt = 1.0), (density = 0.1, drift = 4.5, vt = vt))
+        z = kinetic_root(ζ -> dielectric(ζ, k, beams), z, z + 1e-3)
+        push!(rates, imag(z))
+    end
+    println("  cooled to vt = 0.025: ", round(z; digits = 5), ", cold beam ",
+            round(ω_cold; digits = 5))
+    @test issorted(rates)
+    @test isapprox(imag(z), imag(ω_cold); rtol = 1e-3)
+    @test isapprox(real(z), real(ω_cold); rtol = 1e-3)
+
+    # Where the band closes, the marginal wave's phase velocity is the bottom
+    # of the valley between bulk and beam: the minimum of F, where Penrose's
+    # criterion puts every marginal mode, since a real ω leaves the resonance
+    # nothing to cancel against but F'(ω/k) = 0. Bisected on the sign of γ,
+    # the band ends at k = 0.48245 with the root real to 3e-16, and v_φ there
+    # equals the valley's bottom, 3.1036193, to the last digit.
+    function bisection(f, lo, hi)
+        for _ in 1:60
+            mid = 0.5*(lo + hi)
+            f(lo)*f(mid) ≤ 0 ? (hi = mid) : (lo = mid)
+        end
+        return 0.5*(lo + hi)
+    end
+    valley = bisection(F′, 2.5, 4.0)
+    edge = bisection(q -> imag(bump_on_tail_root(q)), 0.45, 0.5)
+    println("  band edge k = ", round(edge; digits = 5), ": v_φ = ",
+            real(bump_on_tail_root(edge))/edge, ", valley bottom ", valley)
+    @test isapprox(real(bump_on_tail_root(edge))/edge, valley; atol = 1e-8)
+
+    # The grid's root, with the centred difference's s = sin(kΔx)/(kΔx) on
+    # every susceptibility, solves the same quadrature with s in front. It is
+    # the target the run is held to, so it gets the same independent check as
+    # the continuum root.
+    Δx = 2π/k/64
+    ωg = bump_on_tail_root(k; Δx = Δx)
+    s = sin(k*Δx)/(k*Δx)
+    εg = 1 - s*quad(v -> F′(v)/(v - ωg/k))/k^2
+    @test abs(εg) < 1e-12
+    @test bump_on_tail_root(k; Δx = 0.0) == ω
+
+    # A weaker field couples the beam less, so the grid's rate is the lower --
+    # by 0.114% at 64 cells -- and the gap is the centred difference's, second
+    # order in Δx: it shrinks 4.003 and then 4.001 times as Δx halves.
+    shift(h) = imag(ω) - imag(bump_on_tail_root(k; Δx = h))
+    @test shift(Δx) > 0
+    @test isapprox(shift(Δx)/shift(Δx/2), 4; rtol = 0.01)
+end

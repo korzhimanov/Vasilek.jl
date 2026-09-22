@@ -84,14 +84,29 @@ function susceptibility(ω, k; density = 1.0, drift = 0.0, vt = 1.0)
 end
 
 """
-    dielectric(ω, k, species)
+    dielectric(ω, k, species; Δx = 0.0)
 
 `ε(ω, k) = 1 + Σχ`, with `species` a collection of NamedTuples carrying
 `density`, `drift` and `vt`. Its roots are the electrostatic modes.
+
+**With `Δx`, it is the dielectric function of the harness's grid rather than of
+the continuum.** `make_poisson` solves for the potential spectrally, which is
+exact, and then takes the field from it by a centred difference, which is not:
+a mode `exp(ikx)` gets `s = sin(kΔx)/(kΔx)` of the field its charge carries. The
+field is what the particles feel, so every susceptibility reaches the relation
+scaled by the same factor, `ε = 1 + s·Σχ`. That is the one piece of the grid's
+error that can be written into the relation exactly; the advection's
+truncation error and the splitting's are left to the run. In the bump-on-tail
+runs it is almost the whole difference between the run and the continuum root
+(see [`bump_on_tail_root`](@ref)).
 """
-dielectric(ω, k, species) =
-    1 + sum(susceptibility(ω, k; density = s.density, drift = s.drift, vt = s.vt)
-            for s in species)
+dielectric(ω, k, species; Δx = 0.0) =
+    1 + centred_field(k, Δx)*sum(susceptibility(ω, k; density = s.density,
+                                                drift = s.drift, vt = s.vt)
+                                 for s in species)
+
+"`sin(kΔx)/(kΔx)`, the fraction of a mode's field a centred difference returns; 1 at `Δx = 0`."
+centred_field(k, Δx) = Δx == 0 ? one(float(k)) : sin(k*Δx)/(k*Δx)
 
 """
     kinetic_root(D, z₀, z₁; tol = 1e-12, maxiter = 100)
@@ -181,4 +196,65 @@ function two_stream_warm(a; v₀ = 3.0, vt = 0.3)
         D(lo)*D(mid) ≤ 0 ? (hi = mid) : (lo = mid)
     end
     return 0.5*(lo + hi)
+end
+
+"""
+    BUMP_ON_TAIL
+
+The bump-on-tail distribution of Arber and Vann [J. Comput. Phys. 180, 339
+(2002)], as the two Maxwellians it is made of. The literature writes it as
+
+    F(v) = [0.9·exp(−v²/2) + 0.2·exp(−2(v − 4.5)²)]/√(2π)
+
+which is a bulk of density 0.9 at rest and unit temperature, and a beam drifting
+at 4.5 with `vt = 0.5` -- whose density is therefore 0.1, not the 0.2 in front of
+it, since a width of 0.5 halves the integral. The two add to 1 exactly.
+
+`test_dispersion.jl` checks this pair against the formula above by a quadrature
+that never calls `Z`, and `bump_on_tail` in the harness runs the formula, not
+the pair.
+"""
+const BUMP_ON_TAIL = ((density = 0.9, drift = 0.0, vt = 1.0),
+                      (density = 0.1, drift = 4.5, vt = 0.5))
+
+"""
+    bump_on_tail_root(k; Δx = 0.0)
+
+The growing root `ω + iγ` of the [`BUMP_ON_TAIL`](@ref) dispersion relation: a
+wave travelling with the beam, its phase velocity on the beam's rising flank.
+
+At the `k = 0.3` the runs use,
+
+    ω = 1.001218,  γ = 0.198098,  v_φ = ω/k = 3.337
+
+near the top of the unstable band: the rate peaks at 0.2028 at `k = 0.266`, and
+the band closes at `k = 0.4824`, where the phase velocity has come down to the
+bottom of the valley between bulk and beam, 3.104 -- the minimum of `F`, as
+Penrose's criterion requires of a marginal mode. The box's harmonics, from 0.6
+up, are outside it.
+
+**This is the beam-plasma instability, and the beam's temperature corrects it
+rather than drives it.** A cold beam on the same warm bulk grows at 0.2333, and
+the root cooled continuously from `vt = 0.5` meets that; `γ` here is 1.3 times
+`k·v_t` of the beam, far from the weak-beam limit where the growth is Landau
+damping run in reverse. The beam's warmth takes 15% off the cold rate, and that
+is what a run has to resolve to land on this root rather than the fluid one.
+
+**The guess is the steepest point of the flank**, `ω = k(u_b − v_t,b)` -- where
+a Gaussian beam's slope is largest, 4.0 here -- nudged into the upper half plane
+by 0.1i. The phase velocity stays on the flank across the band, 3.1 to 3.9, so
+that is where the root is for every `k`: from it the secant finds the growing
+root at all fourteen `k` from 0.125 to 0.45 in steps of 0.025. A Bohm--Gross guess,
+which `landau_root` can afford, misses it for `k ≤ 0.225`, landing on a neutral
+real root or on none: the growing wave there oscillates well below `ωₚ` (0.48 at
+`k = 0.125`), nowhere near Bohm--Gross.
+
+With `Δx` the root is the grid's (see [`dielectric`](@ref)): at the 64 cells of
+the runs, `ω = 1.001052` and `γ = 0.197872`, 0.017% and 0.114% below the
+continuum.
+"""
+function bump_on_tail_root(k; Δx = 0.0)
+    beam = BUMP_ON_TAIL[2]
+    guess = k*(beam.drift - beam.vt) + 0.1im
+    return kinetic_root(ω -> dielectric(ω, k, BUMP_ON_TAIL; Δx = Δx), guess, guess + 0.01)
 end
