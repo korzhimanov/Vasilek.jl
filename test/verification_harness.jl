@@ -69,12 +69,47 @@ spacing for those and **refuses** a non-uniform grid rather than picking one of
 its spacings and being quietly wrong by the ratio between them. That asymmetry
 is a documented wart of the advection API (see `docs/normalization.md`); this is
 the one place the verification runs have to absorb it.
+
+**A displacement wider than the narrowest cell is split** into the fewest equal
+sub-steps that fit ([`substeps`](@ref)). `advect!` refuses it whole, and a
+translation by `α` is `m` translations by `α/m`. Every call the suite makes
+through here is within the bound, and so one call exactly as before, except in
+two runs, both of them the field driving the velocity sweep. The two-stream runs
+keep growing after their fits, into saturation, and the fastest would ask for
+217 cells a step by `tmax`. The strong-damping run on the notebook's
+non-uniform grid has its field at amplitude 1.0017 on the first step with `Δt`
+equal to the narrow cells' width, so it asks for 1.0017 of them. Neither moves a
+measured number: no fit contains a split step, and the second run's four split
+calls move its rates in the sixth digit.
+
+The uniform-grid method does not split. Nothing here asks a uniform scheme for
+more than `c = 0.50`, and `advect!` says so if something ever does.
 """
 function line_advector(scheme::PFCNonUniform, Δz)
     n = length(Δz)
     ws = workspace(scheme, n)
     buf = Vector{Float64}(undef, n)
-    return (col, α) -> (advect!(buf, col, scheme, α, ws); copyto!(col, buf))
+    h = minimum(Δz)
+    return function (col, α)
+        m = substeps(α, h)
+        for _ = 1:m
+            advect!(buf, col, scheme, α/m, ws)
+            copyto!(col, buf)
+        end
+        return col
+    end
+end
+
+"""
+    substeps(α, h)
+
+The fewest equal parts of `α` that are each no longer than `h`, and one for an
+`α` that is not finite, which `advect!` then refuses itself.
+"""
+function substeps(α, h)
+    isfinite(α) || return 1
+    m = max(1, ceil(Int, abs(α)/h))
+    return abs(α/m) > h ? m + 1 : m    # the quotient can round below the integer
 end
 
 function line_advector(scheme, Δz)
@@ -1010,13 +1045,13 @@ same thing at every `k`.
     gains 13% over the run against a head start of 1e-6, so it contributes
     nothing here.
 
-`hi` also has to keep the run inside the solver's validity. The field grows with
-the mode, and the velocity sweep is displaced by `E·Δt`, so a large enough `ε_e`
-breaks `PFC`'s Courant limit in `v` and the run diverges -- measured `ε_e` at
-1.2e161 before `NaN` at `t = 24.1`. Widening the velocity window only postpones
-it, from `t = 24.1` at `±8` to `t = 26.6` at `±16`, which is what identifies the
-Courant limit rather than the boundary as the cause. At the `hi = 5.0` this
-package uses, the velocity Courant number is 0.46 to 0.65.
+`hi` used to be held down by the solver's validity as well. The field grows with
+the mode and displaces the velocity sweep by `E·Δt`, and a large enough `ε_e`
+took that sweep past `PFC`'s Courant limit and the run to `NaN`. `advect!` now
+refuses such a step and [`line_advector`](@ref) splits it, so that bound is
+gone. At the `hi = 5.0` this package uses, the velocity Courant number -- the
+largest `|E|Δt/Δv` over `x` when `ε_e` first reaches it -- is 0.52 to 0.73, and
+no fit contains a split step.
 """
 function growth_rate(t, ε_e; lo, hi)
     i0 = findfirst(≥(lo), ε_e)
@@ -1026,18 +1061,18 @@ function growth_rate(t, ε_e; lo, hi)
     i1 - i0 ≥ 10 ||
         error("growth_rate: only $(i1 - i0 + 1) samples between $lo and $hi")
     band = @view ε_e[i0:i1]
-    # A run that breaches the Courant limit early enough puts a non-finite
-    # sample *inside* the band rather than after it, and `A \ log.(...)` then
-    # returns a `NaN` slope that fails a downstream `isapprox` with nothing to
-    # point at. Diagnose it here, where the cause is still visible. `≤ 0` is
-    # caught with it: `log` of a zero sample would give `-Inf` and the same
-    # silent `NaN`.
+    # A run that diverges early enough puts a non-finite sample *inside* the
+    # band rather than after it -- a velocity sweep past its Courant limit did,
+    # before `advect!` refused one -- and `A \ log.(...)` then returns a `NaN`
+    # slope that fails a downstream `isapprox` with nothing to point at.
+    # Diagnose it here, where the cause is still visible. `≤ 0` is caught with
+    # it: `log` of a zero sample would give `-Inf` and the same silent `NaN`.
     all(x -> isfinite(x) && x > 0, band) || error(
         "growth_rate: the fit window t ∈ [$(t[i0]), $(t[i1])] contains a " *
         "non-positive or non-finite ε_e (first at t = " *
         "$(t[i0 + findfirst(x -> !(isfinite(x) && x > 0), band) - 1])). " *
         "The run has diverged into the band being fitted -- shorten it, or " *
-        "lower `hi` so the fit ends before the velocity Courant limit.")
+        "lower `hi`.")
     A = hcat(ones(i1 - i0 + 1), t[i0:i1])
     return (A \ log.(band))[2]/2, t[i0], t[i1]
 end
@@ -1104,37 +1139,27 @@ measurement, taken before the beams have spread, so it does not see the window
 at all -- measured identical to five digits at `vmax` 5, 6 and 8 -- and the
 narrower grid halves the cost.
 
-!!! note "`tmax = 24.0` sits in a narrow window, and cannot simply be widened"
-    Bounded below by the slowest fit completing and above by the fastest run
-    diverging, with little room between:
+!!! note "`tmax = 24.0` is bounded below, and no longer above"
+    The `a = 0.8` fit needs `ε_e` to reach `hi = 5.0`, which happens at
+    `t = 22.85`; below that `growth_rate` raises rather than guessing.
 
-      * the `a = 0.8` fit needs `ε_e` to reach `hi = 5.0`, which happens at
-        `t = 22.85`. Below that `growth_rate` raises rather than guessing.
-      * the `a = 0.6` run passes `PFC`'s velocity Courant limit on the way and
-        goes non-finite at `t = 24.15` -- `a = 0.4` at 25.8, `a = 0.8` at 27.7,
-        each after `ε_e` has run away to 1e124 or beyond.
+    It used to be bounded above as well, at 24.15, by the fastest run
+    diverging. The field keeps growing after the fit, and the velocity sweep it
+    drives passed `PFC`'s Courant limit -- at `t = 21.10` for `a = 0.6`, 22.20
+    for the `vt = 0.6` run and 23.20 for `a = 0.4` -- and went on to 217 cells a
+    step and `ε_e = 7.8e4` by `t = 24`, then `NaN`. `advect!` now refuses such a
+    step and [`line_advector`](@ref) splits it into sub-steps that fit, so the
+    runs stay valid past their fits and saturate instead: `ε_e` peaks at 106 at
+    `t = 24.95` for `a = 0.6`, and every run here is finite to `t = 40`. The
+    fits are over before the first split -- the velocity Courant number is 0.52
+    to 0.73 when `ε_e` first reaches 5.0 -- so the growth rates are what they
+    were, to the bit.
 
-    So the usable range is about `[22.9, 24.15]` and the default takes the top
-    of it, three steps clear of the `a = 0.6` divergence. Moving `tmax` down
-    buys margin against the divergence by spending it against the fit, which is
-    not a trade worth making blind: a fit that fails to complete is the more
-    likely of the two, and both are now loud rather than silent. `growth_rate`
-    raises on a window it cannot span, and raises again on a window containing
-    a non-finite sample -- the case that would otherwise have returned a `NaN`
-    growth rate and failed an `isapprox` with nothing to point at.
-
-    Note that the run is already past the Courant limit well before it diverges:
-    at `a = 0.6` `ε_e` is 40 by `t = 23` and 7.8e4 by `t = 24`, where the
-    `hi = 5` of the fit holds the velocity Courant number at 0.65, so the tail of
-    the run is unphysical even where it is finite. Nothing reads it -- the fit is
-    long over by then.
-
-    **`a = 1.0` is a different regime and takes `tmax = 80`.** There the cold
-    rate is zero and the warm one is 0.098, a third of the branch maximum, so
-    `ε_e` needs 78 time units to cross the same amplitude band the other cases
-    cross in twenty. Its divergence is correspondingly later -- measured at
-    t = 86.2 -- which is why the two numbers can coexist: the window is narrow
-    at each `a`, not globally.
+    **`a = 1.0` takes `tmax = 80`.** There the cold rate is zero and the warm
+    one is 0.098, a third of the branch maximum, so `ε_e` needs 78 time units to
+    cross the same amplitude band the other cases cross in twenty. It stays
+    under the Courant limit to `tmax`, at 0.94 at most, and with the split it is
+    finite to `t = 100`, where it used to go non-finite at 86.2.
 """
 function two_stream(a; v₀ = 3.0, vt = 0.3, Δv = 0.05, vmax = 6.0,
                        Δt = 0.05, tmax = 24.0)

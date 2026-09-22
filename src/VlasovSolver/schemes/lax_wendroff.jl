@@ -3,7 +3,7 @@
 end
 
 function advect!(dest, src, scheme::LaxWendroff, c, ws)
-    _validate(dest, src, scheme, ws)
+    _validate(dest, src, scheme, c, ws)
     n = length(dest)
     dest[1] = _lax_wendroff(src, 1, n, 2, c)
     @inbounds @simd for i = 2:n-1

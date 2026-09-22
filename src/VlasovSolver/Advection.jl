@@ -89,7 +89,8 @@ A one-dimensional advection scheme. Advance one step with
     advect!(dest, src, scheme, c, ws)
 
 where `c` is the Courant number and `ws` is scratch from [`workspace`](@ref).
-Boundaries are periodic throughout.
+Boundaries are periodic throughout. Every scheme but `SemiLagrangian` needs
+`|c| ≤ 1`, and `advect!` refuses more; see [`_validate_courant`](@ref).
 """
 abstract type AbstractAdvection1D end
 
@@ -107,6 +108,17 @@ struct LaxWendroff <: AbstractAdvection1D end
     Godunov(reconstruction, limiter = NoLimiter())
 
 Finite-volume scheme with the given interface reconstruction and flux limiter.
+
+!!! warning "`PiecewiseLinear` is stable to `|c| ≤ 1/2`, not 1"
+    The interface value is `fᵢ₋₁ + φ(r)(fᵢ − fᵢ₋₁)/2`, with no `(1 − |c|)`
+    factor, so the update is forward Euler on a limited slope. Harten's
+    condition makes that total-variation diminishing for `|c| ≤ 1/2` when
+    `φ(r) ≤ 2` and `φ(r)/r ≤ 2`, which [`VanLeer`](@ref) satisfies, and the
+    measurement agrees: over 200 steps at N = 128 a square pulse keeps its
+    total variation at `c = 0.5` and doubles it at 0.6, and `1 + 0.5 sin` is 84
+    from the exact answer after 300 steps at 0.7. `advect!` refuses `|c| > 1`,
+    the limit every explicit scheme here shares; this tighter one belongs to
+    the reconstruction and is not enforced.
 """
 struct Godunov{R<:AbstractReconstruction, L<:AbstractLimiter} <: AbstractAdvection1D
     reconstruction::R
@@ -161,10 +173,15 @@ cell widths. Needs a [`workspace`](@ref).
 
 The limiter coefficient is computed per cell triple. A single global value
 would let one refined region tighten the limiter across the whole domain.
+
+`advect!` takes a displacement here, not a Courant number, and it is bounded by
+the *narrowest* cell: `|α| ≤ minimum(Δx)`, computed once here and checked on
+every call. See [`_validate_courant`](@ref) for why the narrowest.
 """
 struct PFCNonUniform{T<:AbstractFloat} <: AbstractAdvection1D
     Δx::Vector{T}
     ξ::Vector{T}
+    Δxmin::T
     fmin::T
     fmax::T
 end
@@ -187,7 +204,7 @@ function PFCNonUniform(Δx_::AbstractVector{T}; fmin, fmax) where {T<:AbstractFl
         ξ[i] = slope_limit(min(d₋, Δx[i], d₊)/max(d₋, Δx[i], d₊))
     end
     fmn, fmx = promote(float(fmin), float(fmax))
-    return PFCNonUniform{T}(Δx, ξ, T(fmn), T(fmx))
+    return PFCNonUniform{T}(Δx, ξ, minimum(Δx), T(fmn), T(fmx))
 end
 
 # ------------------------------------------------------------------ workspace
@@ -221,8 +238,10 @@ The four-argument form allocates a workspace when the scheme needs one; pass
 one explicitly in any loop that runs more than once.
 
 `dest` and `src` must be distinct arrays of equal length, at least three
-elements long, and `ws` must be the workspace `workspace(scheme, length(src))`
-returns. Each of those is checked; see [`_validate`](@ref) for why.
+elements long; `ws` must be the workspace `workspace(scheme, length(src))`
+returns; and `|c| ≤ 1` unless the scheme is `SemiLagrangian` -- for
+`PFCNonUniform`, whose `c` is a displacement, `|c| ≤ minimum(Δx)`. Each of
+those is checked; see [`_validate`](@ref) for why.
 """
 advect!(dest, src, scheme::AbstractAdvection1D, c) =
     advect!(dest, src, scheme, c, workspace(scheme, length(dest)))
@@ -230,11 +249,11 @@ advect!(dest, src, scheme::AbstractAdvection1D, c) =
 # ----------------------------------------------------------------- validation
 
 """
-    _validate(dest, src, scheme, ws)
+    _validate(dest, src, scheme, c, ws)
 
 Argument check run at the top of every `advect!` method.
 
-Three ways of calling `advect!` wrongly used to produce a plausible wrong
+Four ways of calling `advect!` wrongly used to produce a plausible wrong
 answer rather than an error, and this package has twice paid for exactly that
 class of failure -- the two `PFC` overloads that disagreed by a factor of 740,
 and the `LaxWendroff` methods that sized their loops from a captured array.
@@ -252,16 +271,25 @@ and the `LaxWendroff` methods that sized their loops from a captured array.
     not: `interpolate!` prefilters the whole buffer, so a `SemiLagrangian`
     handed a workspace built for a longer line returned garbage -- measured
     max|Δ| ≈ 0.4 -- with no complaint.
+  * **A Courant number above one**, for every scheme that has a limit. One step
+    past it still looks right -- `LaxWendroff` at `c = 1.2` is 5.2e-6 from the
+    exact shift, against 1.7e-6 at 0.9 -- and a hundred are 9.1e10 from it. See
+    [`_validate_courant`](@ref).
 
-The checks are three comparisons outside the loop and cost no allocation; the
+The checks are four comparisons outside the loop and cost no allocation; the
 error paths are `@noinline` so their message construction stays out of the hot
-code.
+code. Timed the way `PFC`'s `checked` pass is, the fourth is lost in the noise:
+at N = 10000 the schemes ran between 0.3% and 7.3% *faster* with it than without,
+against a 2.2% shift in a scheme whose code it does not touch, and the same
+method put `checked` at 8.0%. As a call on its own it takes under 3 ns, 0.16% of
+the cheapest step at that size, `Upwind`'s 1.9 µs.
 """
-@inline function _validate(dest, src, scheme::AbstractAdvection1D, ws)
+@inline function _validate(dest, src, scheme::AbstractAdvection1D, c, ws)
     dest === src && _err_alias()
     length(dest) == length(src) || _err_length(length(dest), length(src))
     length(src) ≥ 3 || _err_short(length(src))
     _validate_workspace(scheme, ws, length(src))
+    _validate_courant(scheme, c)
     return nothing
 end
 
@@ -294,6 +322,55 @@ function _validate_workspace(p::PFCNonUniform, ws::PFCWorkspace, n::Integer)
     length(ws.accumulator) == n || _err_workspace(length(ws.accumulator), n)
     return nothing
 end
+
+"""
+    _validate_courant(scheme, c)
+
+Refuse a step `scheme` cannot take: `|c| > 1` for the schemes with a Courant
+limit, and for `PFCNonUniform`, whose `c` is a displacement, `|c|` wider than
+its narrowest cell. `c = ±1` exactly is accepted; so is anything at all by
+`SemiLagrangian`, since characteristic tracing has no Courant limit. `NaN` is
+refused, as no comparison with it holds.
+
+`Upwind`, `LaxWendroff`, `Godunov` and `PFC` are explicit, and none of them
+survives a characteristic crossing more than one cell per step. Measured over
+every mode of an N = 128 grid, the worst growth per step at `c = 1.2` is 1.40
+for `Upwind` and `Godunov(PiecewiseConstant())`, 1.88 for `LaxWendroff` and
+1.18 for `PFC` with its limiter out of reach; at `c = 1` those four are an
+exact one-cell shift. What grows is round-off at the grid scale, which is what
+makes the answer plausible rather than obviously wrong: one step of
+`LaxWendroff` at 1.2 is 5.2e-6 from the exact shift of `1 + 0.5 sin`, and a
+hundred are 9.1e10 from it. `PFC` loses first the property it exists for: one
+step at 1.2 takes data with an exact zero to -2.9e-5. That is how this check
+came to exist -- a free-streaming run with its fastest rows at `c = 1.22`
+returned silently from every such call, and the first sign was `PFC`'s own
+`checked` assertion, 218 steps in. With `checked = false`, or with
+`LaxWendroff` or `Upwind`, there would have been none.
+
+The bounded method is the default, so a new scheme is checked unless it opts
+out, as `SemiLagrangian` does. A scheme that forgets to opt out is refused
+loudly; one that forgot to opt in would be wrong quietly.
+
+`PFCNonUniform` is held to its narrowest cell, not a typical one. Every cell is
+the donor for one of its interfaces and gives up its flux alone, so a
+displacement wider than any one cell is wrong in that cell however wide its
+neighbours are: on a 1:2 refined grid, 1.1 of the narrow width -- 0.55 of the
+wide one -- takes data with an exact zero to -7.6e-6 in one step.
+"""
+_validate_courant(scheme::AbstractAdvection1D, c) =
+    abs(c) ≤ 1 ? nothing : _err_courant(scheme, c)
+_validate_courant(::SemiLagrangian, c) = nothing
+_validate_courant(p::PFCNonUniform, α) =
+    abs(α) ≤ p.Δxmin ? nothing : _err_displacement(α, p.Δxmin)
+
+@noinline _err_courant(scheme, c) = throw(DomainError(c,
+    "$(nameof(typeof(scheme))) is stable only for |c| ≤ 1: a characteristic may " *
+    "not cross more than one cell per step. Take more, smaller steps, or use " *
+    "SemiLagrangian, which has no Courant limit"))
+@noinline _err_displacement(α, h) = throw(DomainError(α,
+    "PFCNonUniform needs |α| ≤ minimum(Δx) = $h: its fourth argument is a " *
+    "displacement, and each cell gives up its outgoing flux alone, so none may " *
+    "be crossed in one step. Take more, smaller steps"))
 
 include(joinpath("schemes", "upwind.jl"))
 include(joinpath("schemes", "lax_wendroff.jl"))

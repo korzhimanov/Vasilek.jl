@@ -157,6 +157,85 @@ This project has not been released; entries below describe work on `master`.
 
 ### Fixed
 
+- **`advect!` refuses a step past the scheme's Courant limit.** `_validate`
+  checked aliasing, the lengths and the workspace, and not the one bound every
+  explicit scheme here has. `Upwind`, `LaxWendroff`, `Godunov` and `PFC` are
+  unstable past `|c| = 1`, and they fail plausibly, because what grows is
+  round-off at the grid scale. One step on `1 + 0.5 sin` at N = 128, against the
+  exact shift, with the worst per-step growth over every mode of the grid and
+  the error a hundred steps later:
+
+  | scheme | c = 0.9 | 1.0 | 1.2 | 2.0 | growth at 1.2 | 100 steps at 1.2 |
+  |---|---|---|---|---|---|---|
+  | `Upwind` | 5.4e-5 | 0 | 1.4e-4 | 1.2e-3 | 1.40 | 2.7e-2, and 2.0e27 at 300 |
+  | `Godunov(PiecewiseConstant())` | 5.4e-5 | 2.2e-16 | 1.4e-4 | 1.2e-3 | 1.40 | 6.8e-2, and 5.2e27 at 300 |
+  | `LaxWendroff` | 1.7e-6 | 2.2e-16 | 5.2e-6 | 5.9e-5 | 1.88 | 9.1e10 |
+  | `Godunov(PiecewiseLinear(), VanLeer())` | 5.5e-4 | 6.8e-4 | 9.6e-4 | 2.6e-3 | (nonlinear) | 1.6e13 |
+  | `PFC` | 2.3e-8 | 2.2e-16 | 5.1e-8 | 8.9e-16 | 1.18 | 5.1e-6, and 4.9e15 at 300 |
+  | `SemiLagrangian` cubic | 9.8e-10 | 2.2e-16 | 3.1e-9 | 2.2e-16 | 1.00 | 3.1e-7 |
+
+  `PFC` loses first the property it exists for: one step at 1.2 takes
+  `0.5(1 + sin)`, which touches zero, to −2.9e-5, and to 1 + 2.9e-5 against an
+  `fmax` of 1. Its exact answer at `c = 2` is a coincidence of the unlimited
+  reconstruction, which interpolates the primitive at the stencil's nodes and so
+  reproduces a whole-cell shift; at 1.5 it goes negative in one step and reaches
+  5.6e276 in a thousand. A free-streaming run whose fastest rows sat at
+  `c = 1.22` (`vmax = 6`, `Δt = 0.02`, `Δx = 4π/128`) returned silently from
+  every such call, and the first sign was `PFC`'s own `checked` assertion — 218
+  steps in, at `minimum(src) = −1.13e-10`, in a reproduction. With
+  `checked = false`, or with `LaxWendroff` or `Upwind`, there would have been
+  none.
+
+  `|c| > 1` is now a `DomainError`, raised before anything is written, and so is
+  `NaN`. `c = ±1` is accepted: it is an exact one-cell shift for every bounded
+  scheme but `Godunov(PiecewiseLinear())`. The bounded method is the default, and
+  `SemiLagrangian`, whose characteristic tracing has no Courant limit, opts out,
+  so a scheme added later is checked unless it says otherwise. `PFCNonUniform`
+  takes a displacement and is held to its narrowest cell, stored at
+  construction: every cell gives up its flux alone, and on a 1:2 grid a step of
+  1.1 narrow widths — only 0.55 of the wide one — takes data with an exact zero
+  to −7.6e-6. The check does not depend on `checked`. It is one comparison
+  outside the loop, under 3 ns as a call on its own — 0.16% of `Upwind`'s 1.9 µs
+  step at N = 10000 — and inside the step it is lost in the noise of timing it:
+  with it and without, alternated eight times at N = 10000, the schemes ran
+  0.3% to 7.3% faster *with* it, against a 2.2% shift in a scheme it does not
+  touch. `PFC`'s `checked` pass, timed alongside, reads 8.0% where its docstring
+  quotes 13%.
+
+  Two runs in the extended suite, and the notebooks that mirror them, had been
+  taking such steps; a probe on every `advect!` call of both suites and every
+  notebook found no others, the largest being 0.94 in the `a = 1.0` two-stream
+  run. The Landau x-sweeps sit at 0.32 to 0.41, being Strang half-steps; it is
+  the velocity sweeps, full steps driven by the field, that crossed:
+
+  * the two-stream runs keep growing after their fits, and the velocity sweep
+    reached 217 cells a step before the `a = 0.6` run went to `NaN` at
+    t = 24.15, which is what bounded `tmax` from above;
+  * the strong-damping run on the notebook's non-uniform velocity grid starts
+    with the field at 1.0017 and `Δt` equal to the narrow cells' width, so its
+    first step asks for 1.0017 of them.
+
+  `line_advector` now splits a displacement wider than the narrowest cell into
+  the fewest sub-steps that fit, and `verification/landau-damping-1d1v.jl` does
+  the same. No fitted number moves: every two-stream fit ends at a velocity
+  Courant number of 0.52 to 0.73, before the first split, so the rates are
+  bit-identical, and the strong-damping run's four split calls move γ₁ and γ₂ in
+  the sixth digit. The two-stream runs now saturate instead of diverging — `ε_e`
+  peaks at 106 for `a = 0.6` — and are finite to t = 40, so `tmax` has no upper
+  bound left. `test_invariants.jl` marched `Upwind` at c = 1.05 for 2000 steps
+  to show the instability; it asserts the refusal instead.
+
+  Measured on the way, and not enforced: **`Godunov(PiecewiseLinear())` is
+  stable only to `|c| ≤ 1/2`.** Its interface value carries no `(1 − |c|)`
+  factor, so the update is forward Euler on a limited slope, and Harten's
+  condition makes that total-variation diminishing for `|c| ≤ 1/2`. A square
+  pulse keeps its total variation over 200 steps at c = 0.5 and doubles it at
+  0.6; `0.5(1 + sin)` goes negative in one step from c = 0.58; `1 + 0.5 sin` is
+  890 from the exact answer after 100 steps at 0.9. The docstring now says so.
+  And the velocity Courant number `growth_rate` quoted for the two-stream fits,
+  0.46 to 0.65, was the single-mode estimate `√(2ε_e/L)·Δt/Δv`; the largest over
+  `x` is 0.52 to 0.73.
+
 - **A full test run evaluates each shared test file once.** `runtests.jl`
   includes every test file into `Main`, and the files several of them share were
   evaluated once per file that included them: `scheme_cases.jl` ten times,

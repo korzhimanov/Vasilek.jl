@@ -1,5 +1,5 @@
 function advect!(dest, src, s::SemiLagrangian{LinearSpline}, c, ws::SplineWorkspace)
-    _validate(dest, src, s, ws)
+    _validate(dest, src, s, c, ws)
     n = length(src)
     buf = ws.buffer
     # explicit wrap-around point: relying on the periodic extrapolation alone
@@ -11,7 +11,7 @@ function advect!(dest, src, s::SemiLagrangian{LinearSpline}, c, ws::SplineWorksp
 end
 
 function advect!(dest, src, s::SemiLagrangian, c, ws::SplineWorkspace)
-    _validate(dest, src, s, ws)
+    _validate(dest, src, s, c, ws)
     n = length(src)
     buf = ws.buffer
     copyto!(buf, src)

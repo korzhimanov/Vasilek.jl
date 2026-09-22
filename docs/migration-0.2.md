@@ -65,6 +65,13 @@ all of them.
 `advect!` also requires `dest !== src` and at least three cells. Both used to
 be quietly wrong rather than an error.
 
+So is a step past a scheme's Courant limit, and it is refused now too: `|c| > 1`
+for every scheme but `SemiLagrangian`, and for `PFCNonUniform` a displacement
+wider than its narrowest cell, raise a `DomainError`. 0.1 took the step and
+returned an answer that looked right for tens of steps before it grew without
+bound. A run that needs the longer step can split it into sub-steps that fit,
+or use `SemiLagrangian`.
+
 ## Note on the fourth argument
 
 For the uniform-grid schemes it is the Courant number `vΔt/Δx`. For
