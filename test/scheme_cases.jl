@@ -1,5 +1,5 @@
 # The canonical scheme list and stepping helper, shared by the golden,
-# convergence, invariant and allocation suites so the four cannot drift apart.
+# convergence and invariant suites, among others, so they cannot drift apart.
 #
 # The files in `test/` include it as `@isdefined(march!) || include(...)`, so
 # that each still runs on its own while a full test run, which puts them all in

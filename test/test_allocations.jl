@@ -2,8 +2,6 @@ using Vasilek
 using Vasilek.Collisions: Landau1P, collide!, workspace as collision_workspace
 using Vasilek: PoissonFourier1D, FDTD1D
 
-@isdefined(march!) || include(joinpath(@__DIR__, "scheme_cases.jl"))
-
 """
 Allocation gate.
 
