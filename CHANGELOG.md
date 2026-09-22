@@ -161,9 +161,10 @@ This project has not been released; entries below describe work on `master`.
   diminishing to `|c| = 1`.** Its flux was the reconstruction's value at the
   interface, `|c|(fᵢ₋₁ + φ(r)(fᵢ − fᵢ₋₁)/2)`, which makes the update forward
   Euler on a limited slope. It is now the reconstruction averaged over the strip
-  that crosses the interface in one step. That strip's midpoint lies
-  `(1 − |c|)Δx/2` upwind of the interface, so the slope term gains a factor
-  `(1 − |c|)`, and the scheme becomes what its name says: Godunov's
+  that crosses the interface in one step. That strip's midpoint lies `|c|Δx/2`
+  upwind of the interface, `(1 − |c|)Δx/2` downwind of the cell's centre, so the
+  slope term gains a factor `(1 − |c|)`, and the scheme becomes what its name
+  says: Godunov's
   reconstruct–evolve–average with a linear reconstruction, which is Sweby's
   flux-limited Lax–Wendroff. The old flux is Sweby's as well, with the limiter
   `φ/(1 − c)` in place of `φ` (the two agree to 6.7e-16 after 50 steps), and
