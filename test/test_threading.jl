@@ -1,7 +1,7 @@
 using Vasilek
 using Vasilek.Collisions: collide!, workspace as collision_workspace
 
-include(joinpath(@__DIR__, "scheme_cases.jl"))
+@isdefined(march!) || include(joinpath(@__DIR__, "scheme_cases.jl"))
 
 # Reentrancy: the property the 0.2 refactor existed for, and the only one that
 # had no test.

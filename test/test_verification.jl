@@ -7,7 +7,7 @@
 # These promote the claims the verification notebooks make in prose into
 # assertions. Until they run, those claims are a 2021 HTML file.
 
-include(joinpath(@__DIR__, "verification_harness.jl"))
+@isdefined(vlasov_poisson) || include(joinpath(@__DIR__, "verification_harness.jl"))
 
 # The Landau roots are **computed**, by `landau_root` in `test/dispersion.jl`,
 # which the harness includes. This file used to carry three of them as typed-in

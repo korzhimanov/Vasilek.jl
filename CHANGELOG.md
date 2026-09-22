@@ -157,6 +157,39 @@ This project has not been released; entries below describe work on `master`.
 
 ### Fixed
 
+- **A full test run evaluates each shared test file once.** `runtests.jl`
+  includes every test file into `Main`, and the files several of them share were
+  evaluated once per file that included them: `scheme_cases.jl` ten times,
+  `dispersion.jl` six, `echo.jl` three and `verification_harness.jl` twice. Each
+  repeat redefined the file's methods, and `Pkg.test` runs with
+  `--warn-overwrite=yes`: 150 warnings, in the default run and the extended one
+  alike, among which one that mattered would not have been read. Each include of
+  a shared file in `test/` is now guarded on a function that file defines —
+  `@isdefined(march!) || include(…)`, the idiom Julia's own test suite uses for
+  its helpers — so every test file still runs on its own and a full run prints
+  none of the 150. Guarded on a name rather than on the path, because an
+  `include_once` helper would itself have to be included, and guarded, by every
+  file that used it. The name is one a session would not have for itself:
+  `dispersion.jl` is guarded on `landau_root` rather than `Z`, whose skip made
+  `test_dispersion.jl` test a session's own `Z(x) = x` — 12 failures — where the
+  file would have replaced it. The scripts in `verification/` and `benchmark/`
+  keep their plain `include`: each is the first thing in its process to include
+  the file. The harness's own includes are guarded as well, so a script that
+  includes it now evaluates `dispersion.jl` once where it did twice.
+  `test_allocations.jl`, which included `scheme_cases.jl` but keeps its own list
+  — the canonical one less the two spline schemes, whose prefilter allocates and
+  is bounded apart — no longer includes it. Pass and broken counts are
+  unchanged: 1499 and 2 by default, 1632 and 2 extended.
+
+- **`test_free_streaming.jl` replaced the harness's `mode_amplitude` for every
+  file that ran after it.** Its own `mode_amplitude(n, x, k)`, the real `cos kx`
+  projection, had the signature of the harness's complex one, and a full run
+  puts both files in `Main`: from there on, a mode the harness measured would
+  have come back as its real part alone. Nothing measures one after it yet; the
+  warning `Pkg.test` printed for it was the one of 151 that was not a repeat. The
+  free-streaming helper is `cos_amplitude` now, and neither run prints a
+  method-overwrite warning.
+
 - **`PFC` in the remaining verification runs is bounded by the distribution it
   carries.** The harness took its own defaults' bounds from `f` above; the runs
   that pass `PFC` in explicitly still bounded it at 0.5 (`test_echo.jl`,

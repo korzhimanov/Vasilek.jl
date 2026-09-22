@@ -1,6 +1,6 @@
 # Shared by the golden test and its generator, so the two cannot drift apart.
 
-include(joinpath(@__DIR__, "scheme_cases.jl"))
+@isdefined(march!) || include(joinpath(@__DIR__, "scheme_cases.jl"))
 
 const GOLDEN_N = 64
 const GOLDEN_C = 0.4
