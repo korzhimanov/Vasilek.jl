@@ -157,6 +157,51 @@ This project has not been released; entries below describe work on `master`.
 
 ### Fixed
 
+- **`PFCNonUniform` checks its data against its bounds, as `PFC` does**
+  (`src/VlasovSolver/Advection.jl`, `test/test_contracts.jl`). It takes the same
+  `fmin` and `fmax` and builds them into the same limiter — its `ξ(fmax − f)`
+  turns negative above `fmax` — but it never looked at the data, so data outside
+  the bounds was not clipped but corrupted, with no error. That is how the
+  harness's old bound of 1 took an equilibrium peaking at 1.79 to 43.6% of its
+  peak away from itself (below). It now has `PFC`'s `checked` keyword and type
+  parameter, on by default, and runs `PFC`'s own assertion — one function for
+  both, so the two refuse the same data with the same message. The old bound on
+  that equilibrium is refused on the first call; built with `checked = false`
+  the scheme runs it to the same 43.6%, and the extended suite asserts both.
+  Existing calls `PFCNonUniform(Δx; fmin, fmax)` keep working, checked, and
+  still infer to a concrete type, which took `@constprop :aggressive` on the
+  constructor: without it the default never reached the type.
+
+  The fast suite runs `PFC`'s bounds tests over again for it, and adds the
+  damage: one unchecked step from a peak of 5 against `fmax = 2` lands 0.048
+  from the same step bounded at 5, and conserves mass to round-off, so a mass
+  check downstream would pass it.
+
+  The cost, measured as for `PFC` — one call at N = 10000, checked against
+  unchecked — is 5% of the step on Julia 1.13 and 10% on 1.10. Measured
+  alongside it, `PFC`'s is 7% and 17%, where its docstring said 13%: the pass is
+  `minimum` and `maximum`, which 1.10 runs two and a half times slower, so both
+  docstrings now name the version. Each figure is a median over six processes.
+  Within one process a kernel timed against itself agrees to 0.2%, but the
+  check's share moved from one process to the next, 4.5% to 6.2% for this one
+  on 1.13.
+
+  The check found one run that leaves its bounds (`test/verification_harness.jl`).
+  `two_stream` ran every growth-rate case to t = 24, which took three of them
+  past PFC's velocity Courant limit into a tail its docstring called unphysical
+  and unread. Unchecked, the `a = 0.6` run crossed the limit at t = 21.1 and at
+  t = 22.0, with the Courant number at 1.41, handed the scheme f = −5.5e-20,
+  then −3.9e-3 by t = 23.4: no rounding tolerance in the check would have let it
+  through. `vlasov_poisson` now takes `stop_at_courant`, which ends a run after
+  the first step whose `max|e|Δt/min Δv` exceeds 1, and `two_stream` sets it:
+  `a = 0.4` stops at t = 23.2, `0.6` at 21.1 and the `vt = 0.6` run at 22.2, each
+  long after its fit, and no rate moves. The `tmax` note loses the upper bound
+  of its three-step window. And the velocity Courant number the growth-rate fits
+  end at is corrected to what `max|e|` gives, 0.52 to 0.66, and 0.73 at
+  `a = 1.0`; it read 0.46 to 0.65, a single mode's amplitude. With the runs
+  stopping there, every checked run in both suites stays inside its bounds on
+  every call.
+
 - **`PFC` in the remaining verification runs is bounded by the distribution it
   carries.** The harness took its own defaults' bounds from `f` above; the runs
   that pass `PFC` in explicitly still bounded it at 0.5 (`test_echo.jl`,
@@ -190,9 +235,10 @@ This project has not been released; entries below describe work on `master`.
 
 - **The verification harness gave PFC an upper bound of 1 whatever `f` was.**
   `vlasov_poisson` built its default `PFCNonUniform` schemes with `fmax = 1.0`,
-  a number nothing chose, and `PFCNonUniform` does not check its data against
-  it. A trapped population at half the passing temperature peaks at 1.79, and
-  the limiter took it 43.6% of its peak away from equilibrium by t = 50. The
+  a number nothing chose, and `PFCNonUniform` did not then check its data
+  against it (it does now; above). A trapped population at half the passing
+  temperature peaks at 1.79, and the limiter took it 43.6% of its peak away
+  from equilibrium by t = 50. The
   bounds are now those of `f` on entry, 0 and its maximum, which by Liouville
   the exact solution keeps: that run holds to 0.99%. The same goes for the
   other two places the harness chose a bound — the echo's kick (1) and

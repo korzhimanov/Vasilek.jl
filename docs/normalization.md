@@ -167,3 +167,9 @@ these are global initial bounds, supplied by the caller. They cannot be derived
 per line inside a multidimensional sweep, which is why there is no default —
 one silently wrong default already cost a factor of 740 between two overloads
 that were supposed to agree.
+
+Both schemes check the data against the bounds on every call, and throw an
+`AssertionError` naming the bound and the extremum that broke it. The limiter
+builds the bounds into the flux, so data outside them is not clipped but
+corrupted, and nothing else would say so. `checked = false` compiles the check
+away where the bounds are known good.

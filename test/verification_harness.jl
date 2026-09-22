@@ -84,7 +84,7 @@ end
 
 """
     vlasov_poisson(x, v, f₀, t; scheme_x, scheme_v, invariants = false, modes = (),
-                   nᵢ = nothing, renormalize = nᵢ === nothing)
+                   nᵢ = nothing, renormalize = nᵢ === nothing, stop_at_courant = false)
 
 Strang-split Vlasov–Poisson on a static grid.
 
@@ -148,22 +148,36 @@ maximum and trips `PFC`'s own check on the first call.
 Liouville's theorem the exact solution keeps both, and PFC's limiter exists to
 keep a run between the bounds it is given, so they belong to the run rather than
 to the driver. They were the constant 1, which nothing chose and `PFCNonUniform`
-does not check. Above it the limiter's `2(fmax − f)` goes negative and the scheme
-corrupts the run without a word: an equilibrium whose trapped population peaks at
-1.79 ended 44% of its peak away from itself with the bound at 1. Below it, where
-every run until then sat, the bound never engaged at all.
+did not then check. Above it the limiter's `2(fmax − f)` goes negative and the
+scheme corrupted the run without a word: an equilibrium whose trapped population
+peaks at 1.79 ended 44% of its peak away from itself with the bound at 1 -- a run
+the scheme now refuses on its first call. Below it, where every run until then
+sat, the bound never engaged at all.
 
 Tight, it does engage, at the maximum, and that has a measured price: the limiter
 clips the reconstruction in the peak cell, and the α = 0.05 round trip in
 `test_verification.jl` converges at second order (×4.4, then ×4.1) where it
 converged at third (×5.7, ×7.1). Elsewhere the numbers moved little and are
-updated where they are quoted. No run leaves its bound: the `fmax` history of a
-Landau, a strong Landau, a two-stream and an equilibrium run tops out exactly at
-it, or below, to the last bit.
+updated where they are quoted. The `fmax` history of a Landau, a strong Landau,
+a two-stream and an equilibrium run tops out exactly at the bound, or below, to
+the last bit. One run did leave it, and recorded no history to show it: the
+`a = 0.6` two-stream case, past its velocity Courant limit. `PFCNonUniform` now
+checks every call, so none can leave it quietly, and that run stops at the limit
+instead.
+
+**`stop_at_courant = true` ends the run at the velocity Courant limit.** The
+x-sweeps move `f` by `vΔt/2`, which the grid fixes; the v-sweep moves it by
+`eΔt`, which grows with the field, and past one cell per step PFC's flux reaches
+beyond the neighbouring cell and the scheme leaves the bounds it is built on --
+which, checked, it refuses a few steps later. With the flag the loop ends after
+the first step whose `max|e|Δt/min Δv` exceeds 1, and every history ends with
+that step: `length(ε_e) - 1` steps ran, and `f` is the state after the last.
+The unstable runs need it; see [`two_stream`](@ref).
 """
 function vlasov_poisson(x, v, f₀, t;
                         scheme_x = nothing, scheme_v = nothing, invariants = false,
-                        modes = (), nᵢ = nothing, renormalize = nᵢ === nothing)
+                        modes = (), nᵢ = nothing, renormalize = nᵢ === nothing,
+                        stop_at_courant = false)
     Δx = cell_widths(x)
     Δv = cell_widths(v)
 
@@ -218,6 +232,7 @@ function vlasov_poisson(x, v, f₀, t;
     # seeded mode coming back early.
     E_modes  = isempty(modes) ? nothing : zeros(ComplexF64, length(t), length(modes))
 
+    steps = length(t) - 1
     for k in 1:length(t)-1
         Δt = t[k+1] - t[k]
         vΔt(_) = v*Δt
@@ -248,11 +263,24 @@ function vlasov_poisson(x, v, f₀, t;
             fmin[k] = minimum(f)
             fmax[k] = maximum(f)
         end
+
+        # This step's v-sweep moved `f` by `e*Δt`; the one that crossed a cell
+        # is the last.
+        if stop_at_courant && maximum(abs, e)*Δt > minimum(Δv)
+            steps = k
+            break
+        end
     end
     for h in (ε_e, ε, mass, momentum, l2, entropy, fmin, fmax)
-        h === nothing || (h[end] = h[end-1])
+        h === nothing || (h[steps+1] = h[steps])
     end
-    E_modes === nothing || (E_modes[end, :] = E_modes[end-1, :])
+    E_modes === nothing || (E_modes[steps+1, :] = E_modes[steps, :])
+    if steps < length(t) - 1
+        ε_e, ε, mass, momentum, l2, entropy, fmin, fmax =
+            map(h -> h === nothing ? nothing : h[1:steps+1],
+                (ε_e, ε, mass, momentum, l2, entropy, fmin, fmax))
+        E_modes = E_modes === nothing ? nothing : E_modes[1:steps+1, :]
+    end
     # `f` comes back too. It costs nothing -- the array exists either way -- and
     # it is the only way to ask a question about the distribution rather than
     # about a moment of it, which is what the reversibility test needs.
@@ -1010,7 +1038,10 @@ breaks `PFC`'s Courant limit in `v` and the run diverges -- measured `ε_e` at
 1.2e161 before `NaN` at `t = 24.1`. Widening the velocity window only postpones
 it, from `t = 24.1` at `±8` to `t = 26.6` at `±16`, which is what identifies the
 Courant limit rather than the boundary as the cause. At the `hi = 5.0` this
-package uses, the velocity Courant number is 0.46 to 0.65.
+package uses, the velocity Courant number `max|e|Δt/Δv` is 0.52 to 0.66 in the
+three growth-rate runs and 0.73 at `a = 1.0`. (It read 0.46 to 0.65: that is a
+single mode's amplitude `√(2ε_e/L)`, and the peak of `e` is higher.)
+[`two_stream`](@ref) stops its runs at 1.
 """
 function growth_rate(t, ε_e; lo, hi)
     i0 = findfirst(≥(lo), ε_e)
@@ -1098,37 +1129,31 @@ measurement, taken before the beams have spread, so it does not see the window
 at all -- measured identical to five digits at `vmax` 5, 6 and 8 -- and the
 narrower grid halves the cost.
 
-!!! note "`tmax = 24.0` sits in a narrow window, and cannot simply be widened"
-    Bounded below by the slowest fit completing and above by the fastest run
-    diverging, with little room between:
+!!! note "The runs stop at the velocity Courant limit, and `tmax = 24.0` has only to be long enough"
+    An unstable run grows its field until the velocity sweep moves `f` by more
+    than a cell per step, and past that `PFC` leaves the bounds it is built on.
+    Unchecked, the `a = 0.6` run crossed the limit at `t = 21.1`, handed the
+    scheme `f = −5.5e-20` at `t = 22.0`, with the Courant number at 1.41, and
+    −3.9e-3 by 23.4, and went non-finite at 24.15. The scheme refuses that now,
+    so `two_stream` runs with `stop_at_courant = true` and each run ends at its
+    own limit: `a = 0.4` with the step from `t = 23.2`, `0.6` from 21.1, and the
+    `vt = 0.6` run from 22.2. `a = 0.8` does not reach it by `t = 24` (0.94), nor
+    `a = 1.0` by 80 (0.94).
 
-      * the `a = 0.8` fit needs `ε_e` to reach `hi = 5.0`, which happens at
-        `t = 22.85`. Below that `growth_rate` raises rather than guessing.
-      * the `a = 0.6` run passes `PFC`'s velocity Courant limit on the way and
-        goes non-finite at `t = 24.15` -- `a = 0.4` at 25.8, `a = 0.8` at 27.7,
-        each after `ε_e` has run away to 1e124 or beyond.
-
-    So the usable range is about `[22.9, 24.15]` and the default takes the top
-    of it, three steps clear of the `a = 0.6` divergence. Moving `tmax` down
-    buys margin against the divergence by spending it against the fit, which is
-    not a trade worth making blind: a fit that fails to complete is the more
-    likely of the two, and both are now loud rather than silent. `growth_rate`
-    raises on a window it cannot span, and raises again on a window containing
-    a non-finite sample -- the case that would otherwise have returned a `NaN`
-    growth rate and failed an `isapprox` with nothing to point at.
-
-    Note that the run is already past the Courant limit well before it diverges:
-    at `a = 0.6` `ε_e` is 40 by `t = 23` and 7.8e4 by `t = 24`, where the
-    `hi = 5` of the fit holds the velocity Courant number at 0.65, so the tail of
-    the run is unphysical even where it is finite. Nothing reads it -- the fit is
-    long over by then.
+    The fits are over long before: `hi = 5` holds the Courant number at 0.52 to
+    0.66 in these runs, and at 0.73 in the `a = 1.0` one, and none of the rates
+    moved when the runs started stopping. What bounds `tmax` is the slowest fit
+    completing -- the `a = 0.8` one needs `ε_e` to reach 5.0, which happens at
+    `t = 22.85`, and below that `growth_rate` raises rather than guessing. It
+    used to be bounded above as well, by the fastest run diverging, which left a
+    window of three steps; that bound is gone. `growth_rate` still raises on a
+    window containing a non-finite sample, for a run set up to cross the limit
+    inside its own fit.
 
     **`a = 1.0` is a different regime and takes `tmax = 80`.** There the cold
     rate is zero and the warm one is 0.098, a third of the branch maximum, so
     `ε_e` needs 78 time units to cross the same amplitude band the other cases
-    cross in twenty. Its divergence is correspondingly later -- measured at
-    t = 86.2 -- which is why the two numbers can coexist: the window is narrow
-    at each `a`, not globally.
+    cross in twenty.
 """
 function two_stream(a; v₀ = 3.0, vt = 0.3, Δv = 0.05, vmax = 6.0,
                        Δt = 0.05, tmax = 24.0)
@@ -1142,7 +1167,8 @@ function two_stream(a; v₀ = 3.0, vt = 0.3, Δv = 0.05, vmax = 6.0,
     beams = @. 0.5/sqrt(2π*vt^2)*(exp(-(v - v₀)^2/(2vt^2)) +
                                   exp(-(v + v₀)^2/(2vt^2)))
     f₀ = beams * (@. (1.0 + 1e-3*cos(k*x)))'
-    r = vlasov_poisson(x, v, f₀, t)
-    return t[1:end-1], r.ε_e[1:end-1]
+    r = vlasov_poisson(x, v, f₀, t; stop_at_courant = true)
+    n = length(r.ε_e) - 1
+    return t[1:n], r.ε_e[1:n]
 end
 

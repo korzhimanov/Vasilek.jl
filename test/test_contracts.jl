@@ -57,6 +57,76 @@ include(joinpath(@__DIR__, "scheme_cases.jl"))
     end
 end
 
+# `PFCNonUniform` takes the same bounds and builds them into the same limiter,
+# and checked none of them: the verification harness bounded every run at
+# `fmax = 1`, an equilibrium peaking at 1.79 went through it, and it ended 43.6%
+# of its peak away from itself by t = 50 without an error. The same tests as
+# `PFC`'s above, on the same data and at the same Courant number -- the fourth
+# argument here is a displacement, and 0.02 over cells of 0.05 is 0.4.
+@testset "PFCNonUniform bounds check" begin
+    N = 64
+    f = [1.0 + 0.5*sin(2π*(i-1)/N) for i = 1:N]      # ranges over [0.5, 1.5]
+    Δx = fill(0.05, N)
+    scheme(; kw...) = PFCNonUniform(Δx; fmin = 0.0, fmax = 2.0, kw...)
+
+    @testset "the check fires, in both branches" begin
+        over = copy(f);  over[10] = 5.0
+        under = copy(f); under[10] = -1.0
+        for α in (0.02, -0.02)
+            @test_throws AssertionError march!(over, scheme(), α, 1)
+            @test_throws AssertionError march!(under, scheme(), α, 1)
+        end
+
+        # Touching the bounds exactly is legal: the assertions are `≤`.
+        exact = copy(f); exact[1] = 0.0; exact[2] = 2.0
+        @test march!(exact, scheme(), 0.02, 1) isa Vector{Float64}
+    end
+
+    @testset "and says what PFC says" begin
+        # One function checks both schemes, so the same data draws the same
+        # message from either: the bound, and the extremum that broke it.
+        over = copy(f);  over[10] = 5.0
+        under = copy(f); under[10] = -1.0
+        message(s, c, g) = try march!(g, s, c, 1); "" catch e; e.msg end
+        @test message(scheme(), 0.02, over) == message(PFC(fmin = 0.0, fmax = 2.0), 0.4, over) ==
+              "fmax = 2.0 is below maximum(src) = 5.0"
+        @test message(scheme(), 0.02, under) == message(PFC(fmin = 0.0, fmax = 2.0), 0.4, under) ==
+              "fmin = 0.0 exceeds minimum(src) = -1.0"
+    end
+
+    @testset "checked = false compiles it away without changing the answer" begin
+        for α in (0.02, -0.02)
+            @test march!(f, scheme(checked = true), α, 4) == march!(f, scheme(checked = false), α, 4)
+        end
+
+        # On data outside the bounds it does not throw, and the answer it gives
+        # instead does not look wrong: one step from a peak of 5 against
+        # `fmax = 2` lands 0.048 from the same step bounded at 5 -- 0.37 after
+        # four -- and conserves mass to round-off, so a mass check downstream
+        # would pass it.
+        over = copy(f); over[10] = 5.0
+        wrong = march!(over, scheme(checked = false), 0.02, 1)
+        right = march!(over, PFCNonUniform(Δx; fmin = 0.0, fmax = 5.0), 0.02, 1)
+        @test maximum(abs, wrong .- right) > 0.01
+        @test sum(wrong) ≈ sum(over) rtol = 1e-13
+    end
+
+    @testset "the flag is a type parameter, and construction still infers" begin
+        @test scheme()                  isa PFCNonUniform{Float64, true}
+        @test scheme(checked = false)   isa PFCNonUniform{Float64, false}
+        # The one-parameter spelling in existing code matches either.
+        @test scheme()                  isa PFCNonUniform{Float64}
+        @test scheme(checked = false)   isa PFCNonUniform{Float64}
+        # The element type is the grid's, as before, and the bounds follow it.
+        @test PFCNonUniform(fill(0.05f0, N); fmin = 0, fmax = 2) isa PFCNonUniform{Float32, true}
+        # `checked` is a value, and it has to reach the type. Inference did not
+        # carry the default through the constructor on its own, so the call
+        # below inferred as `PFCNonUniform{Float64}` -- concrete before the flag
+        # existed, abstract after -- until `@constprop :aggressive`.
+        @test (@inferred PFCNonUniform(Δx; fmin = 0.0, fmax = 2.0)) isa PFCNonUniform{Float64, true}
+    end
+end
+
 # The argument checks `advect!` runs, and the three ways of calling it wrongly
 # that used to produce a plausible answer instead of an error. Each case below
 # was measured misbehaving before the check existed; the numbers are in the

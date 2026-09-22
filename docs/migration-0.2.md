@@ -36,6 +36,12 @@ shared scratch buffer, so they could not be threaded over them.
 The `Symbol` options are types, so a typo is a `MethodError` where it is
 written rather than a call on `nothing` from inside the hot loop.
 
+`PFC` and `PFCNonUniform` check on every call that the data lie within
+`[fmin, fmax]`, and throw an `AssertionError` when they do not. In 0.1 `PFC`
+checked once, at construction, and `PFCNonUniform` never did: data outside its
+bounds gave a wrong answer with no error, and now stops at the first call.
+`checked = false` removes the check, at compile time.
+
 ## Workspaces
 
 `SemiLagrangian` and `PFCNonUniform` need scratch memory:

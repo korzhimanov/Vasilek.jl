@@ -519,6 +519,19 @@ end
                 @test maximum(cold.f₀) > 1.5
                 @test drift(cold) < 3e-2
                 @test off_separatrix(cold) ≤ 1
+
+                # And the old bound, handed in. `PFCNonUniform` checks its data
+                # now and refuses the run on the first x-line that crosses 1;
+                # built with `checked = false` it runs as it used to, to the same
+                # 43.6%. Both halves are asserted, so that neither the check nor
+                # the damage it stands between can go away unnoticed.
+                old(checked) = (scheme_x = PFCNonUniform(cell_widths(cold.x); fmin = 0.0, fmax = 1.0, checked),
+                                scheme_v = PFCNonUniform(cell_widths(cold.v); fmin = 0.0, fmax = 1.0, checked))
+                @test_throws AssertionError vlasov_poisson(cold.x, cold.v, cold.f₀, [0.0, 0.05];
+                                                           cold.nᵢ, old(true)...)
+                wrecked = vlasov_poisson(cold.x, cold.v, cold.f₀, collect(0:0.05:50.0);
+                                         cold.nᵢ, old(false)...)
+                @test drift((; wrecked.f, cold.f₀)) > 0.3
             end
 
             @testset "and it is this equilibrium, not any" begin
@@ -1154,6 +1167,12 @@ end
                 # unstable -- which this very testset measures below. Against
                 # the warm root the same measurement is +0.09%, and nothing
                 # needs explaining away.
+                #
+                # The runs end at the velocity Courant limit (see `two_stream`),
+                # `a = 0.4` and `0.6` with the steps from t = 23.2 and 21.1, well
+                # after their fits. Run on to t = 24 as they used to be, the
+                # `a = 0.6` one hands `PFCNonUniform` a negative f at t = 22.0,
+                # and the scheme's bounds check stops it there.
                 measured = Float64[]
                 for a in (0.4, 0.6, 0.8)
                     t, ε_e = two_stream(a)
@@ -1239,9 +1258,9 @@ end
                 # Measured γ = 0.09516 against 0.09823, which is 3.12%, fitted
                 # over t ∈ [45.6, 78.2]. The band is the same `[100ε₀, 5.0]`
                 # every other case uses; `tmax = 80` is what it takes to reach
-                # 5.0 at a tenth of the growth rate, and the run goes non-finite
-                # at t = 86.2, so the margin is six time units rather than the
-                # three steps the `a = 0.6` case gets at `tmax = 24`.
+                # 5.0 at a tenth of the growth rate, and the run stays under the
+                # velocity Courant limit to the end -- 0.94 at t = 80 -- where
+                # the `a = 0.6` case reaches it at t = 21.1 and stops there.
                 #
                 # Held to 8% rather than the 3% above, and the reason is in
                 # `growth_rate`: the beat between the growing root and the
