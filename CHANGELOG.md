@@ -157,6 +157,44 @@ This project has not been released; entries below describe work on `master`.
 
 ### Fixed
 
+- **`two_stream(0.4)` ran on 95 cells rather than 96.** `two_stream` built its
+  grid as `collect(Δx:Δx:L)`, and a floating-point range works its length out
+  from its endpoints: at `a = 0.4`, `Δx + 95Δx` rounds past `L` and the range
+  stops a point short. The box was then `95Δx = 46.63` against `L = 47.12`, its
+  fundamental `k·96/95` — `a = 0.4042`, where the warm root is 0.30536 rather
+  than 0.30362 — and the seeded `cos kx`, a 96-point period on 95 points, left
+  0.76% of its amplitude outside that fundamental. The −0.39% the test reported
+  against the root at 0.4 was −0.95% against the root of the wavenumber the run
+  actually had.
+
+  The grid is now `range(Δx; step = Δx, length = Nx)`, `Nx` points by
+  construction. On 96 cells the rate is 0.30173: −0.62% from the warm root and
+  −2.10% from the cold, fitted over t ∈ [15.50, 21.60], inside the 3% tolerance
+  and still below the peak at a = 0.6. What `growth_rate` and `two_stream` quote
+  at a = 0.4 moved with it: fixed time windows give 10.65%, 6.43%, 3.99% and
+  0.19% from the cold root (were 9.75%, 5.63%, 4.35% and 0.55%); the spread over
+  start points is 41.4% over one beat period and 9.4% over two (were 39.6% and
+  9.0%); `cos ω₊t` and `sin ω₊t` in the band fit move it from −2.10% to −3.24%,
+  1.1 points where the note said at most one; the run, continued past its fit,
+  goes non-finite at t = 25.9 (was 25.8) after `ε_e` reaches 4.6e114 (was
+  3.1e124); and the growth plot's single-γ line peels 6.0× below the curve (was
+  6.1×).
+
+  Every other periodic grid in the extended suite and in
+  `verification/scheme-comparison.jl` was built the same way and had its length
+  right. They are built by length now too, and are the same grids to the bit —
+  checked on Julia 1.10 and 1.13 — so nothing else moves. `[j*Δx for j = 1:Nx]`,
+  the obvious alternative, rounds `jΔx` once where the range rounds
+  `Δx + (j − 1)Δx` twice, and would have moved points of every grid here but the
+  two stable two-stream cases by an ulp. The colon form is a trap rather than a
+  one-off: at the two-stream construction it comes up short for 14 of the 156
+  values of `a` in `0.05:0.01:1.6`.
+
+  One quote was wrong on its own account. `growth_rate`'s note credited fitting
+  "over an integer number of beat periods instead of an arbitrary window" with
+  the drop in that spread; the measurement behind it compared one beat period
+  with two, and the note now says so.
+
 - **`PFC` in the remaining verification runs is bounded by the distribution it
   carries.** The harness took its own defaults' bounds from `f` above; the runs
   that pass `PFC` in explicitly still bounded it at 0.5 (`test_echo.jl`,
@@ -359,7 +397,7 @@ This project has not been released; entries below describe work on `master`.
   which at that temperature is off by up to 3.14% — half of a 6% tolerance spent
   on a known approximation, and 7.44% at the `vt = 0.6` run, where the cold error
   has grown with the temperature. Against `two_stream_warm` the same three
-  measurements read −0.39%, −1.95% and +0.09%, and the tolerance is now 3%.
+  measurements read −0.62%, −1.95% and +0.09%, and the tolerance is now 3%.
 
   `a = 1.0`, the cold stability boundary, turns from a qualitative case into the
   sharpest one in the testset. The cold form predicts exactly zero there and the
@@ -464,11 +502,11 @@ This project has not been released; entries below describe work on `master`.
   0.353. Changing `vt` changes `γ` slightly, moving the ripple's phase within a
   fixed window and dragging the fitted rate across the cold value with it.
 
-  Fitting over an integer number of beat periods cuts the spread over start
-  points from 39.6%, 14.4% and 22.3% to 9.0%, 5.6% and 4.8%. The amplitude band
+  Fitting over two beat periods instead of one cuts the spread over start
+  points from 41.4%, 14.4% and 22.3% to 9.4%, 5.6% and 4.8%. The amplitude band
   already spans 1.15 to 2.22 periods and needs no such help: adding
   `cos ω₊t`/`sin ω₊t` to the design matrix — still linear, `ω₊` being in closed
-  form — moves its results by at most one point and was not kept.
+  form — moves its results by 1.1 points at most and was not kept.
 
   Three other explanations were measured and rejected: refining `Δv` moves the
   result by 1e-5; the driver's renormalisation leaves the effective density at
@@ -504,8 +542,8 @@ This project has not been released; entries below describe work on `master`.
   1.4e-14) and confirms it reproduces `√(3/8)` and `1/(2√2)` on its own before
   using it.
 
-  Measured at three wavenumbers, with the beams at `vt = 0.3`: γ = 0.30245,
-  0.34228 and 0.31229 against 0.30819, 0.35339 and 0.31134 — 1.86%, 3.14% and
+  Measured at three wavenumbers, with the beams at `vt = 0.3`: γ = 0.30173,
+  0.34228 and 0.31229 against 0.30819, 0.35339 and 0.31134 — 2.10%, 3.14% and
   0.31%. **`γ(a)` is non-monotone**, peaking at `a = √(3/8) ≈ 0.612`, so
   reproducing all three is a statement about the branch rather than about one
   point: a solver that merely amplified what it was given could not put the
@@ -527,9 +565,9 @@ This project has not been released; entries below describe work on `master`.
   imaginary, so the mode grows without oscillating and there are no `log cos²`
   poles — nor, in fact, any local maxima for `damping_rate` to find. Its window
   is set by **amplitude** rather than time, which is what makes it transferable
-  across the branch: at `kv₀ = 0.4` a fixed time window gives 9.75%, 5.63%,
-  4.35% and 0.55% depending on where it is put, and the amplitude band gives
-  1.86% at every `k`. The ceiling also keeps the run inside the solver's
+  across the branch: at `kv₀ = 0.4` a fixed time window gives 10.65%, 6.43%,
+  3.99% and 0.19% depending on where it is put, and the amplitude band gives
+  2.10% at every `k`. The ceiling also keeps the run inside the solver's
   validity — the field grows with the mode, and a large enough `ε_e` breaks
   `PFC`'s Courant limit in `v`, measured diverging to 1.2e161 before `NaN` at
   `t = 24.1`. Widening the velocity window only postpones that, from `t = 24.1`

@@ -964,8 +964,8 @@ transferable between wavenumbers: the growth rate varies over the branch, so a
 fixed time window covers a different stretch of the exponential at each `k` and
 the fitted value wobbles by several percent with it. Measured at `kv₀ = 0.4`
 over the same run, fitting `t ∈ [8,18]`, `[10,20]`, `[12,22]`, `[14,24]` gives
-9.75%, 5.63%, 4.35% and 0.55% error; the amplitude band gives 1.86% and does the
-same thing at every `k`.
+10.65%, 6.43%, 3.99% and 0.19% error from `γ_cold`; the amplitude band gives
+2.10% and does the same thing at every `k`.
 
 !!! note "Why a fixed window wobbles: `ε_e` is not one exponential"
     The quadratic in `γ_cold` has **four** roots -- the growing pair `±iγ` and
@@ -978,9 +978,10 @@ same thing at every `k`.
 
     Measured at `a = 0.6`: the instantaneous rate oscillates with period 4.5
     against the `2π/ω₊ = 4.626` this predicts, swinging between 0.21 and 0.41
-    around a `γ_cold` of 0.353. Fitting over an integer number of beat periods
-    instead of an arbitrary window cuts the spread over start points from
-    39.6%, 14.4% and 22.3% (at `a` = 0.4, 0.6, 0.8) to 9.0%, 5.6% and 4.8%.
+    around a `γ_cold` of 0.353. Fitting over two beat periods instead of one
+    cuts the spread of the rate over start points `t₀ ∈ [10, 14]` from 41.4%,
+    14.4% and 22.3% of `γ_cold` (at `a` = 0.4, 0.6, 0.8) to 9.4%, 5.6% and
+    4.8%.
 
     The ripple is worst where `γ` is smallest, since that is what sets how fast
     it decays away -- which is why `a = 0.4` and `a = 0.9`, at either end of the
@@ -990,8 +991,8 @@ same thing at every `k`.
     anything cleverer: it spans 1.15 to 2.22 beat periods across the three cases
     in use, enough to average the ripple. Adding `cos ω₊t` and `sin ω₊t` to the
     design matrix -- still a linear fit, since `ω₊` is known in closed form --
-    was tried and moves the band results by at most one point (−1.86% to
-    −2.86%, −3.14% to −3.08%, +0.31% to +0.44%). It is not worth the machinery.
+    was tried and moves the band results by 1.1 points at most (−2.10% to
+    −3.24%, −3.14% to −3.08%, +0.31% to +0.44%). It is not worth the machinery.
 
     This is what produced the apparent overshoot above `γ_cold` at small beam
     temperature: `vt` changes `γ` slightly, which moves the beat's phase within
@@ -1098,6 +1099,19 @@ measurement, taken before the beams have spread, so it does not see the window
 at all -- measured identical to five digits at `vmax` 5, 6 and 8 -- and the
 narrower grid halves the cost.
 
+**The x grid has `Nx` points by construction.** It was `collect(Δx:Δx:L)`, and a
+floating-point range works its length out from its endpoints: at `a = 0.4`,
+`Nx` is 96 but `Δx + 95Δx` rounds past `L`, and the range stopped at 95. That
+run's box was `95Δx = 46.63` against `L = 47.12`, so its fundamental was
+`k·96/95` -- `a = 0.4042`, where the warm root is 0.30536 rather than 0.30362 --
+and the seeded `cos kx`, a 96-point period on 95 points, left 0.76% of its
+amplitude outside that fundamental. It measured `γ = 0.30245`, 0.39% under the
+root at 0.4 and 0.95% under the root of the wavenumber it ran; on 96 points it
+measures 0.30173, 0.62% under. `range(Δx; step = Δx, length = Nx)` is the old
+grid to the bit at every other `a` the suite runs, where the colon form had the
+length right; the colon form comes up short at 14 of the 156 values of `a` in
+`0.05:0.01:1.6`, so the trap is not peculiar to 0.4.
+
 !!! note "`tmax = 24.0` sits in a narrow window, and cannot simply be widened"
     Bounded below by the slowest fit completing and above by the fastest run
     diverging, with little room between:
@@ -1105,8 +1119,8 @@ narrower grid halves the cost.
       * the `a = 0.8` fit needs `ε_e` to reach `hi = 5.0`, which happens at
         `t = 22.85`. Below that `growth_rate` raises rather than guessing.
       * the `a = 0.6` run passes `PFC`'s velocity Courant limit on the way and
-        goes non-finite at `t = 24.15` -- `a = 0.4` at 25.8, `a = 0.8` at 27.7,
-        each after `ε_e` has run away to 1e124 or beyond.
+        goes non-finite at `t = 24.15` -- `a = 0.4` at 25.9, `a = 0.8` at 27.7,
+        each after `ε_e` has run away to 1e114 or beyond.
 
     So the usable range is about `[22.9, 24.15]` and the default takes the top
     of it, three steps clear of the `a = 0.6` divergence. Moving `tmax` down
@@ -1136,7 +1150,7 @@ function two_stream(a; v₀ = 3.0, vt = 0.3, Δv = 0.05, vmax = 6.0,
     L = 2π/k
     Nx = round(Int, L/0.49)
     Δx = L/Nx
-    x = collect(Δx:Δx:L)
+    x = collect(range(Δx; step = Δx, length = Nx))    # not Δx:Δx:L -- see above
     v = collect(-vmax:Δv:vmax)
     t = collect(0.0:Δt:tmax)
     beams = @. 0.5/sqrt(2π*vt^2)*(exp(-(v - v₀)^2/(2vt^2)) +

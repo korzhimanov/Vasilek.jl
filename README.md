@@ -73,7 +73,7 @@ closed form remains as its zero-temperature limit and is checked as such.
 | a trapped population above f = 1 holds too | within 3% of its peak, now that PFC's bound comes from f₀ | 0.99%, against 43.6% at the old bound |
 | plasma oscillation frequency | ω within 0.2% of Bohm–Gross √(1+3k²), and the cold ωₚ excluded | 0.018%, against 0.57% for cold |
 | nor does that frequency depend on its window | two windows agree within 0.2% | 0.006% |
-| two-stream growth rate, kv₀ = 0.4, 0.6, 0.8 | γ within 3% of the warm kinetic root, and the peak in the right place | 0.39%, 1.95%, 0.09% |
+| two-stream growth rate, kv₀ = 0.4, 0.6, 0.8 | γ within 3% of the warm kinetic root, and the peak in the right place | 0.62%, 1.95%, 0.09% |
 | the same beams at twice the temperature | γ(vt = 0.6) below γ(vt = 0.3), each within 3% of its own warm root | −4.4% measured against −4.4% predicted |
 | two-stream at the cold boundary, kv₀ = 1.0 | γ within 8% of the warm root, where the cold form gives exactly zero | 3.12% |
 | two-stream stability boundary, kv₀ = 1.2, 1.6 | no growth, where cold and warm theory both give γ = 0 | decays to 0.052, 0.000 |
