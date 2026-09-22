@@ -17,6 +17,7 @@ const SCHEMES = (
     ("Godunov constant",         Godunov(PiecewiseConstant())),
     ("Godunov linear",           Godunov(PiecewiseLinear())),
     ("Godunov linear VanLeer",   Godunov(PiecewiseLinear(), VanLeer())),
+    ("Godunov linear Superbee",  Godunov(PiecewiseLinear(), Superbee())),
     ("SemiLagrangian linear",    SemiLagrangian(LinearSpline())),
     ("SemiLagrangian quadratic", SemiLagrangian(QuadraticSpline())),
     ("SemiLagrangian cubic",     SemiLagrangian(CubicSpline())),

@@ -58,6 +58,7 @@ end
             ("Godunov constant",      Godunov(PiecewiseConstant())),
             ("Godunov linear",        Godunov(PiecewiseLinear())),
             ("Godunov VanLeer",       Godunov(PiecewiseLinear(), VanLeer())),
+            ("Godunov Superbee",      Godunov(PiecewiseLinear(), Superbee())),
             ("PFC",                   PFC(fmin = 0.0, fmax = 2.0)),
             ("SemiLagrangian linear", SemiLagrangian(LinearSpline())),
         ]

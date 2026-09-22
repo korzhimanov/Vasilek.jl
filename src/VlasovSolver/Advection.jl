@@ -29,7 +29,7 @@ using Interpolations
 
 export AbstractAdvection1D, advect!, workspace,
        Upwind, LaxWendroff, Godunov, SemiLagrangian, PFC, PFCNonUniform,
-       PiecewiseConstant, PiecewiseLinear, NoLimiter, VanLeer,
+       PiecewiseConstant, PiecewiseLinear, NoLimiter, VanLeer, Superbee,
        LinearSpline, QuadraticSpline, CubicSpline
 
 # ---------------------------------------------------------------- option types
@@ -44,7 +44,8 @@ struct PiecewiseConstant <: AbstractReconstruction end
 Piecewise-linear reconstruction, its slope set by the limiter. With
 [`NoLimiter`](@ref) the slope is the downwind difference and `Godunov` reduces
 to [`LaxWendroff`](@ref), second order and not monotone; with
-[`VanLeer`](@ref) it is total-variation diminishing up to `|c| = 1`.
+[`VanLeer`](@ref) or [`Superbee`](@ref) it is total-variation diminishing up to
+`|c| = 1`.
 """
 struct PiecewiseLinear <: AbstractReconstruction end
 
@@ -57,8 +58,37 @@ struct NoLimiter <: AbstractLimiter end
 """Van Leer limiter [Van Leer, J. Comput. Phys., 14 (4), 361 (1974)]."""
 struct VanLeer <: AbstractLimiter end
 
+"""
+Superbee limiter [Roe, Annu. Rev. Fluid Mech. 18, 337 (1986)]:
+`r -> max(0, min(2r, 1), min(r, 2))`. It is the upper edge of Sweby's
+second-order total-variation-diminishing region: of all limiters that keep
+[`Godunov`](@ref) with [`PiecewiseLinear`](@ref) second order and
+total-variation diminishing up to `|c| = 1`, it is the most compressive.
+
+That makes it the choice for discontinuities and a poor one for smooth data.
+One traversal at `c = 0.4` and N = 512 leaves these L² errors:
+
+  * square pulse: 1.58e-2, the lowest of any scheme `test_comparison.jl`
+    compares ([`VanLeer`](@ref) leaves 2.77e-2, the cubic
+    [`SemiLagrangian`](@ref) 2.01e-2);
+  * sine: 1.74e-4, twice VanLeer's 8.55e-5.
+
+It is second order in L¹, but only from about N = 128: a fit from N = 32 to
+256 reads 1.65.
+
+Its compression is anti-diffusion. On smooth data it steepens slopes, and the
+L² norm of a perturbation grows, where every other scheme here loses some. In a
+Vlasov–Poisson run that biases a damping rate low. Landau damping at `k = 0.5`,
+refined from `Nx = 32` to 256 at a fixed Courant number, goes −2.41%, −0.39%,
+−0.68%, +0.13% with Superbee, against +7.76%, +1.43%, +0.52%, +0.43% with
+`VanLeer`. So Superbee is for sharp fronts, and `VanLeer` or [`PFC`](@ref) for
+smooth phase-space dynamics.
+"""
+struct Superbee <: AbstractLimiter end
+
 (::NoLimiter)(r) = 1.0
 (::VanLeer)(r) = (r + abs(r))/(1.0 + abs(r))
+(::Superbee)(r) = max(0.0, min(2r, 1.0), min(r, 2.0))
 
 """Interpolating spline used by [`SemiLagrangian`](@ref)."""
 abstract type AbstractSpline end
@@ -118,9 +148,10 @@ the strip that crosses the interface in one step. For `PiecewiseLinear` and
 
 which is Sweby's flux-limited Lax–Wendroff [Sweby, SIAM J. Numer. Anal. 21 (5),
 995 (1984)]. `φ = 1` gives [`LaxWendroff`](@ref) and `φ = 0` gives
-[`Upwind`](@ref). [`VanLeer`](@ref) keeps `φ(r) ≤ 2` and `φ(r)/r ≤ 2`, which
-makes the scheme total-variation diminishing for every `|c| ≤ 1`. At `|c| = 1`
-the correction vanishes and the step is an exact one-cell shift.
+[`Upwind`](@ref). [`VanLeer`](@ref) and [`Superbee`](@ref) keep `φ(r) ≤ 2` and
+`φ(r)/r ≤ 2`, which makes the scheme total-variation diminishing for every
+`|c| ≤ 1`. At `|c| = 1` the correction vanishes and the step is an exact
+one-cell shift.
 
 The `(1 − c)` factor is what makes the scheme second order. Without it, as in
 0.1, the flux is the reconstruction's value at the interface and the update is

@@ -30,19 +30,20 @@ function conv_error(scheme, N)
 end
 
 "Least-squares slope of log(error) against log(Δx) in the given norm."
-function conv_order(scheme, which)
-    errs = [conv_error(scheme, N)[which] for N in CONV_NS]
-    X = log.([1/N for N in CONV_NS])
+function conv_order(scheme, which; Ns = CONV_NS)
+    errs = [conv_error(scheme, N)[which] for N in Ns]
+    X = log.([1/N for N in Ns])
     y = log.(errs)
     n = length(X)
     return (n*sum(X.*y) - sum(X)*sum(y)) / (n*sum(X.^2) - sum(X)^2)
 end
 
-function check_order(name, scheme, expected; which = 2, atol = 0.15)
-    p = conv_order(scheme, which)
+function check_order(name, scheme, expected; which = 2, atol = 0.15, Ns = CONV_NS)
+    p = conv_order(scheme, which; Ns = Ns)
     nrm = which == 1 ? "L1" : which == 2 ? "L2" : "Linf"
+    span = Ns == CONV_NS ? "" : string(", N = ", first(Ns), "..", last(Ns))
     println("  ", rpad(name, 26), " order = ", lpad(round(p; digits = 2), 5),
-            "  (expected ", expected, ", ", nrm, ")")
+            "  (expected ", expected, ", ", nrm, span, ")")
     @test isapprox(p, expected; atol = atol)
 end
 
@@ -60,6 +61,15 @@ end
     # on the limited slope, first order at a fixed Courant number -- 1.00, 1.01
     # and 0.82 -- and was held here to 1 in L¹. The 0.82 had been quoted as 0.69.
     check_order("Godunov linear VanLeer", Godunov(PiecewiseLinear(), VanLeer()), 2; which = 1)
+
+    # Superbee is second order in L¹ too, but it gets there late: its limiter
+    # is the most compressive in Sweby's region, which costs most on a coarse
+    # grid. The local slopes from N = 32 to 2048 are 1.19, 1.81, 1.91,
+    # 1.96, 1.98 and 1.99, so a fit over the usual 32 to 256 reads 1.65, still
+    # pre-asymptotic. Held to 2 over 128 to 1024, where it measures 1.95. L²
+    # settles near 1.69 and L∞ near 1.3.
+    check_order("Godunov linear Superbee", Godunov(PiecewiseLinear(), Superbee()), 2;
+                which = 1, Ns = [128, 256, 512, 1024])
 
     check_order("SemiLagrangian linear", SemiLagrangian(LinearSpline()), 1)
     check_order("SemiLagrangian quadratic", SemiLagrangian(QuadraticSpline()), 2)
