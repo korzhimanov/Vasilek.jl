@@ -23,6 +23,17 @@ end
     return abs(c)*(f[i⁻] + limiter(_ratio(f, i⁻, i⁻², i))*0.5*(f[i] - f[i⁻]))
 end
 
+# One `advect!` for every reconstruction, so the step is validated in one place;
+# the sweep dispatches on the reconstruction below it. A method per
+# reconstruction would be a `_validate` call per reconstruction, each to be kept
+# in step with that function's signature -- and a signature change made
+# elsewhere merges without a conflict and leaves a call it missed failing at run
+# time.
+function advect!(dest, src, g::Godunov, c, ws)
+    _validate(dest, src, g, ws)
+    return _godunov!(dest, src, c, g.reconstruction, g.limiter)
+end
+
 # Each face's flux is evaluated once: the loop computes the flux through face
 # i+½, uses it in cell i, and carries it to cell i+1, where it is the flux
 # through face i-½. Evaluating both faces of every cell, as this used to, did
@@ -33,10 +44,8 @@ end
 #
 # No `@simd`: LLVM vectorizes the carried flux as a first-order recurrence
 # without it, and the kernel has no reduction for it to reassociate.
-function advect!(dest, src, g::Godunov, c, ws)
-    _validate(dest, src, g, ws)
+function _godunov!(dest, src, c, r, l)
     n = length(dest)
-    r, l = g.reconstruction, g.limiter
     if c > 0
         # face i+½'s upwind cell is i
         Φ½ = _Φ(src, 1, n, n-1, c, r, l)
@@ -68,8 +77,7 @@ end
 # multiplication. Evaluating it for both faces of every cell costs less than
 # carrying it, which takes two vector shuffles per four cells: the loop above
 # measured 8% to 27% slower on this reconstruction, on Julia 1.10 and 1.13.
-function advect!(dest, src, g::Godunov{PiecewiseConstant}, c, ws)
-    _validate(dest, src, g, ws)
+function _godunov!(dest, src, c, ::PiecewiseConstant, _)
     n = length(dest)
     a = abs(c)
     if c > 0
