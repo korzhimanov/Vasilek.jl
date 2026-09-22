@@ -64,9 +64,9 @@ end
 # because the driver rescales the initial condition before running, and a bound
 # taken from `f₀` beforehand would sit under the rescaled maximum.
 #
-# `Godunov(PiecewiseLinear())` without a limiter is missing on purpose: its
-# amplification factor exceeds 1 for every mode, which `test_amplification.jl`
-# asserts analytically, so it has nothing to contribute here but a NaN.
+# `Godunov(PiecewiseLinear())` without a limiter is missing on purpose: it is
+# `LaxWendroff`, whose row is already here, as `test_amplification.jl` asserts
+# mode by mode.
 schemes() = [
     ("Upwind",                 Upwind()),
     ("LaxWendroff",            LaxWendroff()),

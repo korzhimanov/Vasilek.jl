@@ -41,12 +41,10 @@ abstract type AbstractReconstruction end
 struct PiecewiseConstant <: AbstractReconstruction end
 
 """
-Piecewise-linear reconstruction.
-
-!!! warning
-    Unconditionally unstable without a limiter: with [`NoLimiter`](@ref) the
-    flux collapses to a centred one, and centred flux with forward Euler
-    amplifies every mode. Pair it with [`VanLeer`](@ref).
+Piecewise-linear reconstruction, its slope set by the limiter. With
+[`NoLimiter`](@ref) the slope is the downwind difference and `Godunov` reduces
+to [`LaxWendroff`](@ref), second order and not monotone; with
+[`VanLeer`](@ref) it is total-variation diminishing up to `|c| = 1`.
 """
 struct PiecewiseLinear <: AbstractReconstruction end
 
@@ -107,18 +105,37 @@ struct LaxWendroff <: AbstractAdvection1D end
 """
     Godunov(reconstruction, limiter = NoLimiter())
 
-Finite-volume scheme with the given interface reconstruction and flux limiter.
+Finite-volume scheme with the given interface reconstruction and flux limiter:
+reconstruct `f` in each cell, carry the reconstruction exactly for one step,
+and average it back onto the cells.
 
-!!! warning "`PiecewiseLinear` is stable to `|c| ≤ 1/2`, not 1"
-    The interface value is `fᵢ₋₁ + φ(r)(fᵢ − fᵢ₋₁)/2`, with no `(1 − |c|)`
-    factor, so the update is forward Euler on a limited slope. Harten's
-    condition makes that total-variation diminishing for `|c| ≤ 1/2` when
-    `φ(r) ≤ 2` and `φ(r)/r ≤ 2`, which [`VanLeer`](@ref) satisfies, and the
-    measurement agrees: over 200 steps at N = 128 a square pulse keeps its
-    total variation at `c = 0.5` and doubles it at 0.6, and `1 + 0.5 sin` is 84
-    from the exact answer after 300 steps at 0.7. `advect!` refuses `|c| > 1`,
-    the limit every explicit scheme here shares; this tighter one belongs to
-    the reconstruction and is not enforced.
+The flux through an interface is the upwind cell's reconstruction averaged over
+the strip that crosses the interface in one step. For `PiecewiseLinear` and
+`c > 0` (the other direction is the mirror image) the strip's midpoint lies
+`cΔx/2` upwind of the interface, which is `(1 − c)Δx/2` downwind of the upwind
+cell's centre, so
+
+    Φᵢ₋½ = c·(fᵢ₋₁ + φ(r)(1 − c)(fᵢ − fᵢ₋₁)/2),    r = (fᵢ₋₁ − fᵢ₋₂)/(fᵢ − fᵢ₋₁),
+
+which is Sweby's flux-limited Lax–Wendroff [Sweby, SIAM J. Numer. Anal. 21 (5),
+995 (1984)]. `φ = 1` gives [`LaxWendroff`](@ref) and `φ = 0` gives
+[`Upwind`](@ref). [`VanLeer`](@ref) keeps `φ(r) ≤ 2` and `φ(r)/r ≤ 2`, which
+makes the scheme total-variation diminishing for every `|c| ≤ 1`. At `|c| = 1`
+the correction vanishes and the step is an exact one-cell shift.
+
+The `(1 − c)` factor is what makes the scheme second order. Without it, as in
+0.1, the flux is the reconstruction's value at the interface and the update is
+forward Euler on a limited slope. That scheme is first order at a fixed Courant
+number and total-variation diminishing only to `|c| ≤ 1/2`, and with
+`NoLimiter` its centred flux amplifies every mode. Measured with `VanLeer`,
+the factor moved three numbers:
+
+  * the L¹ order on `1 + 0.5 sin` at `c = 0.4`, fitted from N = 32 to 256,
+    from 1.00 to 2.09;
+  * at N = 128, a square pulse's total variation after 200 steps at `c = 0.8`,
+    from 4.8e5 times its initial value to 1;
+  * and at N = 128, the error on `1 + 0.5 sin` after 100 steps at `c = 0.9`,
+    from 893 to 1.1e-3.
 """
 struct Godunov{R<:AbstractReconstruction, L<:AbstractLimiter} <: AbstractAdvection1D
     reconstruction::R

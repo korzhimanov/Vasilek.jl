@@ -36,6 +36,19 @@ shared scratch buffer, so they could not be threaded over them.
 The `Symbol` options are types, so a typo is a `MethodError` where it is
 written rather than a call on `nothing` from inside the hot loop.
 
+The two `:Riemann_linear` rows change the numbers as well as the name. In 0.1
+the flux was the reconstruction's value at the interface, so the update was
+forward Euler on a limited slope. That is first order, total-variation
+diminishing only to `|c| ≤ 1/2`, and unstable at every `c` without a limiter.
+`Godunov(PiecewiseLinear())` averages the reconstruction over the strip that
+crosses the interface in one step, which puts a `(1 − |c|)` factor on the slope
+term. The result is Sweby's flux-limited Lax–Wendroff: second order,
+total-variation diminishing to `|c| = 1` with `VanLeer`, and without a limiter
+exactly `LaxWendroff()`. A run that used either row will not reproduce its 0.1
+numbers. With `VanLeer` at `c = 0.4` and N = 512, the L² error after one
+traversal falls from 7.03e-3 to 8.55e-5 on a sine, and rises from 8.45e-3 to
+2.77e-2 on a square pulse, because 0.1's flux also steepened the jump.
+
 ## Workspaces
 
 `SemiLagrangian` and `PFCNonUniform` need scratch memory:
