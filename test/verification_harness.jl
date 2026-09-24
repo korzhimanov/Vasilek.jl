@@ -1228,3 +1228,87 @@ function two_stream(a; v₀ = 3.0, vt = 0.3, Δv = 0.05, vmax = 6.0,
     return t[1:end-1], r.ε_e[1:end-1]
 end
 
+
+# ------------------------------------------------- bump-on-tail instability
+#
+# Shared with `verification/bump-on-tail.jl` for the reason `two_stream` is: the
+# figures and the assertions have to come from the same run.
+
+"""
+    mode_rates(t, E; tmin, tmax)
+
+Growth rate `γ` and frequency `ω` of a complex mode amplitude
+`E ∝ exp(-i(ω + iγ)t)`, from least-squares lines through `log|E|` and through
+its unwrapped phase over `tmin ≤ t ≤ tmax`.
+
+**The mode amplitude rather than `ε_e`, because the bump-on-tail wave travels.**
+[`damping_rate`](@ref) fits through the maxima of `ε_e`, which a standing wave
+has twice a period; a travelling wave's `ε_e` is flat, and has no maxima of its
+own to fit through. The phase is also the only place the *direction* is: `ω > 0`
+is a wave moving toward `+x`, since [`mode_amplitude`](@ref) projects on
+`exp(-ikx)` and so returns `cos(kx - ωt)` as `exp(-iωt)`.
+
+The unwrapping assumes the phase moves by less than π a sample, `ωΔt < π`;
+the runs here have `ωΔt = 0.05`.
+"""
+function mode_rates(t, E; tmin, tmax)
+    i = findall(s -> tmin ≤ s ≤ tmax, t)
+    length(i) ≥ 10 ||
+        error("mode_rates needs at least 10 samples in [$tmin, $tmax], found $(length(i))")
+    phase = angle.(E[i])
+    for j in 2:length(phase)
+        phase[j] -= 2π*round((phase[j] - phase[j-1])/(2π))
+    end
+    A = hcat(ones(length(i)), t[i])
+    return (A \ log.(abs.(E[i])))[2], -(A \ phase)[2]
+end
+
+"""
+    bump_on_tail(; α = 0.04, k = 0.3, Nx = 64, Δv = 0.05, vmin = -8.0, vmax = 10.0,
+                 Δt = 0.05, tmax = 120.0, invariants = false)
+
+The bump-on-tail instability as Arber and Vann set it up [J. Comput. Phys. 180,
+339 (2002)]: `F(v)(1 + α cos kx)` over one wavelength of `k = 0.3`, with
+
+    F(v) = [0.9·exp(−v²/2) + 0.2·exp(−2(v − 4.5)²)]/√(2π)
+
+the formula as they write it; [`BUMP_ON_TAIL`](@ref) is the same thing as two
+Maxwellians, for the theory. Returns `t` -- the times the field was sampled at,
+which are mid-step (see [`vlasov_poisson`](@ref)) --, `x`, `v`, `f₀`, `E`, the
+complex amplitude of the `k` mode at those times, and the driver's result `r`.
+
+**`α = 0.04` is theirs, and it has no linear phase.** Its mode starts at
+`|E_k| = 0.133`, a quarter of the level it saturates at -- 0.528, at `t = 21.0`
+-- so a growth rate has barely an e-folding and a half to be read from, most of
+it spent beating against the backward wave the same seed launches. The testset
+therefore seeds at `α = 1e-6` for the linear phase: the mode then grows for 74
+time units, and the two other waves the seed launches -- the backward Langmuir
+wave, `ω = -1.125 - 0.017i`, and a beam mode, `1.832 - 0.023i`, both weakly
+damped -- fall behind it as `exp(-0.21t)` and `exp(-0.22t)`.
+
+**The ions are `ones(Nx)`.** `F` has unit density exactly -- the beam's 0.2 is
+its peak, and its width of 0.5 halves the integral to 0.1 -- and on this grid
+`Σ F Δv` is 1 to round-off. Handing the driver the ions switches its rescaling
+off, which is right: the rescaling exists for a background that does not match
+the electrons, and this one does.
+
+The velocity window is lopsided because the physics is. Below `v = -8` the bulk
+is `exp(-32)`; above, the trapped beam is thrown up to `v ≈ 7`, and through
+`t = 200` the spatially averaged `f` stays under 4e-7 beyond `v = 7.5` and at
+round-off beyond 9, from either seed, so `vmax = 10` leaves it room. That `vmax`
+sets the x-sweep's Courant number, `vmax·Δt/(2Δx) = 0.76`.
+`Δv` matters to the trapped vortex but not to the growth, which is set in `x`:
+see [`bump_on_tail_root`](@ref) and the testset.
+"""
+function bump_on_tail(; α = 0.04, k = 0.3, Nx = 64, Δv = 0.05, vmin = -8.0,
+                        vmax = 10.0, Δt = 0.05, tmax = 120.0, invariants = false)
+    L = 2π/k
+    Δx = L/Nx
+    x = collect(range(Δx; step = Δx, length = Nx))    # not Δx:Δx:L -- see `two_stream`
+    v = collect(vmin:Δv:vmax)
+    t = collect(0.0:Δt:tmax)
+    F = @. (0.9*exp(-v^2/2) + 0.2*exp(-2*(v - 4.5)^2))/sqrt(2π)
+    f₀ = F * (@. 1.0 + α*cos(k*x))'
+    r = vlasov_poisson(x, v, f₀, t; modes = (k,), nᵢ = ones(Nx), invariants = invariants)
+    return (; t = t[1:end-1] .+ Δt/2, x, v, f₀, E = r.E_modes[1:end-1, 1], r)
+end

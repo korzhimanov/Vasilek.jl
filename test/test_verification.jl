@@ -1314,6 +1314,167 @@ end
             end
         end
 
+        @testset "Bump-on-tail: the beam grows a wave, and the wave traps the beam" begin
+            # The second instability in the suite, and a different one.
+            # Two-stream is a standing wave that grows without oscillating; this
+            # is a Langmuir wave that travels with a weak beam, oscillating near
+            # ωₚ while it grows -- the beam-plasma instability, on a warm bulk.
+            # At this beam's temperature it is mostly reactive: a cold beam
+            # would grow 18% faster, and `test_dispersion.jl` follows the root
+            # there as the beam cools. The temperature's 15% cut is what the
+            # run has to resolve, and it lands on the kinetic root to 0.13%.
+            # It is also the first run carried through saturation and held to
+            # numbers there: the wave grows until it traps the beam that feeds
+            # it, and from then on the trapped beam is what the field does.
+            #
+            # The setup is Arber and Vann's [J. Comput. Phys. 180, 339 (2002)],
+            # their formula and their box, with the seed lowered from 0.04 to
+            # 1e-6: see `bump_on_tail` for why theirs has no linear phase to
+            # measure. One run then carries the whole story, from the linear
+            # phase through saturation and a trapping oscillation.
+            k = 0.3
+            elapsed = @elapsed run = bump_on_tail(α = 1e-6, tmax = 120.0, invariants = true)
+            println("  bump-on-tail, 64 × 361 to t = 120: ", round(elapsed; digits = 1), " s")
+            ωc = bump_on_tail_root(k)
+            ωg = bump_on_tail_root(k; Δx = run.x[2] - run.x[1])
+
+            @testset "it grows at the kinetic root's rate, on the grid's own field" begin
+                # Fitted over t ∈ [30, 50]. The start is where the two other
+                # waves the seed launches have fallen more than 600 times behind
+                # (see `bump_on_tail`): before it, the rate over one period
+                # swings from 0.13 to 0.25 on their beat. The end is where the
+                # mode is still linear, its bounce frequency √(k|E|) at 0.27γ.
+                #
+                # Measured, against the continuum root 1.001218 + 0.198098i:
+                #
+                #   γ = 0.19784, -0.131%        ω = 1.00108, -0.014%
+                #
+                # and against the grid's, which puts the centred difference's
+                # s = sin(kΔx)/(kΔx) = 0.99839 on every susceptibility: -0.016%
+                # and +0.003%. Nearly all of the departure is that one piece of
+                # the grid -- the field the particles feel is s of the one their
+                # charge makes -- and what is left is truncation proper, small
+                # because the rate is set in x: Δv from 0.025 to 0.2 moves γ by
+                # 0.017% at most, while Nx = 32 puts it -0.694% off the continuum
+                # and 128 puts it -0.020% off.
+                #
+                # Held to 5e-4 and 1e-4 of the grid's root, three times the
+                # departures, which the continuum root would fail; and to
+                # 5e-3 and 5e-4 of the continuum root, which is the physics
+                # statement and does not lean on the correction.
+                γ, ω = mode_rates(run.t, run.E; tmin = 30.0, tmax = 50.0)
+                println("  bump-on-tail γ = ", round(γ; digits = 5), ", ω = ",
+                        round(ω; digits = 5), "; against the grid's root ",
+                        round(100*(γ/imag(ωg) - 1); digits = 3), "%, ",
+                        round(100*(ω/real(ωg) - 1); digits = 4), "%; against the continuum's ",
+                        round(100*(γ/imag(ωc) - 1); digits = 3), "%, ",
+                        round(100*(ω/real(ωc) - 1); digits = 4), "%")
+                @test isapprox(γ, imag(ωg); rtol = 5e-4)
+                @test isapprox(ω, real(ωg); rtol = 1e-4)
+                @test isapprox(γ, imag(ωc); rtol = 5e-3)
+                @test isapprox(ω, real(ωc); rtol = 5e-4)
+
+                # The wave travels with the beam, toward +x: a solver that
+                # streamed x the wrong way would grow the backward wave instead.
+                @test ω > 0
+
+                # And the window is linear: the bounce frequency at its end is
+                # well under the rate.
+                i = findlast(≤(50.0), run.t)
+                @test sqrt(k*abs(run.E[i]))/imag(ωc) < 0.3
+            end
+
+            @testset "it stops where trapping stops it, whatever the seed" begin
+                # The growth stops once the wave is deep enough to trap the
+                # particles feeding it, and "deep enough" is the bounce
+                # frequency ω_B = √(k|E|) against the rate the wave grew at.
+                # Measured: the mode peaks at |E_k| = 0.4979 at t = 74.32, where
+                # ω_B = 1.951γ. This beam is not in the weak-beam limit that
+                # closed-form estimates of the ratio assume -- γ is 1.3 times
+                # k·v_t of the beam -- so the number is the measurement's, and
+                # the range is set by its spread: 1.945 to 1.952 over Nx from 32
+                # to 128, Δv from 0.025 to 0.1 and Δt from 0.025 to 0.1.
+                A = abs.(run.E)
+                isat = argmax(A)
+                ratio = sqrt(k*A[isat])/imag(ωc)
+                println("  saturation: |E_k| = ", round(A[isat]; digits = 4), " at t = ",
+                        round(run.t[isat]; digits = 2), ", ω_B/γ = ", round(ratio; digits = 3))
+                @test 1.8 < ratio < 2.1
+
+                # And the level is the physics', not the seed's. A thousand
+                # times the seed saturates at the same amplitude, earlier by
+                # ln(1000)/γ: the shift measures the rate over the whole linear
+                # phase at once, transient included. Measured 0.4981 against
+                # 0.4979, and 35.00 against the 34.91 of the grid's root.
+                early = bump_on_tail(α = 1e-3, tmax = 45.0)
+                Aₑ = abs.(early.E)
+                iₑ = argmax(Aₑ)
+                shift = run.t[isat] - early.t[iₑ]
+                println("  from α = 1e-3: |E_k| = ", round(Aₑ[iₑ]; digits = 4), " at t = ",
+                        round(early.t[iₑ]; digits = 2), ", earlier by ", round(shift; digits = 2),
+                        " against ln(1000)/γ = ", round(log(1000)/imag(ωg); digits = 2))
+                @test isapprox(Aₑ[iₑ], A[isat]; rtol = 5e-3)
+                @test isapprox(shift, log(1000)/imag(ωg); rtol = 0.01)
+
+                # Past the peak the trapped beam carries the field. It swings
+                # round the bottom of the well: falling below the wave's
+                # velocity it gives the wave energy, climbing back above it
+                # takes the energy back, and the amplitude swings with it. The
+                # period cannot be shorter than 2π/ω_B, the bounce period at the
+                # bottom of the well and the fastest any trapped orbit goes
+                # round; orbits out toward the separatrix are slower. Measured:
+                # down to 0.2645 at t = 86.02 and back up to 0.4137 at 95.72, a
+                # period of 21.40 against 2π/ω_B = 16.26, 1.32 times it.
+                mins = local_extrema(run.t, A; tmin = run.t[isat], tmax = run.t[end], maxima = false)
+                maxs = local_extrema(run.t, A; tmin = run.t[isat] + 1.0, tmax = run.t[end], maxima = true)
+                T = run.t[maxs[1]] - run.t[isat]
+                T_B = 2π/sqrt(k*A[isat])
+                println("  trapping: down to ", round(A[mins[1]]; digits = 4), " at t = ",
+                        round(run.t[mins[1]]; digits = 2), ", back to ", round(A[maxs[1]]; digits = 4),
+                        " at t = ", round(run.t[maxs[1]]; digits = 2), ": period ",
+                        round(T; digits = 2), " = ", round(T/T_B; digits = 3), " × 2π/ω_B")
+                @test 1.0 < T/T_B < 1.6
+                @test A[mins[1]] < 0.7*A[isat]
+                @test A[maxs[1]] > 0.7*A[isat]
+            end
+
+            @testset "the beam it trapped is flattened, and f stays a distribution" begin
+                # Quasilinear theory's plateau, reached by a single wave rather
+                # than a spectrum: trapping stirs the resonant particles across
+                # the wave's phase velocity, and the spatially averaged f loses
+                # the slope that drove the growth. Measured at the steepest point
+                # of the flank between v_φ and the beam's centre: 0.0960 at t = 0,
+                # 0.0048 at t = 120, twenty times less.
+                #
+                # The plateau breathes with the trapping oscillation -- the bump
+                # partly re-forms each time the trapped beam climbs back above
+                # v_φ, which is when the field is weakest -- and over
+                # t ∈ [80, 160] the slope swings between 0.0013 and 0.026. The
+                # assertion is the worst of that swing, a factor of three, so it
+                # does not depend on where `tmax` lands in it.
+                g₀ = vec(sum(run.f₀; dims = 2))/size(run.f₀, 2)
+                g = vec(sum(run.r.f; dims = 2))/size(run.r.f, 2)
+                vφ = real(ωc)/k
+                flank = findall(u -> vφ ≤ u ≤ 4.5, run.v)
+                Δv = run.v[2] - run.v[1]
+                steepest(h) = maximum((h[i+1] - h[i-1])/(2Δv) for i in flank)
+                println("  steepest slope on [v_φ, 4.5]: ", round(steepest(g₀); digits = 4),
+                        " at t = 0, ", round(steepest(g); digits = 4), " at t = 120")
+                @test steepest(g) < steepest(g₀)/3
+
+                # Through all of it f stays a distribution function: non-negative,
+                # its mass kept to round-off, and under its initial maximum as
+                # Liouville's theorem says it must be. Measured: min f = 3.6e-23,
+                # mass to 3.4e-16, max f 1.7e-12 under the bound.
+                println("  min f = ", minimum(run.r.fmin[1:end-1]), ", mass drift ",
+                        maximum(abs, run.r.mass[1:end-1] .- run.r.mass[1])/run.r.mass[1],
+                        ", max f − max f₀ = ", maximum(run.r.fmax[1:end-1]) - maximum(run.f₀))
+                @test minimum(run.r.fmin[1:end-1]) ≥ 0.0
+                @test maximum(abs, run.r.mass[1:end-1] .- run.r.mass[1])/run.r.mass[1] < 1e-13
+                @test maximum(run.r.fmax[1:end-1]) ≤ maximum(run.f₀)
+            end
+        end
+
         @testset "Laser wakefield: the laser drives a plasma wave" begin
             # This testset used to assert that the study "runs and stays
             # bounded", because that was all there was to assert: `wakefield`

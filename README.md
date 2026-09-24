@@ -16,7 +16,7 @@ As for now, the following functionality has been implemented:
 
 ## Verification
 
-Six runnable studies live in `verification/`. They execute directly and write
+Seven runnable studies live in `verification/`. They execute directly and write
 their figures beside themselves, and they are written in Literate.jl comment
 form so they can also be rendered:
 
@@ -25,6 +25,7 @@ julia --project=verification verification/landau-damping-1d1v.jl
 julia --project=verification verification/plasma-oscillations-1d1v.jl
 julia --project=verification verification/wakefield.jl
 julia --project=verification verification/two-stream.jl
+julia --project=verification verification/bump-on-tail.jl
 julia --project=verification verification/plasma-echo.jl
 julia --project=verification verification/bgk-equilibrium.jl
 ```
@@ -40,9 +41,11 @@ VASILEK_EXTENDED=1 julia --project=. -e 'using Pkg; Pkg.test()'
 The analytic side of those claims is computed rather than quoted:
 `test/dispersion.jl` solves the kinetic dispersion relation through the plasma
 dispersion function, which gives the Landau roots at any `k` — they used to be
-three constants typed into the test file — and the growth rate of *warm*
-counter-streaming beams, which is what the runs contain. The cold two-stream
-closed form remains as its zero-temperature limit and is checked as such.
+three constants typed into the test file — the growth rate of *warm*
+counter-streaming beams, which is what the runs contain, and the growing root of
+the bump-on-tail distribution, on the continuum and on the grid's own
+centred-difference field. The cold two-stream closed form remains as its
+zero-temperature limit and is checked as such.
 
 | claim | asserted | measured |
 |---|---|---|
@@ -78,6 +81,9 @@ closed form remains as its zero-temperature limit and is checked as such.
 | the same beams at twice the temperature | γ(vt = 0.6) below γ(vt = 0.3), each within 3% of its own warm root | −4.4% measured against −4.4% predicted |
 | two-stream at the cold boundary, kv₀ = 1.0 | γ within 8% of the warm root, where the cold form gives exactly zero | 3.12% |
 | two-stream stability boundary, kv₀ = 1.2, 1.6 | no growth, where cold and warm theory both give γ = 0 | decays to 0.052, 0.000 |
+| bump-on-tail growth, Arber and Vann's beam | γ and ω within 0.05% and 0.01% of the kinetic root on the grid's field, 0.5% and 0.05% of the continuum's; the wave travels with the beam | 0.016%, 0.003%; 0.131%, 0.014% |
+| it saturates by trapping, whatever the seed | ω_B/γ between 1.8 and 2.1 at the peak; a seed 1000× larger peaks within 0.5%, ln(1000)/γ earlier | 1.951; 0.04%, 35.00 vs 34.91 |
+| and the trapped beam carries the field | the amplitude swings with a period of 1 to 1.6 bounce periods; the flank's slope in ⟨f⟩ falls at least 3× | 1.316; 20× |
 | plasma oscillations, uniform grid | \|Δε/ε\| < 0.5% at t = 3000 | 0.38% |
 | plasma oscillations, non-uniform grid | \|Δε/ε\| < 6% at t = 3000 | 4.75% |
 | and the energy is one instant's | on the uniform grid ε moves by under 3e-4 of itself within a plasma period | 6.0e-5, where summing the kinetic energy after the kick swung it by 1.2e-3 |
@@ -105,7 +111,15 @@ space and converges at third order; give the trapped particles a temperature of
 their own, which puts a kink in `F` on the separatrix, and the error sits on the
 separatrix, twelve times larger, and converges at first order.
 
-A seventh study compares the advection schemes on the physics rather than on a
+The bump-on-tail study is the first run held to numbers past its linear phase.
+The growth rate lands on the kinetic root to 0.13%, and on the root of the grid's
+own field — the Poisson solve's centred difference returns `sin(kΔx)/(kΔx)` of a
+mode's field — to 0.016%. The wave then grows until it traps the beam feeding it,
+at a bounce frequency of 1.95 times the growth rate whatever the seed; the
+trapped beam swings round the well and the field swings with it; and the
+averaged distribution loses the slope the growth ran on.
+
+An eighth study compares the advection schemes on the physics rather than on a
 shifted sine, and is advisory rather than asserted:
 
 ```bash
