@@ -1,4 +1,5 @@
 @isdefined(landau_root) || include(joinpath(@__DIR__, "dispersion.jl"))
+using LinearAlgebra: det, I
 
 """
 The kinetic dispersion relation, checked before anything is allowed to be
@@ -303,4 +304,194 @@ end
     shift(h) = imag(ω) - imag(bump_on_tail_root(k; Δx = h))
     @test shift(Δx) > 0
     @test isapprox(shift(Δx)/shift(Δx/2), 4; rtol = 0.01)
+end
+
+@testset "Collisional roots" begin
+    # `collisional_determinant` is the only piece of the collisional study that
+    # the runs cannot check: they are held to its roots. So it is checked here the
+    # way the collisionless relation is -- against limits it must reduce to and
+    # against quadratures that share none of its algebra -- before anything is
+    # measured against it.
+    k = 0.5
+    electrons = ((density = 1.0, drift = 0.0, vt = 1.0),)
+
+    @testset "without collisions it is the Landau relation" begin
+        # At ν = 0 the last two rows of the determinant are the identity, and
+        # what is left is the collisionless ε -- not an approximation to it.
+        # Measured worst relative departure over the three points: 2.3e-14.
+        worst = 0.0
+        for ω in (1.4 - 0.15im, 1.2 + 0.3im, 0.9 - 0.4im)
+            D = collisional_determinant(ω, k, 0.0)
+            worst = max(worst, abs(D - dielectric(ω, k, electrons))/abs(D))
+            @test D ≈ dielectric(ω, k, electrons) rtol = 1e-12
+            @test collisional_susceptibility(ω, k, 0.0) ≈ susceptibility(ω, k) rtol = 1e-12
+        end
+        println("  collisional determinant at ν = 0 vs ε: worst relative |Δ| = ", worst)
+        for q in (0.3, 0.4, 0.5)
+            @test collisional_root(q, 0.0) ≈ landau_root(q) atol = 1e-12
+        end
+    end
+
+    @testset "restoring the density alone is the Krook model" begin
+        # The textbook closed form of the Krook susceptibility,
+        #
+        #     ε = 1 + (1/k²)(1 + ξZ(ξ))/(1 + (iν/√2k)Z(ξ)),   ξ = (ω + iν)/(√2k)
+        #
+        # against `conserve = (:n,)`, which gets there through the 3×3 system with
+        # two of its rows emptied. Measured worst relative departure: 4.7e-16.
+        krook(ω, ν) = let ξ = (ω + im*ν)/(sqrt(2)*k)
+            1 + (1 + ξ*Z(ξ))/k^2/(1 + im*ν/(sqrt(2)*k)*Z(ξ))
+        end
+        worst = 0.0
+        for ν in (0.05, 0.3, 1.0), ω in (1.3 - 0.2im, 1.1 - 0.5im, 1.4 + 0.1im)
+            χ = collisional_susceptibility(ω, k, ν; conserve = (:n,))
+            worst = max(worst, abs(1 + χ - krook(ω, ν))/abs(krook(ω, ν)))
+            @test 1 + χ ≈ krook(ω, ν) rtol = 1e-12
+        end
+        println("  Krook closed form vs conserve = (:n,): worst relative |Δ| = ", worst)
+    end
+
+    @testset "the moments are the integrals they stand for" begin
+        # Once `ν` exceeds the damping, `ζ = (ω + iν)/k` is above the real axis at
+        # the root, and the moments of the mode are plain integrals: no
+        # continuation, no `Z`, no `resolvent_moments`. So the mode is built here
+        # from the kinetic equation's solution as the docstring writes it,
+        #
+        #     f₁ = F₀·[−(i/k)n₁v + ν(n₁ + u₁v + T₁(v² − 1)/2)]/(ik(v − ζ))
+        #
+        # its three moments are taken by the trapezoid for each unit (n₁, u₁, T₁),
+        # and the root must make the resulting map have a fixed point. Measured
+        # |det(I − K)| at the roots: 2.3e-14 at worst, against 8.9e-5 a thousandth
+        # away. The pole sits 0.39, 1.87 and 5.94 above the contour.
+        function moment_map(ω, ν)
+            ζ = (ω + im*ν)/k
+            f₁(v, x) = exp(-v^2/2)/sqrt(2π)*(-(im/k)*x[1]*v +
+                       ν*(x[1] + x[2]*v + x[3]*(v^2 - 1)/2))/(im*k*(v - ζ))
+            K = zeros(ComplexF64, 3, 3)
+            for j in 1:3
+                x = (j == 1, j == 2, j == 3)
+                K[1, j] = quad(v -> f₁(v, x))
+                K[2, j] = quad(v -> v*f₁(v, x))
+                K[3, j] = quad(v -> (v^2 - 1)*f₁(v, x))
+            end
+            return K
+        end
+        worst, nearest = 0.0, Inf
+        for ν in (0.3, 1.0, 3.0)
+            ω = collisional_root(k, ν)
+            @test imag(ω) + ν > 0
+            at = abs(det(Matrix{ComplexF64}(I, 3, 3) - moment_map(ω, ν)))
+            off = abs(det(Matrix{ComplexF64}(I, 3, 3) - moment_map(ω + 1e-3, ν)))
+            worst, nearest = max(worst, at), min(nearest, off)
+            @test at < 1e-12
+            @test off > 1e-5
+        end
+        println("  |det(I − K)| by quadrature: ", worst, " at the roots, ",
+                nearest, " a thousandth away")
+    end
+
+    @testset "the fluid limit is Chapman–Enskog's" begin
+        # An independent derivation of what the determinant must do at large ν.
+        # The first-order Chapman--Enskog closure of 1D BGK has no viscosity and a
+        # heat flux Q = −(3nT/ν)∂ₓT, and with the field it gives the cubic
+        #
+        #     ω³ + iχω² − (1 + 3k²)ω − iχ(1 + k²) = 0,   χ = 3k²/ν
+        #
+        # whose roots are the Langmuir pair and the heat mode (see
+        # `heat_mode_root`). The kinetic roots must approach them, and the gap is
+        # the next order of the expansion, so it should close as 1/ν². Measured
+        # relative gaps in ω, γ and g:
+        #
+        #   ν     ω          γ          g
+        #   10    1.05e-3    1.39e-2    4.58e-3
+        #   20    2.66e-4    3.61e-3    1.16e-3
+        #   40    6.69e-5    9.08e-4    2.84e-4
+        #
+        # falling 3.85 to 4.08 times per doubling. Past ν = 40 the determinant's
+        # own precision starts to show (see `collisional_root`).
+        function fluid_roots(ν)
+            χ = 3k^2/ν
+            P(ω) = ω^3 + im*χ*ω^2 - (1 + 3k^2)*ω - im*χ*(1 + k^2)
+            wave = kinetic_root(P, sqrt(1 + 3k^2) - 0.01im, sqrt(1 + 3k^2) - 0.02im)
+            g = χ*(1 + k^2)/(1 + 3k^2)
+            return wave, -imag(kinetic_root(P, -im*g, -1.01im*g))
+        end
+        gaps = map((10.0, 20.0, 40.0)) do ν
+            z, g = collisional_root(k, ν), heat_mode_root(k, ν)
+            zf, gf = fluid_roots(ν)
+            gap = (abs(real(z) - real(zf))/real(zf), abs(imag(z) - imag(zf))/abs(imag(zf)),
+                   abs(g - gf)/gf)
+            println("  ν = ", rpad(ν, 5), "gaps to Chapman–Enskog: ω ",
+                    round(gap[1]; sigdigits = 3), ", γ ", round(gap[2]; sigdigits = 3),
+                    ", g ", round(gap[3]; sigdigits = 3))
+            gap
+        end
+        for i in 1:3
+            @test all(r -> 3.5 < r < 4.5, (gaps[1][i]/gaps[2][i], gaps[2][i]/gaps[3][i]))
+        end
+        @test gaps[3][1] < 1e-4 && gaps[3][2] < 1.5e-3 && gaps[3][3] < 5e-4
+
+        # Without energy the fluid is isothermal: measured 1.1181910 at ν = 40
+        # against √(1 + k²) = 1.1180340.
+        @test isapprox(real(collisional_root(k, 40.0; conserve = (:n, :u))), sqrt(1 + k^2);
+                       rtol = 5e-4)
+
+        # And the heat mode is energy's: with (:n, :u) there is no sign change of
+        # the determinant on the stretch of the axis `heat_mode_root` searches.
+        for ν in (1.0, 10.0)
+            D(g) = real(collisional_determinant(-im*g, k, ν; conserve = (:n, :u)))
+            grid = exp.(range(log(1e-4), log(ν + 2k); length = 400))
+            @test all(j -> D(grid[j])*D(grid[j+1]) > 0, 1:length(grid)-1)
+        end
+
+        # which is also why it may bisect a real function: D is real there --
+        # exactly, measured 0.0, since on the axis ζ is imaginary, `erfcx` of a
+        # real argument is real, and each Jₘ is real or imaginary by parity.
+        worst = 0.0
+        for ν in (1.0, 10.0), g in (0.05, 0.4, 1.2)
+            D = collisional_determinant(-im*g, k, ν)
+            worst = max(worst, abs(imag(D))/abs(D))
+            @test abs(imag(D)) < 1e-12*abs(D)
+        end
+        println("  |Im D|/|D| on the imaginary axis: ", worst)
+    end
+
+    @testset "the three operators part at the first collision" begin
+        # The sign of dγ/dν at ν = 0 is what a run can read off without trusting
+        # any absolute rate: measured −0.243 for BGK, +0.114 without energy and
+        # +0.684 for Krook.
+        γ(ν, c) = -imag(collisional_root(k, ν; conserve = c))
+        slope(c) = (γ(0.01, c) - γ(0.0, c))/0.01
+        slopes = map(slope, ((:n, :u, :T), (:n, :u), (:n,)))
+        println("  dγ/dν at ν = 0: BGK ", round(slopes[1]; digits = 3), ", (:n, :u) ",
+                round(slopes[2]; digits = 3), ", Krook ", round(slopes[3]; digits = 3))
+        @test slopes[1] < -0.2
+        @test slopes[2] > 0.1
+        @test slopes[3] > 0.6
+
+        # And by ν = 1 the frequencies are 10% and 20% apart, against the 1% a
+        # run's frequency is held to: 1.35175, 1.21249 and 1.07834.
+        ω = [real(collisional_root(k, 1.0; conserve = c)) for c in ((:n, :u, :T), (:n, :u), (:n,))]
+        @test ω[1]/ω[2] > 1.1 && ω[1]/ω[3] > 1.2
+    end
+
+    @testset "the grid's root" begin
+        # The centred difference's s = sin(kΔx)/(kΔx) weakens the field as it does
+        # without collisions, and the shift it makes is second order in Δx: at the
+        # Nx = 64 of the runs it puts γ 0.61% and 0.50% above the continuum at
+        # ν = 0.3 and 1, and ω 0.17% below, and shrinks 3.998 and 3.997 times as
+        # Δx halves.
+        Δx = 2*(2π/k)/64
+        s = sin(k*Δx)/(k*Δx)
+        for ν in (0.3, 1.0)
+            zc, zg = collisional_root(k, ν), collisional_root(k, ν; Δx)
+            ratio = abs(zg - zc)/abs(collisional_root(k, ν; Δx = Δx/2) - zc)
+            println("  ν = ", ν, ": grid root ", round(zg; digits = 6), ", ω ",
+                    round(100*(real(zg)/real(zc) - 1); digits = 3), "%, γ ",
+                    round(100*(imag(zg)/imag(zc) - 1); digits = 3), "%, ratio ",
+                    round(ratio; digits = 3))
+            @test abs(collisional_determinant(zg, k, ν; s)) < 1e-12
+            @test isapprox(ratio, 4; rtol = 0.01)
+        end
+    end
 end
