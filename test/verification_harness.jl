@@ -48,9 +48,9 @@ A scalar function rather than an `ifelse` inside the broadcast, because
 `ifelse` is an ordinary call and evaluates **both** arguments: written that way
 the guard does not guard, and `log` is handed the negative value anyway. That is
 not hypothetical here -- `LaxWendroff` and cubic `SemiLagrangian` drive `f` to
--0.094 and -0.098 on the large-amplitude case in
+-0.093 and -0.105 on the large-amplitude case in
 `verification/scheme-comparison.jl`, against a peak of 0.6, and the entropy
-diagnostic threw `DomainError` on both until this was split out. That is a 16%
+diagnostic threw `DomainError` on both until this was split out. That is an 18%
 undershoot of the peak rather than round-off leaking below zero, which is worth
 stating precisely: it is the size of the overshoot that makes the guard a
 statement about the schemes rather than about floating point.
@@ -74,13 +74,13 @@ the one place the verification runs have to absorb it.
 sub-steps that fit ([`substeps`](@ref)). `advect!` refuses it whole, and a
 translation by `α` is `m` translations by `α/m`. Every call the suite makes
 through here is within the bound, and so one call exactly as before, except in
-two runs, both of them the field driving the velocity sweep. The two-stream runs
-keep growing after their fits, into saturation, and the fastest would ask for
-217 cells a step by `tmax`. The strong-damping run on the notebook's
-non-uniform grid has its field at amplitude 1.0017 on the first step with `Δt`
-equal to the narrow cells' width, so it asks for 1.0017 of them. Neither moves a
-measured number: no fit contains a split step, and the second run's four split
-calls move its rates in the sixth digit.
+the two-stream runs, where the field drives the velocity sweep: they keep
+growing after their fits, into saturation, and the fastest would ask for 217
+cells a step by `tmax`. That moves no measured number, since no fit contains a
+split step. The strong-damping run on the notebook's non-uniform grid comes
+closest otherwise: its field peaks at 0.9938 on the first step, with `Δt` equal
+to the narrow cells' width. It crossed, at 1.0017, while the driver still
+rescaled `f` by the trapezoid, 0.79% up at that amplitude.
 
 The uniform-grid method does not split. Nothing here asks a uniform scheme for
 more than `c = 0.50`, and `advect!` says so if something ever does.
@@ -176,21 +176,24 @@ counted half the kick's work early: an error first order in Δt that oscillates
 with the power the field exchanges with the particles. On the plasma oscillation
 the energy test runs, that alone swung `ε` by 1.2e-3 of itself within each plasma
 period, and by 1.7e-3 with the trapezoid, against the 3.8e-3 it drifts through
-t = 3000; centred, it swings by 6e-5.
+t = 3000; centred, it swings by 6.6e-5.
 
 **The ions are a fixed background**, a Maxwellian's density on the grid unless
 `nᵢ` gives a profile over `x`. Without `nᵢ`, `f` is rescaled on entry so that the
 two integrate to the same charge; with it, `f` is taken as it comes; and
-`renormalize` overrides either. The rescaling is the trapezoid over `x` of both,
-which on a periodic grid weights the two end points by half, so it is exact only
-while `nₑ` and `nᵢ` are proportional -- a uniform background, which is what a
-caller that does not pass `nᵢ` gets. One that does is handing over a matched
-pair, and the rescaling would unmatch it: for the equilibrium of
-[`bgk_equilibrium`](@ref) it is 1 − 1.9e-3, and applying it doubles the
-equilibrium's departure from itself through `t = 50`, from 3.85e-3 to 8.07e-3 in
-the field and from 1.52e-3 to 3.17e-3 in `f`. That is inside the tolerances the
-equilibrium is held to, so nothing downstream would catch a caller who forgot to
-switch it off; passing `nᵢ` switches it off instead.
+`renormalize` overrides either. A caller that passes `nᵢ` is handing over the
+ions it means, matched to `f` or deliberately not, and the driver keeps them.
+
+**The charges are the cell-width sums too**, `Σ f ΔvΔx` and `Σ nᵢ Δx`, and the
+default `nᵢ` is the Maxwellian's `Σ M Δv`, the same sum over `v` the field is
+solved from. They were the trapezoid, which on the periodic grid weights the two
+end points by half. That is exact for proportional profiles only, and
+`M(v)(1 + α cos kx)` is not one: for it the trapezoid's rescaling was
+`≈ 1 + α/(Nx − 1)`, 7.9e-3 at α = 0.5 on 64 cells, and `ωₚ²` with it, where the
+sums give 1 to round-off. It also rescaled again on every restart, where the
+flux form has kept `Σ f ΔvΔx` and the sums find nothing to do. On the matched
+pair of [`bgk_equilibrium`](@ref) it was 1 − 1.9e-3 and doubled the
+equilibrium's drift; it is now 1 to 3.8e-15 there as well.
 
 `scheme_x` and `scheme_v` default to `PFCNonUniform` on the two grids, which is
 what the verification notebooks use and what every previous caller got. They are
@@ -201,9 +204,9 @@ so that a refinement study can hold the scheme fixed while moving the grid.
 **Either may also be a function of the initial `f` that returns a scheme**, as
 in `f -> PFC(fmin = 0.0, fmax = maximum(f))`, and is called with the `f` the run
 actually starts from. That is the only way for a caller to bound a scheme by
-that distribution: the driver rescales what it is handed before it runs -- by
-0.8% at α = 0.5 -- so a bound taken from `f₀` beforehand sits below the rescaled
-maximum and trips `PFC`'s own check on the first call.
+that distribution: the driver rescales what it is handed before it runs, to the
+ions' charge, so a bound taken from `f₀` beforehand sits below the maximum of
+any `f` it scales up and trips `PFC`'s own check on the first call.
 
 **The defaults' bounds are those of `f` on entry: 0 and its maximum.** By
 Liouville's theorem the exact solution keeps both, and PFC's limiter exists to
@@ -217,7 +220,7 @@ sat, the bound never engaged at all.
 
 Tight, it does engage, at the maximum, and that has a measured price: the limiter
 clips the reconstruction in the peak cell, and the α = 0.05 round trip in
-`test_verification.jl` converges at second order (×4.4, then ×4.1) where it
+`test_verification.jl` converges at second order (×4.3, then ×4.1) where it
 converged at third (×5.7, ×7.1). Elsewhere the numbers moved little and are
 updated where they are quoted. No run leaves its bound: the `fmax` history of a
 Landau, a strong Landau, a two-stream and an equilibrium run tops out exactly at
@@ -233,17 +236,18 @@ function vlasov_poisson(x, v, f₀, t;
     Δv = cell_widths(v)
 
     if nᵢ === nothing
-        fᵢ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. Δx/Δx)'
-        nᵢ = integrate(v, fᵢ)
+        # By the same sum over `v` as the electron density the field is solved
+        # from, so that a uniform `f` is neutral as it stands.
+        nᵢ = fill(sum(@. exp(-0.5*v^2)/sqrt(2π)*Δv), length(x))
     else
         length(nᵢ) == length(x) || throw(DimensionMismatch(
             "nᵢ has $(length(nᵢ)) points, the x grid $(length(x))"))
         nᵢ = collect(float.(nᵢ))
     end
-    Nᵢ = integrate(x, nᵢ)
+    Nᵢ = sum(nᵢ .* Δx)
 
     f = copy(f₀)
-    renormalize && (f .*= Nᵢ/integrate(x, integrate(v, f)))
+    renormalize && (f .*= Nᵢ/sum(f .* (Δv .* Δx')))
     g = f'
 
     bound = maximum(f)

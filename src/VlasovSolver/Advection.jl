@@ -79,8 +79,8 @@ It is second order in L¹, but only from about N = 128: a fit from N = 32 to
 Its compression is anti-diffusion. On smooth data it steepens slopes, and the
 L² norm of a perturbation grows, where every other scheme here loses some. In a
 Vlasov–Poisson run that biases a damping rate low. Landau damping at `k = 0.5`,
-refined from `Nx = 32` to 256 at a fixed Courant number, goes −2.60%, −0.39%,
-−0.68%, +0.13% with Superbee, against +7.69%, +1.43%, +0.52%, +0.43% with
+refined from `Nx = 32` to 256 at a fixed Courant number, goes −2.58%, −0.21%,
+−0.67%, +0.13% with Superbee, against +7.73%, +1.45%, +0.53%, +0.44% with
 `VanLeer`. So Superbee is for sharp fronts, and `VanLeer` or [`PFC`](@ref) for
 smooth phase-space dynamics.
 """
