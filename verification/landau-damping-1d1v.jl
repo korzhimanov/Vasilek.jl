@@ -1,6 +1,5 @@
 using Plots
 
-using NumericalIntegration
 using FFTW
 
 using Vasilek
@@ -71,12 +70,12 @@ v = collect(-4:0.1:4)
 Δv = vcat([v[2]-v[1]], 0.5*(v[3:end] - v[1:end-2]), [v[end]-v[end-1]])
 
 fi = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. Δx/Δx)'
-ni = integrate(v, fi)
-Ni = integrate(x, ni)
+ni = vec(sum(fi.*Δv, dims=1))
+Ni = sum(ni.*Δx)
 
 f0 = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. (1.0 + 0.01*cos(0.5*x)))'
-n0 = integrate(v, f0)
-N0 = integrate(x, n0)
+n0 = vec(sum(f0.*Δv, dims=1))
+N0 = sum(n0.*Δx)
 f0 *= Ni/N0;
 
 # The limiter is bounded by the initial condition: by Liouville's theorem the
@@ -214,12 +213,12 @@ v = vcat(collect(-4:0.1:-1.1), collect(-1:0.05:1), collect(1.1:0.1:4))
 Δv = vcat([v[2]-v[1]], 0.5*(v[3:end] - v[1:end-2]), [v[end]-v[end-1]])
 
 fi = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. Δx/Δx)'
-ni = integrate(v, fi)
-Ni = integrate(x, ni)
+ni = vec(sum(fi.*Δv, dims=1))
+Ni = sum(ni.*Δx)
 
 f0 = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. (1.0 + 0.01*cos(0.5*x)))'
-n0 = integrate(v, f0)
-N0 = integrate(x, n0)
+n0 = vec(sum(f0.*Δv, dims=1))
+N0 = sum(n0.*Δx)
 f0 *= Ni/N0;
 
 # The limiter is bounded by the initial condition: by Liouville's theorem the
@@ -315,12 +314,12 @@ v = vcat(collect(-6:0.1:-1.1), collect(-1:0.05:1), collect(1.1:0.1:6))
 Δv = vcat([v[2]-v[1]], 0.5*(v[3:end] - v[1:end-2]), [v[end]-v[end-1]])
 
 fi = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. Δx/Δx)'
-ni = integrate(v, fi)
-Ni = integrate(x, ni)
+ni = vec(sum(fi.*Δv, dims=1))
+Ni = sum(ni.*Δx)
 
 f0 = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. (1.0 + 0.5*cos(0.5*x)))'
-n0 = integrate(v, f0)
-N0 = integrate(x, n0)
+n0 = vec(sum(f0.*Δv, dims=1))
+N0 = sum(n0.*Δx)
 f0 *= Ni/N0;
 
 # The limiter is bounded by the initial condition: by Liouville's theorem the

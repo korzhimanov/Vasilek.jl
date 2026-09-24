@@ -233,17 +233,18 @@ function vlasov_poisson(x, v, f₀, t;
     Δv = cell_widths(v)
 
     if nᵢ === nothing
-        fᵢ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. Δx/Δx)'
-        nᵢ = integrate(v, fᵢ)
+        # By the same sum over `v` as the electron density the field is solved
+        # from, so that a uniform `f` is neutral as it stands.
+        nᵢ = fill(sum(@. exp(-0.5*v^2)/sqrt(2π)*Δv), length(x))
     else
         length(nᵢ) == length(x) || throw(DimensionMismatch(
             "nᵢ has $(length(nᵢ)) points, the x grid $(length(x))"))
         nᵢ = collect(float.(nᵢ))
     end
-    Nᵢ = integrate(x, nᵢ)
+    Nᵢ = sum(nᵢ .* Δx)
 
     f = copy(f₀)
-    renormalize && (f .*= Nᵢ/integrate(x, integrate(v, f)))
+    renormalize && (f .*= Nᵢ/sum(f .* (Δv .* Δx')))
     g = f'
 
     bound = maximum(f)
