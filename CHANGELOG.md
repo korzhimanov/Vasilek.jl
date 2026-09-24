@@ -1317,7 +1317,7 @@ This project has not been released; entries below describe work on `master`.
 
 - **Mass, momentum, L² and entropy are measured and asserted.** Total energy was
   the only invariant that ever was. Over the k = 0.5 Landau case, 875 steps:
-  mass drifts 2.8e-16 and momentum stays at 5.3e-16 on a mass of 25.1 — both
+  mass drifts 1.6e-15 and momentum stays at 2.2e-15 on a mass of 25.1 — both
   round-off, both exact conservation laws the discrete scheme also satisfies.
   L² falls 1.0e-5 and entropy rises 7.5e-6, monotonically at every step. Those
   two are *not* conserved and are not asserted as if they were: an exact Vlasov
@@ -1327,8 +1327,8 @@ This project has not been released; entries below describe work on `master`.
   **The invariants use the cell-width sum `Σ f ΔvΔx`, not `integrate`.** That is
   the quadrature a flux form conserves; the trapezoid halves the two endpoint
   weights, which no conservation law protects. Measured on the same run, the
-  trapezoid reports 2.4e-4 of mass drift and 7.3e-4 of momentum against 2.8e-16
-  and 5.3e-16 — twelve orders of magnitude of apparent non-conservation that
+  trapezoid reports 2.4e-4 of mass drift and 7.3e-4 of momentum against 1.6e-15
+  and 2.2e-15 — eleven orders of magnitude of apparent non-conservation that
   belongs entirely to the quadrature. The energy histories use the same sums
   now, after keeping `integrate` for longer (see Fixed, above).
 

@@ -150,8 +150,8 @@ conserve: `PFC` is a flux form, so what leaves one cell enters its neighbour and
 the full-weight sum is preserved exactly. The trapezoid halves the two endpoint
 weights, which no flux conservation law protects, and measuring with it reports a
 drift that belongs to the quadrature rather than to the scheme. Measured over the
-k = 0.5 Landau run, 875 steps: mass drifts 2.8e-16 by the cell-width sum against
-**2.4e-4** by the trapezoid, and momentum stays at 5.3e-16 against 7.3e-4. Both
+k = 0.5 Landau run, 875 steps: mass drifts 1.6e-15 by the cell-width sum against
+**2.4e-4** by the trapezoid, and momentum stays at 2.2e-15 against 7.3e-4. Both
 trapezoid figures are the endpoint weighting, not the solver.
 
 The energies kept the trapezoid longer, on the grounds that the tolerances they
