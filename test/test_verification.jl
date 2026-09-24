@@ -982,10 +982,12 @@ end
             # reports 2.4e-4 of mass drift that belongs to the quadrature rather
             # than the solver. See the note on `vlasov_poisson`.
             #
-            # Measured over the k = 0.5 case, 875 steps:
+            # Measured over the k = 0.5 case, 875 steps, as this suite runs it,
+            # with `--check-bounds=yes` (without it the sums vectorise in
+            # another order, and mass and momentum read 2.8e-16 and 2.1e-15):
             #
-            #   mass       2.8e-16 relative               -- round-off
-            #   momentum   5.3e-16 absolute, on mass 25.1 -- round-off
+            #   mass       1.6e-15 relative               -- round-off
+            #   momentum   2.2e-15 absolute, on mass 25.1 -- round-off
             #   L²         -1.0e-5, monotone decreasing   -- numerical dissipation
             #   entropy    +7.5e-6, monotone increasing   -- the same thing
             #
