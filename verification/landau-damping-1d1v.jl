@@ -1,6 +1,5 @@
 using Plots
 
-using NumericalIntegration
 using FFTW
 
 using Vasilek
@@ -23,13 +22,12 @@ figure(name) = joinpath(@__DIR__, "$name.png")
 # because StrangSplitting is itself due for replacement when the 2D sweeps
 # land -- its transposes are the thing that has to go.
 #
-# `advect!` refuses a displacement wider than the narrowest cell, and a step like
-# that is split into the fewest sub-steps that fit, as `line_advector` in the
-# test harness does. None of the runs here asks for one now. The strong-damping
-# run at the end comes closest: Δt is the width of the narrow cells, and the
-# field's amplitude on its first step is 0.9938 of one. It was 1.0017, and four
-# calls split, while the charges were balanced by a trapezoid that put 0.79%
-# more electrons into that run's seed (see below).
+# `advect!` refuses a displacement wider than the narrowest cell, and the
+# strong-damping run at the end comes within 0.62% of one on its first step: the
+# field's amplitude is 0.9938 there, and Δt is the width of the narrow cells. It
+# crossed, at 1.0017, while `f0` was rescaled to the ions by the trapezoid. A
+# step like that is split into the fewest sub-steps that fit, as `line_advector`
+# in the test harness does; every call here is now one call, as before.
 function inplace_advect(scheme::PFCNonUniform, n)
     ws = workspace(scheme, n)
     buf = Vector{Float64}(undef, n)
@@ -72,11 +70,6 @@ x = collect(π/8:π/8:8π)
 v = collect(-4:0.1:4)
 Δv = vcat([v[2]-v[1]], 0.5*(v[3:end] - v[1:end-2]), [v[end]-v[end-1]])
 
-# Electrons and ions are given the same charge by the sums the step itself
-# takes, Σ f Δv and Σ n Δx, over which the perturbation cancels. The trapezoid
-# this used to take halves the two end points of the periodic x grid, where the
-# perturbation does not vanish, and left the electrons ≈ 1 + α/(N − 1) of the
-# ions' charge: 0.79% too high a plasma frequency squared in the α = 0.5 run.
 fi = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. Δx/Δx)'
 ni = vec(sum(fi.*Δv, dims=1))
 Ni = sum(ni.*Δx)
@@ -108,6 +101,9 @@ g = f';
 #
 function run()
     global f, g, t, n, e, ε, ε_e, ω
+    # The energies as `vlasov_poisson` in test/verification_harness.jl takes
+    # them: cell-width sums, and the kinetic energy centred on the kick.
+    K = sum(@. f*v^2*Δv*Δx')
 
     for k in 1:length(t)-1
         Δt = t[k+1] - t[k]
@@ -124,13 +120,14 @@ function run()
         
         StrangSplitting.make_time_step_2d!((g, f), (vΔt, eΔt), (advect_x!, advect_v!))
         
-        ε_e[k] = integrate(x, e.^2)
-        ε[k] = integrate(x, integrate(v, @. f*v^2)) + ε_e[k]
+        ε_e[k] = sum(@. e^2*Δx)
+        K₋, K = K, sum(@. f*v^2*Δv*Δx')
+        ε[k] = (K₋ + K)/2 + ε_e[k]
     end
     n[end,:] = sum(f.*Δv, dims=1)'
     solve_poisson!(e, ω, n[end,:] .- ni, Δx)
-    ε_e[end] = integrate(x, e.^2)
-    ε[end] = integrate(x, integrate(v, @. f*v^2)) + ε_e[end]
+    ε_e[end] = sum(@. e^2*Δx)
+    ε[end] = K + ε_e[end]
     return
 end;
 #
@@ -247,6 +244,9 @@ g = f';
 #
 function run()
     global f, g, t, n, e, ε, ε_e, ω
+    # The energies as `vlasov_poisson` in test/verification_harness.jl takes
+    # them: cell-width sums, and the kinetic energy centred on the kick.
+    K = sum(@. f*v^2*Δv*Δx')
     for k in 1:length(t)-1
         Δt = t[k+1] - t[k]
         
@@ -262,13 +262,14 @@ function run()
         
         StrangSplitting.make_time_step_2d!((g, f), (vΔt, eΔt), (advect_x!, advect_v!))
         
-        ε_e[k] = integrate(x, e.^2)
-        ε[k] = integrate(x, integrate(v, @. f*v^2)) + ε_e[k]
+        ε_e[k] = sum(@. e^2*Δx)
+        K₋, K = K, sum(@. f*v^2*Δv*Δx')
+        ε[k] = (K₋ + K)/2 + ε_e[k]
     end
     n[end,:] = sum(f.*Δv, dims=1)'
     solve_poisson!(e, ω, n[end,:]-ni, Δx)
-    ε_e[end] = integrate(x, e.^2)
-    ε[end] = integrate(x, integrate(v, @. f*v^2)) + ε_e[end]
+    ε_e[end] = sum(@. e^2*Δx)
+    ε[end] = K + ε_e[end]
     return
 end;
 #
@@ -344,6 +345,9 @@ g = f';
 #
 function run()
     global f, g, t, n, e, ε, ε_e, ω
+    # The energies as `vlasov_poisson` in test/verification_harness.jl takes
+    # them: cell-width sums, and the kinetic energy centred on the kick.
+    K = sum(@. f*v^2*Δv*Δx')
     for k in 1:length(t)-1
         Δt = t[k+1] - t[k]
         
@@ -359,13 +363,14 @@ function run()
         
         StrangSplitting.make_time_step_2d!((g, f), (vΔt, eΔt), (advect_x!, advect_v!))
         
-        ε_e[k] = integrate(x, e.^2)
-        ε[k] = integrate(x, integrate(v, @. f*v^2)) + ε_e[k]
+        ε_e[k] = sum(@. e^2*Δx)
+        K₋, K = K, sum(@. f*v^2*Δv*Δx')
+        ε[k] = (K₋ + K)/2 + ε_e[k]
     end
     n[end,:] = sum(f.*Δv, dims=1)'
     solve_poisson!(e, ω, n[end,:]-ni, Δx)
-    ε_e[end] = integrate(x, e.^2)
-    ε[end] = integrate(x, integrate(v, @. f*v^2)) + ε_e[end]
+    ε_e[end] = sum(@. e^2*Δx)
+    ε[end] = K + ε_e[end]
     return
 end;
 #

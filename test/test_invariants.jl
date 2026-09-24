@@ -127,8 +127,8 @@ end
     #
     # In a Vlasov–Poisson run the same growth shows in f's L², and it biases a
     # damping rate low. On the Landau refinement ladder of `test_verification`
-    # (k = 0.5), Superbee's error in γ goes -2.40%, -0.21%, -0.67%, +0.13% with
-    # L² rising at every level, where VanLeer's falls monotonically, +7.80% to
+    # (k = 0.5), Superbee's error in γ goes -2.58%, -0.21%, -0.67%, +0.13% with
+    # L² rising at every level, where VanLeer's falls monotonically, +7.73% to
     # +0.44%.
     l2(f) = sqrt(sum(abs2, f)/length(f))
     for (label, f₀) in (("sine", inv_smooth()),

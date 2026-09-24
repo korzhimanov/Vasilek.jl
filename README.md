@@ -59,7 +59,7 @@ zero-temperature limit and is checked as such.
 | and reversibility is bought with positivity | the two most reversible schemes are the two that drive f negative | 0.090 and 0.108 at f = −0.093 and −0.057, against PFC's 0.167 at f ≥ 0 |
 | strong Landau damping, α = 0.5 | γ₁ in the literature's −0.281…−0.292; γ₂ within 0.070…0.090, just under the cited 0.0815…0.0858, and refining moves it toward them | 0.2863, 0.0787 (0.0813 at twice the resolution) |
 | and the non-uniform velocity grid agrees | both rates within 2% of the uniform grid at the same Δt | 0.06%, 0.5% |
-| a drifting plasma damps the same way | boosted mode matches the rest-frame one once the Doppler phase is removed at each sample's own time, and the fitted rates agree | 1.7e-3, 1.8e-3 rad, 0.136% |
+| a drifting plasma damps the same way | boosted mode matches the rest-frame one once the Doppler phase is removed at each sample's own time, and the fitted rates agree within 0.1% | 1.7e-3, 1.8e-3 rad, 0.014% |
 | trapping stops the damping on the bounce time | ω_B·t₀ between 6.5 and 8.5 at four amplitudes, and t₀ ∝ α^(−1/2) | 7.09–8.00, slope −0.556 |
 | each mode recurs at its own 2π/(kΔv) | within a plasma period, for the seeded mode and the harmonic it generates | 128.6 vs 125.7, 64.3 vs 62.8 |
 | a plasma echo, field off, is the closed form's | pointwise within 0.3% of the peak, the peak within two steps of its own, the sign reversing with the kick | 0.12%, t = 15.28 on both |
@@ -77,15 +77,16 @@ zero-temperature limit and is checked as such.
 | and the old bound is refused rather than run | at fmax = 1 `PFCNonUniform` throws on its first call; unchecked, it takes f over 30% of its peak away | first call; 43.6% |
 | plasma oscillation frequency | ω within 0.2% of Bohm–Gross √(1+3k²), and the cold ωₚ excluded | 0.018%, against 0.57% for cold |
 | nor does that frequency depend on its window | two windows agree within 0.2% | 0.006% |
-| two-stream growth rate, kv₀ = 0.4, 0.6, 0.8 | γ within 3% of the warm kinetic root, and the peak in the right place | 0.62%, 1.95%, 0.09% |
+| two-stream growth rate, kv₀ = 0.4, 0.6, 0.8 | γ within 3% of the warm kinetic root, and the peak in the right place | 0.63%, 1.95%, 0.09% |
 | the same beams at twice the temperature | γ(vt = 0.6) below γ(vt = 0.3), each within 3% of its own warm root | −4.4% measured against −4.4% predicted |
-| two-stream at the cold boundary, kv₀ = 1.0 | γ within 8% of the warm root, where the cold form gives exactly zero | 3.17% |
+| two-stream at the cold boundary, kv₀ = 1.0 | γ within 8% of the warm root, where the cold form gives exactly zero | 3.16% |
 | two-stream stability boundary, kv₀ = 1.2, 1.6 | no growth, where cold and warm theory both give γ = 0 | decays to 0.052, 0.000 |
 | bump-on-tail growth, Arber and Vann's beam | γ and ω within 0.05% and 0.01% of the kinetic root on the grid's field, 0.5% and 0.05% of the continuum's; the wave travels with the beam | 0.016%, 0.003%; 0.131%, 0.014% |
 | it saturates by trapping, whatever the seed | ω_B/γ between 1.8 and 2.1 at the peak; a seed 1000× larger peaks within 0.5%, ln(1000)/γ earlier | 1.951; 0.04%, 35.00 vs 34.91 |
 | and the trapped beam carries the field | the amplitude swings with a period of 1 to 1.6 bounce periods; the flank's slope in ⟨f⟩ falls at least 3× | 1.316; 20× |
-| plasma oscillations, uniform grid | \|Δε/ε\| < 0.5% at t = 3000 | 0.39% |
-| plasma oscillations, non-uniform grid | \|Δε/ε\| < 6% at t = 3000 | 4.83% |
+| plasma oscillations, uniform grid | \|Δε/ε\| < 0.5% at t = 3000 | 0.38% |
+| plasma oscillations, non-uniform grid | \|Δε/ε\| < 6% at t = 3000 | 4.75% |
+| and the energy is one instant's | on the uniform grid ε moves by under 3e-4 of itself within a plasma period | 6.6e-5, where summing the kinetic energy after the kick swung it by 1.2e-3 |
 | the laser wakefield is a plasma wave | ω within 2% of Bohm–Gross √(ωₚ² + 3Tk²) | 0.23% |
 | the driver travels at the grid's group velocity | pulse speed within 2% of `vg_pulse`, at two resolutions | 0.73%, 1.51% |
 | and refining moves it toward the continuum | \|v − √(1−n)\| falls when Δx is halved | 0.9487 − 0.8858 → − 0.9261 |

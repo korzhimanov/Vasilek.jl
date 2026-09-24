@@ -74,14 +74,13 @@ the one place the verification runs have to absorb it.
 sub-steps that fit ([`substeps`](@ref)). `advect!` refuses it whole, and a
 translation by `α` is `m` translations by `α/m`. Every call the suite makes
 through here is within the bound, and so one call exactly as before, except in
-the two-stream runs, where the field drives the velocity sweep: they keep growing
-after their fits, into saturation, and the fastest would ask for 217 cells a
-step by `tmax`. That moves no measured number, since no fit contains a split
-step. The strong-damping run on the notebook's non-uniform grid, with `Δt` equal
-to the narrow cells' width, used to split as well: its field started at 1.0017
-of them, 0.79% too strong through the charge rescaling's error (see
-[`vlasov_poisson`](@ref)). With the charges balanced it starts at 0.9938 and
-never splits.
+the two-stream runs, where the field drives the velocity sweep: they keep
+growing after their fits, into saturation, and the fastest would ask for 217
+cells a step by `tmax`. That moves no measured number, since no fit contains a
+split step. The strong-damping run on the notebook's non-uniform grid comes
+closest otherwise: its field peaks at 0.9938 on the first step, with `Δt` equal
+to the narrow cells' width. It crossed, at 1.0017, while the driver still
+rescaled `f` by the trapezoid, 0.79% up at that amplitude.
 
 The uniform-grid method does not split. Nothing here asks a uniform scheme for
 more than `c = 0.50`, and `advect!` says so if something ever does.
@@ -138,57 +137,63 @@ energy, and that nothing asserted until now. `modes = (k₁, k₂, …)` adds
 [`mode_amplitude`](@ref), which is what separates a mode from its harmonics
 where `ε_e` cannot.
 
-**Row `k` of `E_modes` (and of `ε_e`) is sampled at `t[k] + Δt/2`, not `t[k]`.**
+**Row `k` of `E_modes`, `ε_e` and `ε` is sampled at `t[k] + Δt/2`, not `t[k]`.**
 The field is solved inside the step, after Strang's first `x` half-step, and
 recorded from there. A rate or a frequency cannot see a constant time offset;
 a *phase* can, and does: removing a Doppler factor `exp(-ikut)` at `t[k]` leaves
 `k·u·Δt/2` behind on every sample, which the Galilean test in
 `test_verification.jl` once reported as the grid's own non-invariance.
 
-**The invariants use the cell-width sum `Σ f ΔvΔx`, not `integrate`.** That is
-the quadrature the schemes actually conserve: `PFC` is a flux form, so what
-leaves one cell enters its neighbour and the full-weight sum is preserved
-exactly. The trapezoid halves the two endpoint weights, which no flux
-conservation law protects, and measuring with it reports a drift that belongs to
-the quadrature rather than to the scheme. Measured over the k = 0.5 Landau run,
-875 steps: mass drifts 2.8e-16 by the cell-width sum against **2.4e-4** by the
-trapezoid, and momentum stays at 7.9e-16 against 7.3e-4. Both trapezoid figures
-are the endpoint weighting, not the solver.
+**The invariants and the energies use the cell-width sums `Σ f ΔvΔx` and
+`Σ e² Δx`, not `integrate`.** That is the quadrature the schemes actually
+conserve: `PFC` is a flux form, so what leaves one cell enters its neighbour and
+the full-weight sum is preserved exactly. The trapezoid halves the two endpoint
+weights, which no flux conservation law protects, and measuring with it reports a
+drift that belongs to the quadrature rather than to the scheme. Measured over the
+k = 0.5 Landau run, 875 steps: mass drifts 1.6e-15 by the cell-width sum against
+**2.4e-4** by the trapezoid, and momentum stays at 2.2e-15 against 7.3e-4. Both
+trapezoid figures are the endpoint weighting, not the solver.
 
-The energy histories above keep `integrate`, because they are compared with
-tolerances of half a percent where the difference is irrelevant, and because
-changing them would silently move numbers the notebooks quote.
+The energies kept the trapezoid longer, on the grounds that the tolerances they
+meet are half a percent. For a standing wave that does little harm: the field
+`∝ sin kx` has a node on the seam, `x = L ≡ 0`, where the trapezoid's two
+half-weighted end points sit. A travelling wave crosses the seam, and the
+trapezoid books its passage as energy. On the bump-on-tail instability of Arber
+and Vann, seeded at 1e-6 on 64 × 361 cells, where `ε` is 61.8, it swung by
+−0.346 to +0.175 over t ∈ [60, 100], and by −0.185 to +0.093 at Nx = 128 --
+first order in Δx, where the sums here drift by 9.7e-3 and 1.0e-3. The x
+half-steps alone, which cannot change the kinetic energy, moved the trapezoid's
+by up to 3.9e-4 of it per half-step. The Galilean test's boosted mode travels
+too, and its fitted damping rate read 0.136% off the rest frame's through the
+same effect, where it now reads 0.014%.
+
+**The kinetic energy in `ε` is centred on the kick.** It is summed after the
+step, the field was solved before the kick, and the x half-steps in between
+leave `Σ f v² ΔvΔx` alone -- by 2.4e-16 of it per half-step at worst, over the
+bump-on-tail run -- so the kick is the only change, and the kinetic energy at
+`t[k] + Δt/2` is the mean of its two sides. Summed after the kick, as it was, `ε`
+counted half the kick's work early: an error first order in Δt that oscillates
+with the power the field exchanges with the particles. On the plasma oscillation
+the energy test runs, that alone swung `ε` by 1.2e-3 of itself within each plasma
+period, and by 1.7e-3 with the trapezoid, against the 3.8e-3 it drifts through
+t = 3000; centred, it swings by 6.6e-5.
 
 **The ions are a fixed background**, a Maxwellian's density on the grid unless
 `nᵢ` gives a profile over `x`. Without `nᵢ`, `f` is rescaled on entry so that the
-two carry the same charge; with it, `f` is taken as it comes; and `renormalize`
-overrides either. **The charges are the sums the scheme conserves**, `Σ f ΔvΔx`
-and `Σ nᵢΔx`, and the default ions are the Maxwellian's density taken as the step
-takes the electrons', `Σ f Δv` down each column. Over those sums a `cos kx`
-perturbation of the periodic grid cancels, so the seeds `M(v)(1 + α cos kx)` the
-suite runs are rescaled by 1 to within 4.4e-16, and the matched pair of
-[`bgk_equilibrium`](@ref) by exactly 1. What is left for the rescaling to do is
-match a seed whose own density differs from the ions' Maxwellian: by 1.3e-8 for
-the drifting plasma, whose shifted Maxwellian loses a different tail to the
-velocity window, and by 1.7e-9 to 2.3e-7 for the two-stream beams.
+two integrate to the same charge; with it, `f` is taken as it comes; and
+`renormalize` overrides either. A caller that passes `nᵢ` is handing over the
+ions it means, matched to `f` or deliberately not, and the driver keeps them.
 
-It used to take `integrate`'s trapezoid over `x`, which halves the two end points
-of the periodic grid and leaves out the cell between them. That is exact only for
-proportional profiles, and a perturbed seed on uniform ions is not one, though
-this docstring used to say the uniform background made it so: the trapezoid gave
-`M(v)(1 + α cos kx)` `1/(1 − α(1 + cos kΔx)/(2(N − 1))) ≈ 1 + α/(N − 1)` of the
-ions' charge, 0.79% at α = 0.5 on 64 cells. The Poisson solve drops the `k = 0`
-mode, so the excess raised no field. It raised the plasma frequency squared by
-the same 0.79% instead, and the strong-damping rates moved by up to 0.9% when it
-went. (The default ions' own `v` trapezoid, `Δv·M(vmax)` short of the step's
-moment, would have left 1.3e-5 of it at `vmax = 4` with the `x` sums fixed.) On
-the matched pair of `bgk_equilibrium` the trapezoid's factor was 1 − 1.9e-3, and
-applying it doubled the equilibrium's departure from itself through `t = 50`,
-from 3.85e-3 to 8.07e-3 in the field and from 1.52e-3 to 3.17e-3 in `f` -- inside
-the tolerances the equilibrium is held to, which is why passing `nᵢ` switches the
-rescaling off. It stays off by default: the caller has made the ions, and a pair
-built with different charges on purpose, as `bgk_equilibrium` builds one for a
-potential its ions do not hold, is taken as handed.
+**The charges are the cell-width sums too**, `Σ f ΔvΔx` and `Σ nᵢ Δx`, and the
+default `nᵢ` is the Maxwellian's `Σ M Δv`, the same sum over `v` the field is
+solved from. They were the trapezoid, which on the periodic grid weights the two
+end points by half. That is exact for proportional profiles only, and
+`M(v)(1 + α cos kx)` is not one: for it the trapezoid's rescaling was
+`≈ 1 + α/(Nx − 1)`, 7.9e-3 at α = 0.5 on 64 cells, and `ωₚ²` with it, where the
+sums give 1 to round-off. It also rescaled again on every restart, where the
+flux form has kept `Σ f ΔvΔx` and the sums find nothing to do. On the matched
+pair of [`bgk_equilibrium`](@ref) it was 1 − 1.9e-3 and doubled the
+equilibrium's drift; it is now 1 to 3.8e-15 there as well.
 
 `scheme_x` and `scheme_v` default to `PFCNonUniform` on the two grids, which is
 what the verification notebooks use and what every previous caller got. They are
@@ -199,12 +204,9 @@ so that a refinement study can hold the scheme fixed while moving the grid.
 **Either may also be a function of the initial `f` that returns a scheme**, as
 in `f -> PFC(fmin = 0.0, fmax = maximum(f))`, and is called with the `f` the run
 actually starts from. That is the only way for a caller to bound a scheme by
-that distribution: the driver rescales what it is handed before it runs, so a
-bound taken from `f₀` beforehand sits below the rescaled maximum and trips
-`PFC`'s own check on the first call. Round-off is enough for that. The seeds the
-suite hands a `PFC` this way are rescaled by 1 + 2.2e-16 to 1 + 4.4e-16, which
-puts the maximum an ulp or two above `maximum(f₀)` and trips the check just as
-the 0.8% at α = 0.5 did while the rescaling was a trapezoid.
+that distribution: the driver rescales what it is handed before it runs, to the
+ions' charge, so a bound taken from `f₀` beforehand sits below the maximum of
+any `f` it scales up and trips `PFC`'s own check on the first call.
 
 **The defaults' bounds are those of `f` on entry: 0 and its maximum.** By
 Liouville's theorem the exact solution keeps both, and PFC's limiter exists to
@@ -234,18 +236,18 @@ function vlasov_poisson(x, v, f₀, t;
     Δv = cell_widths(v)
 
     if nᵢ === nothing
-        fᵢ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. Δx/Δx)'
-        nᵢ = vec(sum(fᵢ.*Δv, dims = 1))      # as the step takes the electrons'
+        # By the same sum over `v` as the electron density the field is solved
+        # from, so that a uniform `f` is neutral as it stands.
+        nᵢ = fill(sum(@. exp(-0.5*v^2)/sqrt(2π)*Δv), length(x))
     else
         length(nᵢ) == length(x) || throw(DimensionMismatch(
             "nᵢ has $(length(nᵢ)) points, the x grid $(length(x))"))
         nᵢ = collect(float.(nᵢ))
     end
-    Nᵢ = sum(nᵢ.*Δx)
+    Nᵢ = sum(nᵢ .* Δx)
 
-    # The charges by the sums the scheme conserves, not `integrate`: see above.
     f = copy(f₀)
-    renormalize && (f .*= Nᵢ/sum(f.*Δv.*Δx'))
+    renormalize && (f .*= Nᵢ/sum(f .* (Δv .* Δx')))
     g = f'
 
     bound = maximum(f)
@@ -260,11 +262,11 @@ function vlasov_poisson(x, v, f₀, t;
     e = similar(x)
     ε_e = similar(t)
     ε = similar(t)
-    # One scratch matrix, reused: the invariants are five integrals of the same
-    # shape as `f`, and allocating a temporary per integral per step dominated
-    # the step itself when this was first written.
+    # One scratch matrix, reused: the energy and the four invariants are five
+    # integrals of the same shape as `f`, and allocating a temporary per integral
+    # per step dominated the step itself when this was first written.
     tmp = similar(f)
-    wt       = invariants ? Δv .* Δx' : nothing      # the flux-form quadrature
+    wt       = Δv .* Δx'      # the flux-form quadrature, for every sum below
     mass     = invariants ? similar(t) : nothing
     momentum = invariants ? similar(t) : nothing
     l2       = invariants ? similar(t) : nothing
@@ -284,6 +286,8 @@ function vlasov_poisson(x, v, f₀, t;
     # time the seeded mode's does, and in `ε_e` it is indistinguishable from the
     # seeded mode coming back early.
     E_modes  = isempty(modes) ? nothing : zeros(ComplexF64, length(t), length(modes))
+    @. tmp = f*v^2*wt
+    kinetic = sum(tmp)        # before the first kick
 
     for k in 1:length(t)-1
         Δt = t[k+1] - t[k]
@@ -299,9 +303,15 @@ function vlasov_poisson(x, v, f₀, t;
                 E_modes[k, j] = mode_amplitude(e, x, km)
             end
         end
-        ε_e[k] = integrate(x, e.^2)
-        @. tmp = f*v^2
-        ε[k] = integrate(x, integrate(v, tmp)) + ε_e[k]
+        ε_e[k] = sum(e[j]^2*Δx[j] for j in eachindex(e))
+        # The kick is all that moves the kinetic energy: the x half-steps on
+        # either side of it carry each row of `f` in flux form, which keeps the
+        # row's sum and so `Σ f v² ΔvΔx`. Its value when `e` was solved is then
+        # the mean of the two sides of the kick, and `ε` is a sample of the same
+        # instant as `ε_e`; see the docstring.
+        @. tmp = f*v^2*wt
+        before, kinetic = kinetic, sum(tmp)
+        ε[k] = (before + kinetic)/2 + ε_e[k]
 
         if invariants
             @. tmp = f*wt
@@ -499,10 +509,10 @@ land to a null, and it moves discontinuously as the window is nudged.
 
 Measured on the k = 0.5 run of `verification/landau-damping-1d1v.jl` (α = 0.01,
 Δt = 0.1), where the tabulated root is 0.15336. Fitting every sample: 0.14840 to
-0.15527 as the window varies over nine plausible choices, a spread of 4.6% --
+0.15526 as the window varies over nine plausible choices, a spread of 4.6% --
 and the window this file used, `t ∈ [5.9, 29.9]`, begins *exactly* on a minimum,
-which is the entire reason it reported 0.1498 (2.3% low) and reads 0.15023 (2.0%
-low) now. Moving the start one step, to 6.0, gives 0.15356 (0.13% high) from the
+which is the entire reason it reported 0.1498 (2.3% low) and reads 0.15022 (2.0%
+low) now. Moving the start one step, to 6.0, gives 0.15355 (0.12% high) from the
 same data.
 
 Through the maxima the same sweep gives 0.15442 to 0.15536, a spread of 0.6%,
@@ -806,8 +816,13 @@ function wakefield(; Δx = 0.05*2π,
     solve_poisson!(e, n[1, :] - nᵢ)
     ex[1, :] = e
     ey[1, :] = em.ey
-    ε_e[1] = integrate(x, e.^2)
-    ε[1] = integrate(x, integrate(p, @. f*p^2)) + ε_e[1]
+    # The x grid wraps here as it does in `vlasov_poisson` -- `PFC` and
+    # `PoissonFourier1D` are both periodic -- so the energies are the same
+    # cell-width sums. The seam starts in vacuum, but the plasma streaming out of
+    # the slab reaches it, `f` there at 3.6e-3 of its initial peak by the end,
+    # and the sums read `Δε/ε` 2.3e-5 above the trapezoid this used before.
+    ε_e[1] = sum(abs2, e)*Δx
+    ε[1] = sum(@. f*p^2)*Δp*Δx + ε_e[1]
 
     pʸ = zeros(Nx)
     pᶻ = zeros(Nx)
@@ -843,8 +858,8 @@ function wakefield(; Δx = 0.05*2π,
         ey[k, :] = em.ey
         ex[k, :] = e
         Φ[k, :] = ϕ
-        ε_e[k] = integrate(x, e.^2)
-        ε[k] = integrate(x, integrate(p, @. f*p^2)) + ε_e[k]
+        ε_e[k] = sum(abs2, e)*Δx
+        ε[k] = sum(@. f*p^2)*Δp*Δx + ε_e[k]
     end
 
     # The two plasma parameters come back with the run. The test needs them to
@@ -1060,17 +1075,18 @@ over the same run, fitting `t ∈ [8,18]`, `[10,20]`, `[12,22]`, `[14,24]` gives
     in use, enough to average the ripple. Adding `cos ω₊t` and `sin ω₊t` to the
     design matrix -- still a linear fit, since `ω₊` is known in closed form --
     was tried and moves the band results by 1.1 points at most (−2.10% to
-    −3.24%, −3.14% to −3.08%, +0.30% to +0.43%). It is not worth the machinery.
+    −3.24%, −3.15% to −3.08%, +0.30% to +0.43%). It is not worth the machinery.
 
     This is what produced the apparent overshoot above `γ_cold` at small beam
     temperature: `vt` changes `γ` slightly, which moves the beat's phase within
     a fixed window, and the fitted rate follows it across the cold value. Two
     other explanations were measured and rejected first -- refining `Δv` moves
     the result by 1e-5, and the driver's charge rescaling, which then left the
-    effective density at 1.0000158, was worth 0.0007% on `γ`: that is what the
-    rate moved by when the rescaling took the sums the scheme conserves, which
-    leave the density at 1 − 1.7e-9 (see `vlasov_poisson`). So was a third: at
-    `a = 0.4` the second harmonic really is more unstable than the fundamental
+    effective density at 1.0000158, was worth 0.0007% to 0.0008% on `γ` for
+    `vt` from 0.15 to 0.6: that is what the rate moved by when the rescaling
+    took the sums the scheme conserves, which leave the density at 1 − 1.7e-9
+    (see `vlasov_poisson`). So was a third: at `a = 0.4` the second harmonic
+    really is more unstable than the fundamental
     (`γ(0.8) = 0.311` against `γ(0.4) = 0.308`), but it starts at `O(α²)` and
     gains 13% over the run against a head start of 1e-6, so it contributes
     nothing here.
@@ -1138,7 +1154,7 @@ against the relation it came from before using it.
 
 **This is the `vt → 0` limit, not the case the runs are held to.** The beams in
 [`two_stream`](@ref) are Maxwellian at `vt = 0.3`, where the cold rate is off by
-up to 3.14% -- and by 7.44% for the `vt = 0.6` run, the cold error growing with
+up to 3.15% -- and by 7.44% for the `vt = 0.6` run, the cold error growing with
 temperature; [`two_stream_warm`](@ref) solves the same relation for warm beams
 and is what the assertions compare against. The two meet to 0.006% at
 `vt = 0.02`, which `test_dispersion.jl` asserts, and they part company in sign
@@ -1177,7 +1193,7 @@ run's box was `95Δx = 46.63` against `L = 47.12`, so its fundamental was
 and the seeded `cos kx`, a 96-point period on 95 points, left 0.76% of its
 amplitude outside that fundamental. It measured `γ = 0.30245`, 0.39% under the
 root at 0.4 and 0.95% under the root of the wavenumber it ran; on 96 points it
-measures 0.30173, 0.62% under. `range(Δx; step = Δx, length = Nx)` is the old
+measures 0.30173, 0.63% under. `range(Δx; step = Δx, length = Nx)` is the old
 grid to the bit at every other `a` the suite runs, where the colon form had the
 length right; the colon form comes up short at 14 of the 156 values of `a` in
 `0.05:0.01:1.6`, so the trap is not peculiar to 0.4.
