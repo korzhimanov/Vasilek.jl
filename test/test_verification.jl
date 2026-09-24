@@ -70,7 +70,7 @@ restating it -- restated, the guard was a check on a constant, and passed at the
 linear, and at 1% it is not: see [`trapping_phase`](@ref) and the trapping
 testset. Dropping the amplitude costs nothing in signal -- the fit runs through
 the maxima of a quantity that spans decades either way -- and it moves the
-`k = 0.3` measurement from 0.42% below the analytic rate to 0.71% above it,
+`k = 0.3` measurement from 0.42% below the analytic rate to 0.70% above it,
 which is where the other two sit and where numerical dissipation puts them.
 
 **The grid is not free.** The velocity window has to contain the resonance at
@@ -117,9 +117,9 @@ end
             # is held to 3%. Measured:
             #
             #   k     γ                       ω_r
-            #   0.3   0.01271  (0.71%)        1.15895  (0.08%)
+            #   0.3   0.01271  (0.70%)        1.15895  (0.08%)
             #   0.4   0.06688  (1.14%)        1.28228  (0.22%)
-            #   0.5   0.15481  (0.94%)        1.41939  (0.26%)
+            #   0.5   0.15481  (0.95%)        1.41939  (0.26%)
             #
             # All three sit *above* the analytic rate now, and that is the point
             # of the amplitude change: the residue is numerical dissipation,
@@ -173,7 +173,7 @@ end
                 # This is the assertion that would have caught the old fit: the
                 # per-sample version moved by 2.3% when its start was nudged one
                 # step, because it began on a null. Through the maxima the two
-                # windows here agree to 0.04%, 0.05% and 0.18% -- tighter than
+                # windows here agree to 0.04%, 0.05% and 0.17% -- tighter than
                 # the 0.43%, 0.44% and 1.45% of the 1% runs, the k = 0.3 case by
                 # a factor of eight, because what moved that one between windows
                 # was trapping rather than the estimator.
@@ -230,7 +230,7 @@ end
             # ω_B·t at which it happens should not move at all. Measured:
             #
             #   α       0.005   0.01    0.02    0.04
-            #   t₀      113.1   73.4    50.5    35.4
+            #   t₀      113.2   73.4    50.5    35.5
             #   t₀√α    8.00    7.34    7.14    7.09
             #
             # A factor of eight in amplitude moves the arrest by 3.2, where
@@ -357,7 +357,7 @@ end
             # nulls, so a point sample of the ratio swings between 20 and 520
             # across three time units without anything physical changing. The
             # peak over the window is the quantity the recurrence is about.
-            # Measured over t ∈ [58, 72]: 3.68e-6 against 7.60e-5, a factor 21.
+            # Measured over t ∈ [58, 72]: 3.67e-6 against 7.60e-5, a factor 21.
             lo, hi = findfirst(≥(58.0), t), findfirst(≥(72.0), t)
             peak₁, peak₂ = maximum(A₁[lo:hi]), maximum(A₂[lo:hi])
             println("  over t ∈ [58, 72]: max|E_k| = ", round(peak₁; sigdigits = 3),
@@ -422,7 +422,7 @@ end
             println("  field off: peak ", round(1/fr.vs_closed; digits = 2), "x the run's, at t = ",
                     round(fr.t_closed; digits = 2), "; pointwise ", round(fr.off; sigdigits = 3))
 
-            # 4.8e-3 of the peak pointwise; the peak 0.47% under the theory's,
+            # 4.8e-3 of the peak pointwise; the peak 0.48% under the theory's,
             # on the same sample.
             @test fr.err < 1e-2
             @test abs(fr.size - 1) < 1e-2
@@ -558,19 +558,21 @@ end
             end
 
             @testset "the ions it is handed are the ions it keeps" begin
-                # Handed `nᵢ`, the driver takes `f` as matched to it. Its
-                # rescaling to the ions' charge is a trapezoid, exact only for
-                # proportional profiles, and on this pair it is 1 − 1.9e-3:
-                # applied, it doubles the drift above, 3.85e-3 → 8.07e-3 in the
-                # field and 1.52e-3 → 3.17e-3 in f, and both stay inside their
-                # tolerances. So it is pinned here, one step in, on the flux-form
-                # mass: f₀'s to 2.2e-16 by default, 1.9e-3 short when forced.
-                one_step(; kw...) = vlasov_poisson(smooth.x, smooth.v, smooth.f₀, [0.0, 0.05];
-                                                   smooth.nᵢ, invariants = true, kw...).mass[1]
+                # Handed `nᵢ`, the driver takes `f` as it comes. On this matched
+                # pair that is now also what the rescaling does, since it takes
+                # both charges by the cell-width sums (1 to 3.8e-15); by the
+                # trapezoid it was 1 − 1.9e-3 and doubled the drift above. So
+                # the ions are handed over with 1% more charge than f, and the
+                # flux-form mass one step in says who kept what: f₀'s by
+                # default, 1.01 of it when the rescaling is forced.
+                one_step(nᵢ; kw...) = vlasov_poisson(smooth.x, smooth.v, smooth.f₀, [0.0, 0.05];
+                                                     nᵢ, invariants = true, kw...).mass[1]
                 cells = (smooth.v[2] - smooth.v[1])*(smooth.x[2] - smooth.x[1])
                 Σf₀ = sum(smooth.f₀)*cells
-                @test one_step() ≈ Σf₀ rtol = 1e-12
-                @test one_step(renormalize = true) < (1 - 1e-3)*Σf₀
+                @test one_step(smooth.nᵢ) ≈ Σf₀ rtol = 1e-12
+                @test one_step(smooth.nᵢ; renormalize = true) ≈ Σf₀ rtol = 1e-12
+                @test one_step(1.01 .* smooth.nᵢ) ≈ Σf₀ rtol = 1e-12
+                @test one_step(1.01 .* smooth.nᵢ; renormalize = true) ≈ 1.01*Σf₀ rtol = 1e-12
             end
         end
 
@@ -602,7 +604,10 @@ end
                 back = flip(vlasov_poisson(x, v, flip(fwd.f), t;
                                            scheme_x = scheme, scheme_v = scheme).f)
                 # the driver renormalises what it is handed, so the comparison is
-                # against `f₀` at the normalisation the round trip came back with
+                # against `f₀` at the normalisation the round trip came back with:
+                # f₀'s own to 7e-16, now that the rescaling is the cell-width sum
+                # the flux form keeps (the trapezoid's was 1 + 7.9e-3 at α = 0.5,
+                # and it rescaled again on the way back)
                 ref = f₀ .* (sum(back)/sum(f₀))
                 return (; err = maximum(abs, back .- ref)/maximum(f₀),
                           fmin = minimum(fwd.fmin[1:end-1]),
@@ -613,7 +618,7 @@ end
                 # Nothing is irreversible about the equations, so the round-trip
                 # error is the scheme's dissipation and has to vanish with the
                 # grid. Measured at α = 0.05 over T = 20: 2.82e-3, 6.48e-4 and
-                # 1.58e-4 at Nx = 64, 128 and 256 -- ratios 4.4 and 4.1, second
+                # 1.58e-4 at Nx = 64, 128 and 256 -- ratios 4.3 and 4.1, second
                 # order. The last level costs 22 s and is left out; the two below
                 # cost two seconds.
                 #
@@ -639,8 +644,8 @@ end
                 # periods. Past that the information needed to run the film
                 # backwards is not on the grid any more, and the round trip
                 # returns 16% of the peak whatever the resolution: measured
-                # 1.64e-1 at Nx = 64 against 1.56e-1 at 128, a factor of 1.05
-                # where the linear case gains 4.4.
+                # 1.67e-1 at Nx = 64 against 1.57e-1 at 128, a factor of 1.06
+                # where the linear case gains 4.3.
                 #
                 # This is the honest counterweight to the testset above. The
                 # scheme is third order and the splitting is symmetric, and
@@ -661,10 +666,10 @@ end
                 # costs to get there:
                 #
                 #   scheme                 round trip   min f       ΔL²/L²
-                #   LaxWendroff            8.50e-2      -9.44e-2    -0.005
-                #   SemiLagrangian cubic   1.06e-1      -5.82e-2    -0.004
-                #   PFC                    1.64e-1      +5.21e-10   -0.048
-                #   Upwind                 3.32e-1      +3.10e-09   -0.210
+                #   LaxWendroff            8.98e-2      -9.34e-2    -0.005
+                #   SemiLagrangian cubic   1.08e-1      -5.71e-2    -0.004
+                #   PFC                    1.67e-1      +5.49e-10   -0.047
+                #   Upwind                 3.32e-1      +3.07e-09   -0.210
                 #
                 # The ordering is the one `verification/scheme-comparison.jl`
                 # reports on the damping rate, arrived at through a completely
@@ -686,7 +691,9 @@ end
                 end
                 @test results["LaxWendroff"].err < results["PFC"].err
                 @test results["SemiLagrangian cubic"].err < results["PFC"].err
-                @test results["Upwind"].err > 2*results["PFC"].err
+                # twice PFC's, near enough: 1.99 times (2.02 while the driver
+                # still rescaled f by the trapezoid)
+                @test results["Upwind"].err > 1.8*results["PFC"].err
                 # and the price, which is why the default is the slower one
                 @test results["LaxWendroff"].fmin < -0.05
                 @test results["SemiLagrangian cubic"].fmin < -0.05
@@ -713,24 +720,24 @@ end
             # Measured here, on 128 x 241 with Δt = 0.025:
             #
             #   γ₁ over [0.5, 12]   0.2863     (4 maxima)
-            #   γ₂ over [20, 40]    0.0789     (8 maxima)
+            #   γ₂ over [20, 40]    0.0787     (8 maxima)
             #
             # **Both windows are conventions, and the sensitivity is the reason
-            # to say so.** γ₁ reads 0.3786 over a window holding three maxima
-            # and 0.2281 over one holding five: the envelope is not an
+            # to say so.** γ₁ reads 0.3793 over a window holding three maxima
+            # and 0.2283 over one holding five: the envelope is not an
             # exponential, it steepens and then flattens into the trapping
             # plateau, so a "damping rate" is a straight line through a curve
             # and the answer depends on how much of the curve is in the window.
             # The window here is the one that spans the decay proper -- four
             # maxima, ending before the plateau at t ≈ 13 -- and it puts γ₁ in
             # the literature's range rather than beside it. γ₂ is not in the
-            # range the citations above give: 0.0789 sits 3.2% under the lowest
+            # range the citations above give: 0.0787 sits 3.5% under the lowest
             # of them, 0.0815, and it is refinement rather than the window that
             # closes the gap (below).
             #
-            # γ₂ is better behaved (0.0751 to 0.0789 over windows holding eight
+            # γ₂ is better behaved (0.0742 to 0.0787 over windows holding eight
             # or nine maxima) but saturates after t ≈ 41, where the field stops
-            # growing: [20, 44] reads 0.0657 because it averages the turnover
+            # growing: [20, 44] reads 0.0663 because it averages the turnover
             # in.
             k = 0.5
             L = 2*(2π/k)
@@ -749,18 +756,18 @@ end
             println("  128 x 241: γ₁ = ", round(fine.γ₁; digits = 4), " (", fine.n₁,
                     " maxima), γ₂ = ", round(fine.γ₂; digits = 4), " (", fine.n₂, " maxima)")
             @test 0.27 < fine.γ₁ < 0.30       # the literature's -0.281 to -0.292
-            @test 0.070 < fine.γ₂ < 0.090     # cited 0.0815 to 0.08584; 0.0789 here
+            @test 0.070 < fine.γ₂ < 0.090     # cited 0.0815 to 0.08584; 0.0787 here
 
             # Refinement moves γ₂ toward the published value rather than away
             # from it, which is the statement that the agreement is not a
-            # coincidence of this grid: 0.0716 at half the resolution, 0.0789
-            # here, 0.0814 at twice it (that last run costs 22 s and is not
-            # repeated in CI). γ₁ is converged already -- 0.2794 against 0.2863
+            # coincidence of this grid: 0.0714 at half the resolution, 0.0787
+            # here, 0.0813 at twice it (that last run costs 22 s and is not
+            # repeated in CI). γ₁ is converged already -- 0.2819 against 0.2863
             # -- because the first decade of the decay is resolved on both.
             coarse = strong_case(64, 0.1, 0.05)
             println("  64 x 121:  γ₁ = ", round(coarse.γ₁; digits = 4),
                     ", γ₂ = ", round(coarse.γ₂; digits = 4),
-                    "   (γ₂ at twice the fine resolution: 0.0814)")
+                    "   (γ₂ at twice the fine resolution: 0.0813)")
             @test coarse.γ₂ < fine.γ₂
             @test abs(fine.γ₂ - 0.0815) < abs(coarse.γ₂ - 0.0815)
 
@@ -778,15 +785,15 @@ end
             # the same physics. Until now it was asserted only through an energy
             # drift over a *linear* run, where the distribution never approaches
             # the sharp gradients its limiter exists for. Measured against the
-            # uniform grid at the same Δt: γ₁ 0.2793 against 0.2794 (0.05%) and
-            # γ₂ 0.0721 against 0.0716 (0.6%).
+            # uniform grid at the same Δt: γ₁ 0.2818 against 0.2819 (0.06%) and
+            # γ₂ 0.0717 against 0.0714 (0.5%).
             #
-            # This grid is the one run in the suite whose velocity sweep starts
-            # past its Courant limit: the field's amplitude is 1.0017 on the
-            # first step and Δt = 0.05 is the width of the narrow cells, so it
-            # asks for 1.0017 of them. `advect!` refuses that, `line_advector`
-            # splits those four calls in two, and γ₁ and γ₂ move in the sixth
-            # and seventh digit (0.279250 → 0.279251, 0.0720565 → 0.0720560).
+            # This grid comes closer to its velocity Courant limit than any
+            # other run short of the two-stream saturation: the field's
+            # amplitude peaks at 0.9938 on the first step, and Δt = 0.05 is the
+            # width of the narrow cells. It crossed, at 1.0017, while the driver
+            # rescaled `f` by the trapezoid, and `line_advector` split those
+            # four calls in two.
             stretched = strong_case(64, 0.1, 0.05;
                 v = vcat(collect(-6:0.1:-1.1), collect(-1:0.05:1), collect(1.1:0.1:6)))
             println("  non-uniform Δv: γ₁ = ", round(stretched.γ₁; digits = 4),
@@ -911,10 +918,10 @@ end
             # 0.81 and only the discretisation moves. Measured at k = 0.5:
             #
             #   Nx    Δv      Δt     γ         error    ΔL²/L² over the run
-            #   32    0.2     0.16   0.16321   6.42%    -1.11e-4
-            #   64    0.1     0.08   0.15536   1.31%    -1.01e-5
-            #   128   0.05    0.04   0.15430   0.61%    -1.27e-6
-            #   256   0.025   0.02   0.15407   0.47%    -1.63e-7
+            #   32    0.2     0.16   0.16329   6.47%    -1.11e-4
+            #   64    0.1     0.08   0.15540   1.33%    -1.01e-5
+            #   128   0.05    0.04   0.15445   0.71%    -1.27e-6
+            #   256   0.025   0.02   0.15408   0.47%    -1.63e-7
             #
             # The last level costs 14 s on its own and is left out; the three
             # below cost about two seconds together.
@@ -1089,7 +1096,7 @@ end
             println("  uniform grid Δε/ε = ", drift)
             @test abs(drift) < 0.005
 
-            # And within a plasma period `ε` holds still: 6.0e-5 of itself over
+            # And within a plasma period `ε` holds still: 6.6e-5 of itself over
             # the last one, which is the kinetic energy centred on the kick (see
             # `vlasov_poisson`). Summed after the kick, `ε` swung by 1.2e-3 a
             # period, a third of the drift above, and by 1.7e-3 with the
@@ -1183,9 +1190,9 @@ end
                 # ε_e rising from 100x its initial value to 5.0:
                 #
                 #   a = kv₀   γ measured   γ warm     error    γ cold     error
-                #   0.4       0.30173      0.30362   -0.63%    0.30819   -2.10%
-                #   0.6       0.34228      0.34909   -1.95%    0.35339   -3.15%
-                #   0.8       0.31229      0.31201   +0.09%    0.31134   +0.31%
+                #   0.4       0.30172      0.30362   -0.63%    0.30819   -2.10%
+                #   0.6       0.34227      0.34909   -1.95%    0.35339   -3.15%
+                #   0.8       0.31228      0.31201   +0.09%    0.31134   +0.30%
                 #
                 # The a = 0.4 row read 0.30245, -0.39%, while `two_stream` built
                 # that grid a point short: 95 cells, whose fundamental is
@@ -1196,7 +1203,7 @@ end
                 # more than the tolerance and it is worth seeing which one the
                 # solver follows.
                 #
-                # **`a = 0.8` is not an overshoot.** It reads +0.31% above the
+                # **`a = 0.8` is not an overshoot.** It reads +0.30% above the
                 # cold value, and an earlier version of this comment attributed
                 # that to the beat ripple on the grounds that finite temperature
                 # cannot make a beam grow faster than a cold one. That premise
@@ -1231,7 +1238,7 @@ end
                 # unambiguous: at a = 0.6 the warm branch falls monotonically
                 # with vt (0.35337 at 0.02, 0.34909 at 0.3, 0.33381 at 0.6 --
                 # `test_dispersion.jl` asserts the monotonicity), and the runs
-                # follow it. Measured γ = 0.32710 at vt = 0.6 against 0.34228 at
+                # follow it. Measured γ = 0.32709 at vt = 0.6 against 0.34227 at
                 # vt = 0.3, a drop of 4.4% where theory predicts 4.4%.
                 #
                 # Both halves are asserted now. The relative one -- a colder
@@ -1289,7 +1296,7 @@ end
                 # against a number, in a regime where the two theories differ by
                 # infinity rather than by percent.
                 #
-                # Measured γ = 0.09517 against 0.09823, which is 3.12%, fitted
+                # Measured γ = 0.09513 against 0.09823, which is 3.16%, fitted
                 # over t ∈ [45.6, 78.2]. The band is the same `[100ε₀, 5.0]`
                 # every other case uses; `tmax = 80` is what it takes to reach
                 # 5.0 at a tenth of the growth rate, and the velocity sweep stays
@@ -1300,7 +1307,7 @@ end
                 # oscillating pair decays as exp(-γt) relative to the mode, so
                 # it is worst where γ is smallest, and γ here is a third of the
                 # branch maximum. Measured over `hi` ∈ {1, 2, 3, 5} the fit
-                # moves from -6.01% to -3.12%; 8% covers that spread with room.
+                # moves from -6.05% to -3.16%; 8% covers that spread with room.
                 t, ε_e = two_stream(1.0; tmax = 80.0)
                 γ, t0, t1 = growth_rate(t, ε_e; lo = 100*ε_e[1], hi = 5.0)
                 γw = two_stream_warm(1.0)

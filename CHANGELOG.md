@@ -87,17 +87,17 @@ This project has not been released; entries below describe work on `master`.
     on the sine and +1.2e-2 on the gaussian after a traversal at N = 128, where
     every other scheme's shrinks. `test_invariants.jl` asserts the sign. In
     `verification/scheme-comparison.jl` this puts Superbee at the head of the
-    Landau table, 0.39% off in the rate and 0.14% in the frequency. It gets
+    Landau table, 0.21% off in the rate and 0.14% in the frequency. It gets
     there from below, with the only growing L² in the table, +8.9e-5. Refined
     at a fixed Courant number from Nx = 32 to 256:
 
     | scheme | γ error | L² change |
     |---|---|---|
-    | Superbee | −2.60%, −0.39%, −0.68%, +0.13% | rises at every level, +5.0e-4 to +7.3e-6 |
-    | `VanLeer` | +7.69%, +1.43%, +0.52%, +0.43% (monotone) | falls |
-    | `PFC` | +6.42% to +0.47% (monotone) | falls |
+    | Superbee | −2.58%, −0.21%, −0.67%, +0.13% | rises at every level, +5.0e-4 to +7.3e-6 |
+    | `VanLeer` | +7.73%, +1.45%, +0.53%, +0.44% (monotone) | falls |
+    | `PFC` | +6.47% to +0.47% (monotone) | falls |
 
-    Its lead is a cancellation. At 50% amplitude it stays positive (3.08e-9).
+    Its lead is a cancellation. At 50% amplitude it stays positive (3.05e-9).
   * **Cost.** 1.38 ns per cell per step on smooth data and 1.35 on the pulse,
     against `VanLeer`'s 1.07 and 1.06, at N = 512 on Julia 1.13 (see Changed;
     with the kernel as it was, 15.2 and 8.8 against 14.0 and 7.3).
@@ -142,9 +142,9 @@ This project has not been released; entries below describe work on `master`.
   old Poisson sign hold the reversed field (below, under Fixed).
 
   `vlasov_poisson` takes `nᵢ`, an ion density profile, and `renormalize`, which
-  passing `nᵢ` turns off: the rescaling of `f` to the ions' charge is a
-  trapezoid, exact only for proportional profiles, and on this matched pair it
-  is 1 − 1.9e-3 and doubles the equilibrium's drift, inside its tolerances.
+  passing `nᵢ` turns off: the driver keeps the ions it is handed. (The
+  rescaling of `f` to the ions' charge was then a trapezoid, 1 − 1.9e-3 on this
+  matched pair; it is now the cell-width sums and 1 to round-off, see Fixed.)
 
 - **The plasma echo, with the field off and with it on** (`test/echo.jl`,
   `test/VlasovSolver/test_echo.jl`, `test/test_verification.jl`,
@@ -175,7 +175,7 @@ This project has not been released; entries below describe work on `master`.
   solve to 4.9e-6, and with the field off the theory is the closed form's
   small-ε limit to 1.1e-14. The self-consistent run (128 × 241, α = ε = 0.01,
   τ = 10) follows it to 4.8e-3 of the peak, pointwise and ringing included, with
-  the peak 0.47% low on the same sample, t = 29.05. The field-off form would put
+  the peak 0.48% low on the same sample, t = 29.05. The field-off form would put
   that peak 2.1 times higher and 1.14 later. The residual is the x-sweep's: 1.6e-2
   at Nx = 64, where halving Δv or Δt instead leaves it at 1.5e-2 and 1.7e-2.
   Extended suite.
@@ -190,19 +190,19 @@ This project has not been released; entries below describe work on `master`.
   Three measurements, and the second is the interesting one:
 
   * at α = 0.05 the round-trip error is 2.82e-3, 6.48e-4 and 1.58e-4 as the grid
-    halves — ratios 4.4 and 4.1, second order, so the irreversibility is the
+    halves — ratios 4.3 and 4.1, second order, so the irreversibility is the
     scheme's and it converges away. (It was 1.97e-3, 3.44e-4 and 4.85e-5, ratios
     5.7 and 7.1 toward `PFC`'s third order, while the harness bounded the limiter
     at 1; bounded at the initial maximum, as it now is, the limiter clips the
     peak cell and that costs the order — see Fixed.);
-  * at α = 0.5 it is 0.164 and stays 0.156 when the grid is halved, a factor of
-    1.05. By then the flow has folded the distribution into filaments finer than
+  * at α = 0.5 it is 0.167 and stays 0.157 when the grid is halved, a factor of
+    1.06. By then the flow has folded the distribution into filaments finer than
     Δv, and the information needed to run the film backwards is not on the mesh
     to be refined. Every nonlinear run in this suite is in that regime by the
     time it is interesting;
-  * ranked by round trip at α = 0.5: LaxWendroff 0.085, cubic SemiLagrangian
-    0.106, PFC 0.164, Upwind 0.332 — and the first two get there by driving `f`
-    to −0.094 and −0.058 against a peak of 0.6, where PFC stays at +5e-10 and
+  * ranked by round trip at α = 0.5: LaxWendroff 0.090, cubic SemiLagrangian
+    0.108, PFC 0.167, Upwind 0.332 — and the first two get there by driving `f`
+    to −0.093 and −0.057 against a peak of 0.6, where PFC stays at +5e-10 and
     Upwind pays a fifth of its L² norm instead. Reversibility and positivity are
     the same trade-off from two sides, arrived at here through a quantity that
     has nothing to do with the damping rate `verification/scheme-comparison.jl`
@@ -221,18 +221,18 @@ This project has not been released; entries below describe work on `master`.
   0.0815 and −0.2918 with 0.08584.
 
   Measured on 128 × 241 with Δt = 0.025: γ₁ = 0.2863 over the four maxima of the
-  decay proper, γ₂ = 0.0789 over the eight of the regrowth. Both windows are
-  conventions and the testset says so with numbers: γ₁ reads 0.3786 over three
-  maxima and 0.2281 over five, because the envelope steepens and then flattens
+  decay proper, γ₂ = 0.0787 over the eight of the regrowth. Both windows are
+  conventions and the testset says so with numbers: γ₁ reads 0.3793 over three
+  maxima and 0.2283 over five, because the envelope steepens and then flattens
   into the trapping plateau, so a straight line through it depends on how much
   of the curve is inside the window.
 
   Refinement is what makes the agreement more than a coincidence of one grid:
-  γ₂ goes 0.0716 → 0.0789 → 0.0814 as Δx, Δv and Δt halve, toward the published
+  γ₂ goes 0.0714 → 0.0787 → 0.0813 as Δx, Δv and Δt halve, toward the published
   value rather than away from it.
 
   The non-uniform velocity grid — the notebook's, and the only path this suite
-  has toward an adaptive mesh — reproduces both rates to 0.04% and 0.6%. It had
+  has toward an adaptive mesh — reproduces both rates to 0.06% and 0.5%. It had
   been asserted only through an energy drift on a *linear* run, where the
   distribution never approaches the sharp gradients its limiter exists for.
 
@@ -346,6 +346,59 @@ This project has not been released; entries below describe work on `master`.
   sine's frontier is unchanged, and so is every error.
 
 ### Fixed
+
+- **The charge rescaling is the sums the solver conserves**
+  (`test/verification_harness.jl`, and the two verification scripts with their
+  own loops). Without `nᵢ`, `vlasov_poisson` rescales `f` on entry to the ions'
+  charge, and it took both charges by the trapezoid over `x`, which on the
+  periodic grid halves the two end points. That is exact for proportional
+  profiles only. `M(v)(1 + α cos kx)` is not one, and the trapezoid scaled it by
+  `≈ 1 + α/(Nx − 1)`: 7.9e-3 at α = 0.5 on 64 cells, 1.6e-4 at α = 0.01, and
+  `ωₚ²` by the same. It also rescaled again on every restart, where the flux
+  form had kept the mass. The charges are now `Σ f ΔvΔx` and `Σ nᵢ Δx`, and the
+  default `nᵢ` is the Maxwellian's `Σ M Δv`, the same sum over `v` the field is
+  solved from. The factor is 1 to round-off on every uniform-background run and
+  on every restart, and to 3.8e-15 on the `bgk_equilibrium` pair, where the
+  trapezoid's was 1 − 1.9e-3.
+
+  What moved. Master reproduces every old figure below, so each was measured on
+  both sides:
+
+  * **The refinement ladder at k = 0.5**, errors in γ for Nx = 32 to 256:
+    `PFC` 6.42%, 1.31%, 0.61%, 0.47% → 6.47%, 1.33%, 0.71%, 0.47%; `VanLeer`
+    +7.69%, +1.43%, +0.52%, +0.43% → +7.73%, +1.45%, +0.53%, +0.44%; Superbee
+    −2.60%, −0.39%, −0.68%, +0.13% → −2.58%, −0.21%, −0.67%, +0.13%. The 128
+    rung moves most, although its factor was only 1 + 7.9e-5: applying that
+    factor by hand to the fixed driver gives the old 0.15430 back exactly.
+  * **`verification/scheme-comparison.jl`**: Superbee 0.39% → 0.21%,
+    `LaxWendroff` 0.64% → 0.67%, cubic `SemiLagrangian` 1.07% → 1.09%, `PFC`
+    1.31% → 1.33%, `VanLeer` 1.43% → 1.45%, the first-order rows 48.79% →
+    48.82%. At 50% amplitude the cubic spline's minimum is −0.105 where it was
+    −0.098.
+  * **Strong Landau damping, α = 0.5**: γ₂ 0.0789 → 0.0787 on 128 × 241, and
+    0.0716 → 0.0714 and 0.0814 → 0.0813 at half and twice the resolution; γ₁
+    0.2794 → 0.2819 at half the resolution. The non-uniform velocity grid
+    agrees with the uniform one to 0.06% and 0.5% (were 0.05% and 0.6%). Its
+    field no longer crosses the velocity Courant limit on the first step: it
+    peaks at 0.9938 of a narrow cell, where it asked for 1.0017 with `f` 0.79%
+    too large, so `line_advector` now splits no call on that run.
+  * **Time reversal at α = 0.5**: 0.164 → 0.157 became 0.167 → 0.157, and the
+    ranking reads `LaxWendroff` 0.090, cubic `SemiLagrangian` 0.108, `PFC`
+    0.167, Upwind 0.332. Upwind's error is 1.99 times `PFC`'s where it was
+    2.02, so the test asks for 1.8 times, not 2. At α = 0.05 the ratios are 4.3
+    and 4.1 (were 4.4 and 4.1).
+  * **Smaller moves**: the Landau rates at k = 0.3 and 0.5 read 0.70% and 0.95%
+    off (were 0.71% and 0.94%), the k = 0.3 window spread 0.17% (0.18%), two
+    arrest times 113.2 and 35.5 (113.1 and 35.4), the field-on echo's peak 0.48%
+    low (0.47%), the plasma oscillation's swing 6.6e-5 (6.0e-5), and the
+    two-stream rates by at most 4.3e-4 of themselves: 3.12% → 3.16% at a = 1.0,
+    whose spread over `hi` is now −6.05% to −3.16%, and +0.31% → +0.30% against
+    the cold root at a = 0.8.
+
+  `the ions it is handed are the ions it keeps` pinned the trapezoid's 1.9e-3.
+  On the matched pair the rescaling now does nothing, so the test hands the
+  driver ions with 1% more charge than `f`: the default keeps `f₀`'s mass, and
+  forcing the rescaling gives 1.01 of it.
 
 - **The energy histories are the sums the schemes conserve, and taken at one
   instant** (`test/verification_harness.jl`, `test/test_verification.jl`, and
@@ -749,10 +802,10 @@ This project has not been released; entries below describe work on `master`.
   artefact moves under refinement and physics does not.
 
   At α = 1e-3 the same column is flat to t = 95, the window widens to [10, 90]
-  with thirty maxima, and the measurement reads 0.71% *above* — as do the other
+  with thirty maxima, and the measurement reads 0.70% *above* — as do the other
   two, which is what a dissipative scheme should do. The three cases now run at
-  α = 1e-3 and are 0.71%, 1.14% and 0.94% on γ, 0.08%, 0.22% and 0.26% on ω,
-  with window spreads of 0.18%, 0.05% and 0.04% (they were up to 1.45%).
+  α = 1e-3 and are 0.70%, 1.14% and 0.95% on γ, 0.08%, 0.22% and 0.26% on ω,
+  with window spreads of 0.17%, 0.05% and 0.04% (they were up to 1.45%).
 
   `trapping_phase` is the guard, asserted per case: `(√α/γ)(1 - exp(-γT))`, the
   bounce phase accumulated before the mode damps away, evaluated at the
@@ -881,11 +934,11 @@ This project has not been released; entries below describe work on `master`.
   `a = 1.0`, the cold stability boundary, turns from a qualitative case into the
   sharpest one in the testset. The cold form predicts exactly zero there and the
   old assertion could only say "something grows" (a factor of 4.91 over t ≤ 26);
-  the warm root predicts 0.09823 and the run gives 0.09517, which is 3.12%. It
+  the warm root predicts 0.09823 and the run gives 0.09513, which is 3.16%. It
   costs a longer run — `tmax = 80` to bring `ε_e` up to the same amplitude band
   every other case uses, against a divergence at t = 86.2 — and is held to 8%
   because the beat ripple `growth_rate` documents is worst where `γ` is
-  smallest: over `hi` ∈ {1, 2, 3, 5} the fit moves between −6.01% and −3.12%.
+  smallest: over `hi` ∈ {1, 2, 3, 5} the fit moves between −6.05% and −3.16%.
 
   The temperature comparison at `a = 0.6` is now absolute as well as relative:
   γ falls 4.4% between `vt = 0.3` and `vt = 0.6` where warm theory predicts
@@ -1021,9 +1074,9 @@ This project has not been released; entries below describe work on `master`.
   1.4e-14) and confirms it reproduces `√(3/8)` and `1/(2√2)` on its own before
   using it.
 
-  Measured at three wavenumbers, with the beams at `vt = 0.3`: γ = 0.30173,
-  0.34228 and 0.31229 against 0.30819, 0.35339 and 0.31134 — 2.10%, 3.15% and
-  0.31%. **`γ(a)` is non-monotone**, peaking at `a = √(3/8) ≈ 0.612`, so
+  Measured at three wavenumbers, with the beams at `vt = 0.3`: γ = 0.30172,
+  0.34227 and 0.31228 against 0.30819, 0.35339 and 0.31134 — 2.10%, 3.15% and
+  0.30%. **`γ(a)` is non-monotone**, peaking at `a = √(3/8) ≈ 0.612`, so
   reproducing all three is a statement about the branch rather than about one
   point: a solver that merely amplified what it was given could not put the
   maximum in the right place. The residue is the beams' finite temperature and
@@ -1282,7 +1335,7 @@ This project has not been released; entries below describe work on `master`.
 - **Landau damping converges under refinement.** Agreement at one resolution
   inside a 3% band can be two errors of opposite sign meeting in the middle.
   Halving Δx, Δv and Δt together — so the Courant number stays at 0.81 and only
-  the discretisation moves — gives γ errors of 6.42%, 1.31%, 0.61% and 0.47%.
+  the discretisation moves — gives γ errors of 6.47%, 1.33%, 0.71% and 0.47%.
   The L² dissipation over the same ladder falls by 11.0x, 7.9x and 7.8x against
   the 8x a third-order scheme predicts, which is what identifies the residual
   error in γ: the fitted rate is the physical damping plus the scheme's own,
@@ -1293,8 +1346,8 @@ This project has not been released; entries below describe work on `master`.
   (`verification/scheme-comparison.jl`, advisory, exits 0). The benchmark suite
   times a bare kernel and `test_convergence` measures an order on a shifted
   sine; neither says what a scheme costs *in the physics*. Ranked by error in
-  the Landau damping rate at k = 0.5: `LaxWendroff` 0.64%, cubic
-  `SemiLagrangian` 1.07%, `PFC` 1.31%, `Godunov`+`VanLeer` 1.43%, and upwind —
+  the Landau damping rate at k = 0.5: `LaxWendroff` 0.67%, cubic
+  `SemiLagrangian` 1.09%, `PFC` 1.33%, `Godunov`+`VanLeer` 1.45%, and upwind —
   with `Godunov(PiecewiseConstant)` and linear `SemiLagrangian`, identical to it
   as `test_amplification` requires — at **48.8%**, its own dissipation being two
   orders of magnitude larger than the physical damping it is trying to measure.
@@ -1308,7 +1361,7 @@ This project has not been released; entries below describe work on `master`.
   negative — `LaxWendroff` to −0.094 and cubic `SemiLagrangian` to −0.098,
   against a peak of 0.6. That is Godunov's theorem arriving in the physics, and
   it is why the harness defaults to `PFC` despite it not leading the first table.
-  (`Godunov`+`Superbee`, added since, now heads the first table at 0.39% and
+  (`Godunov`+`Superbee`, added since, now heads the first table at 0.21% and
   stays positive. It gets there from below, by anti-diffusion rather than
   accuracy; see Added.)
 

@@ -49,16 +49,16 @@ zero-temperature limit and is checked as such.
 
 | claim | asserted | measured |
 |---|---|---|
-| Landau damping rate, k = 0.3, 0.4, 0.5 | γ within 3% of the root of the kinetic dispersion relation | 0.71%, 1.14%, 0.94% |
+| Landau damping rate, k = 0.3, 0.4, 0.5 | γ within 3% of the root of the kinetic dispersion relation | 0.70%, 1.14%, 0.95% |
 | Landau real frequency, same three k | ω within 1% of the same root | 0.08%, 0.22%, 0.26% |
 | and the runs are linear enough for that to be the right target | bounce phase under 2 in every fitting window | 1.70, 0.45, 0.21 |
-| the damping fit does not depend on its window | two windows agree within 3% | 0.18%, 0.05%, 0.04% |
+| the damping fit does not depend on its window | two windows agree within 3% | 0.17%, 0.05%, 0.04% |
 | nor does the frequency fit | two windows agree within 1% | 0.066%, 0.000%, 0.300% |
-| the Vlasov–Poisson flow runs backwards | round-trip error after v → −v falls by at least 3.5× when the grid is halved, at α = 0.05 | 2.82e-3 → 6.48e-4, ×4.4: second order, the limiter clipping the peak |
-| unless the flow has out-run the grid | at α = 0.5 the same refinement recovers nothing | 0.164 → 0.156, ×1.05 |
-| and reversibility is bought with positivity | the two most reversible schemes are the two that drive f negative | 0.085 and 0.106 at f = −0.094 and −0.058, against PFC's 0.164 at f ≥ 0 |
-| strong Landau damping, α = 0.5 | γ₁ in the literature's −0.281…−0.292; γ₂ within 0.070…0.090, just under the cited 0.0815…0.0858, and refining moves it toward them | 0.2863, 0.0789 (0.0814 at twice the resolution) |
-| and the non-uniform velocity grid agrees | both rates within 2% of the uniform grid at the same Δt | 0.05%, 0.6% |
+| the Vlasov–Poisson flow runs backwards | round-trip error after v → −v falls by at least 3.5× when the grid is halved, at α = 0.05 | 2.82e-3 → 6.48e-4, ×4.3: second order, the limiter clipping the peak |
+| unless the flow has out-run the grid | at α = 0.5 the same refinement recovers nothing | 0.167 → 0.157, ×1.06 |
+| and reversibility is bought with positivity | the two most reversible schemes are the two that drive f negative | 0.090 and 0.108 at f = −0.093 and −0.057, against PFC's 0.167 at f ≥ 0 |
+| strong Landau damping, α = 0.5 | γ₁ in the literature's −0.281…−0.292; γ₂ within 0.070…0.090, just under the cited 0.0815…0.0858, and refining moves it toward them | 0.2863, 0.0787 (0.0813 at twice the resolution) |
+| and the non-uniform velocity grid agrees | both rates within 2% of the uniform grid at the same Δt | 0.06%, 0.5% |
 | a drifting plasma damps the same way | boosted mode matches the rest-frame one once the Doppler phase is removed at each sample's own time, and the fitted rates agree within 0.1% | 1.7e-3, 1.8e-3 rad, 0.014% |
 | trapping stops the damping on the bounce time | ω_B·t₀ between 6.5 and 8.5 at four amplitudes, and t₀ ∝ α^(−1/2) | 7.09–8.00, slope −0.556 |
 | each mode recurs at its own 2π/(kΔv) | within a plasma period, for the seeded mode and the harmonic it generates | 128.6 vs 125.7, 64.3 vs 62.8 |
@@ -66,7 +66,7 @@ zero-temperature limit and is checked as such.
 | out of a mode no moment could see | the echo over 10⁴ times the seeded mode's density at the kick | 2.4·10⁴ |
 | and what a scheme keeps of a filament is what it returns | SemiLagrangian < PFC < LaxWendroff < Upwind; upwind returns under 70% | 0.11%, 1.03%, 4.5%, 45%; 55% |
 | the loss is truncation | PFC's error falls at least 5× per halving of Δv | 7.4×, 6.9× |
-| a plasma echo, field on, is second-order kinetic theory's | pointwise within 1% of `echo_second_order`, the peak within 1% of its size and two steps of its time | 0.48%, 0.47%, t = 29.05 on both |
+| a plasma echo, field on, is second-order kinetic theory's | pointwise within 1% of `echo_second_order`, the peak within 1% of its size and two steps of its time | 0.48%, 0.48%, t = 29.05 on both |
 | which is not the field-off echo | the closed form's peak over 1/0.6 times the run's and 0.5 later | 2.1×, 1.14 |
 | and the residual is the run's | it falls 2.5× from Nx = 64 to 128 | 3.4× |
 | a nonlinear equilibrium stays put, two thirds of it trapped | f within 0.5% of its peak and the field within 1% through t = 50 | 0.15%, 0.39% |
@@ -79,14 +79,14 @@ zero-temperature limit and is checked as such.
 | nor does that frequency depend on its window | two windows agree within 0.2% | 0.006% |
 | two-stream growth rate, kv₀ = 0.4, 0.6, 0.8 | γ within 3% of the warm kinetic root, and the peak in the right place | 0.63%, 1.95%, 0.09% |
 | the same beams at twice the temperature | γ(vt = 0.6) below γ(vt = 0.3), each within 3% of its own warm root | −4.4% measured against −4.4% predicted |
-| two-stream at the cold boundary, kv₀ = 1.0 | γ within 8% of the warm root, where the cold form gives exactly zero | 3.12% |
+| two-stream at the cold boundary, kv₀ = 1.0 | γ within 8% of the warm root, where the cold form gives exactly zero | 3.16% |
 | two-stream stability boundary, kv₀ = 1.2, 1.6 | no growth, where cold and warm theory both give γ = 0 | decays to 0.052, 0.000 |
 | bump-on-tail growth, Arber and Vann's beam | γ and ω within 0.05% and 0.01% of the kinetic root on the grid's field, 0.5% and 0.05% of the continuum's; the wave travels with the beam | 0.016%, 0.003%; 0.131%, 0.014% |
 | it saturates by trapping, whatever the seed | ω_B/γ between 1.8 and 2.1 at the peak; a seed 1000× larger peaks within 0.5%, ln(1000)/γ earlier | 1.951; 0.04%, 35.00 vs 34.91 |
 | and the trapped beam carries the field | the amplitude swings with a period of 1 to 1.6 bounce periods; the flank's slope in ⟨f⟩ falls at least 3× | 1.316; 20× |
 | plasma oscillations, uniform grid | \|Δε/ε\| < 0.5% at t = 3000 | 0.38% |
 | plasma oscillations, non-uniform grid | \|Δε/ε\| < 6% at t = 3000 | 4.75% |
-| and the energy is one instant's | on the uniform grid ε moves by under 3e-4 of itself within a plasma period | 6.0e-5, where summing the kinetic energy after the kick swung it by 1.2e-3 |
+| and the energy is one instant's | on the uniform grid ε moves by under 3e-4 of itself within a plasma period | 6.6e-5, where summing the kinetic energy after the kick swung it by 1.2e-3 |
 | the laser wakefield is a plasma wave | ω within 2% of Bohm–Gross √(ωₚ² + 3Tk²) | 0.23% |
 | the driver travels at the grid's group velocity | pulse speed within 2% of `vg_pulse`, at two resolutions | 0.73%, 1.51% |
 | and refining moves it toward the continuum | \|v − √(1−n)\| falls when Δx is halved | 0.9487 − 0.8858 → − 0.9261 |
@@ -126,8 +126,8 @@ shifted sine, and is advisory rather than asserted:
 julia --project=verification verification/scheme-comparison.jl
 ```
 
-Ranked by error in the Landau damping rate, `LaxWendroff` (0.64%) and cubic
-`SemiLagrangian` (1.07%) lead and upwind trails at 48.8% — its own dissipation
+Ranked by error in the Landau damping rate, `LaxWendroff` (0.67%) and cubic
+`SemiLagrangian` (1.09%) lead and upwind trails at 48.8% — its own dissipation
 being two orders of magnitude larger than the damping it is measuring. At 50%
 amplitude the two schemes that lead are exactly the two that drive `f` negative,
 which is why the solvers default to `PFC`.
