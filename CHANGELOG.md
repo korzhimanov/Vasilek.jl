@@ -9,6 +9,72 @@ This project has not been released; entries below describe work on `master`.
 
 ### Added
 
+- **Collisional Landau damping: the `BGK` operator in a run, against its own
+  dispersion relation** (`test/test_verification.jl`; `collisional_landau`,
+  `mode_exponents`, `PartialBGK` and a `collisions` keyword for `vlasov_poisson`
+  in the harness; `collisional_determinant`, `collisional_root` and
+  `heat_mode_root` in `test/dispersion.jl`; `verification/collisional-damping.jl`).
+  `BGK` is the one collision operator the package exports, and the README lists
+  it among what is implemented, but until now nothing had run it with a field.
+  `test_damping_1v.jl` checks it on a single velocity line.
+
+  * **The theory.** Linearised, BGK relaxes a mode towards
+    `F₀[n₁ + u₁v + T₁(v² − 1)/2]`, and the three moments close the kinetic
+    equation into a 3×3 determinant built from `Z`. At `ν = 0` the determinant
+    *is* the collisionless dielectric function (2.3e-14). Restricted to the
+    density, it is the Krook model's textbook closed form (4.7e-16). At large `ν`
+    it approaches the Chapman–Enskog fluid, derived separately: no viscosity in
+    one dimension, heat flux `−(3nT/ν)∂ₓT`, and a cubic whose roots are the
+    Langmuir pair and a heat-conduction mode. The gaps in ω, γ and the heat rate
+    close as 1/ν², 3.85 to 4.08 times per doubling, as the next order of the
+    expansion says they should. At `ν ≥ 0.3` the root sits above the real axis
+    once `ν` is added, so a trapezoid over the mode's own moments, which never
+    calls `Z`, confirms it (|det| 2.3e-14).
+  * **What it says.** Collisions that restore all three moments *weaken* the
+    damping at k = 0.5: γ goes 0.1534 → 0.1327 → 0.1062 → 0.0652 at
+    ν = 0, 0.1, 0.3, 1, towards a fluid wave that damps only by conduction, at
+    `3k⁴/(ν(1 + 3k²))`, and oscillates at the adiabatic `√(1 + 3k²)`. Restoring
+    fewer moments strengthens the damping: dγ/dν at ν = 0 is −0.243 for BGK,
+    +0.114 without energy and +0.684 for Krook, and by ν = 1 the three
+    frequencies are 10% and 20% apart.
+  * **The runs.** On 64 × 161 over v ∈ [−8, 8] with Δt = 0.04, each run lands
+    on the root on the grid's field. γ reads +0.37%, +0.48% and +0.75% above it,
+    and ω reads +0.05%, +0.08% and +0.03%. The damping falls as ν rises. The
+    residue in γ is the x-sweep's dissipation: halving Δx and Δt at ν = 1 takes
+    it to 0.03%, while halving Δv moves γ by 0.01%.
+  * **The teeth.** `PartialBGK` relaxes at the background temperature, restoring
+    only the density (the Krook model) or the density and the drift. Run in
+    place of BGK, each lands on the root `collisional_root` gives for what it
+    restores: 0.31% and 0.23% in γ. That is 3.3 and 2.1 times BGK's rate. So the
+    relation is checked for three operators, and a BGK that lost its temperature
+    or its drift would fail by a factor.
+  * **The heat mode.** Energy conservation gives the plasma a third mode at each
+    `k`, a temperature perturbation that does not oscillate. The density seed
+    excites it at 21% of the wave's amplitude at t = 4, and it decays six times
+    faster than the wave, so the maxima and nulls never see it. A matrix pencil
+    of the field's `k` mode, `mode_exponents`, returns the wave pair and a real
+    exponent, 0.43383 against `heat_mode_root`'s 0.43369 at ν = 1. Its wave agrees
+    with the maxima and nulls to 0.06% in γ and 0.04% in ω. The pencil takes the
+    *left* singular vectors: the right ones return every exponent conjugated,
+    which on a test signal swapped a travelling wave's direction and nothing else.
+  * **The window.** On ±8 the ν = 1 run keeps mass to 7.4e-14 and momentum to
+    1.5e-15. Energy holds to 1.4e-7, the same order as the collisionless run's
+    7.3e-8, and entropy rises monotonically. On the ±4 the collisionless case
+    runs on, it cools. `BGK` takes each line's temperature by the trapezoid over
+    the window and puts back a Maxwellian that fills the whole line, which loses
+    1.2e-3 of the energy per relaxation. By t = 60 the run has lost 5.3% of its
+    energy, T has fallen to 0.949, and γ reads 3.0% low. The first sign is the
+    bound: the narrowed Maxwellian peaks above the initial maximum of f, and
+    PFC refuses it on the first step.
+
+  The collisional roots need a looser secant stop than the collisionless ones,
+  1e-9 rather than 1e-12. `J₃` and `J₄` come from `1 + ζJ₂`, which cancels to
+  `|ζ|²` when ν is large. Against quadrature they carry 1.2e-10 of their size at
+  ν = 20, where the secant ran out of iterations at 1e-12. `heat_mode_root`
+  searches the imaginary axis only above `Im ζ = −2`. Further down, the
+  continuation of `Z` grows as `exp(|ζ|²/2)`, and a scan to g = 30 found dozens
+  of spurious sign changes.
+
 - **The bump-on-tail instability, carried through saturation**
   (`test/test_verification.jl`; `bump_on_tail` and `mode_rates` in the harness;
   `bump_on_tail_root` and `BUMP_ON_TAIL` in `test/dispersion.jl`;
@@ -346,6 +412,17 @@ This project has not been released; entries below describe work on `master`.
   sine's frontier is unchanged, and so is every error.
 
 ### Fixed
+
+- **The verification environment can load the harness again**
+  (`verification/Project.toml`). The charge-rescaling fix below dropped
+  `NumericalIntegration` from it. The two scripts with their own loops had
+  stopped calling `integrate`, but the harness they share has not: the
+  wakefield driver still integrates over `p`, and the harness loads the package
+  on its first lines. Every study that includes the harness then failed in a
+  fresh environment, with `Package NumericalIntegration not found` -- measured
+  on `two-stream.jl` -- and can only have run where the package was reachable
+  some other way, such as a default environment that has it. It is back in
+  `[deps]` and `[compat]`, as it was before.
 
 - **The charge rescaling is the sums the solver conserves**
   (`test/verification_harness.jl`, and the two verification scripts with their

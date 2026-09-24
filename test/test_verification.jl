@@ -1046,6 +1046,198 @@ end
             @test all(diff(S) .≥ -1e-15)          # and never un-mixes
         end
 
+        @testset "Collisional Landau damping: BGK in the loop" begin
+            # `BGK` is the one collision operator the package exports, and until
+            # now nothing had run it with a field. `test_damping_1v.jl` checks it
+            # on a single velocity line -- its moments, its fixed points, its
+            # rate, the H-theorem -- and none of that can see what it does to a
+            # plasma: whether the relaxation it performs, put between the kicks,
+            # is the one whose modes `collisional_root` computes. This testset
+            # runs the Landau case with it at three rates and holds the result
+            # to those roots.
+            #
+            # The roots are BGK's own, with all three moments restored, and
+            # they move the other way from what intuition expects: collisions
+            # **weaken** the damping at k = 0.5, towards the fluid's
+            # heat-conduction rate, instead of adding to it. See
+            # `collisional_root`. An operator that lost the temperature or the
+            # drift would damp harder, and the testset runs two such operators
+            # to show the measurement tells them apart.
+            k = 0.5
+            runs = Dict(ν => collisional_landau(ν; invariants = ν == 1.0)
+                        for ν in (0.0, 0.1, 0.3, 1.0))
+
+            @testset "the rate and the frequency are BGK's roots" begin
+                # Against the root on the grid's field -- `collisional_root` with
+                # `Δx` -- which is 0.5% to 0.7% more damped than the continuum
+                # at Nx = 64 and 0.17% slower. Measured:
+                #
+                #   ν     γ                            ω
+                #   0     0.15471 vs 0.15448, +0.15%   1.41372 vs 1.41321, +0.036%
+                #   0.1   0.13408 vs 0.13359, +0.37%   1.40022 vs 1.39952, +0.051%
+                #   0.3   0.10737 vs 0.10686, +0.48%   1.38162 vs 1.38051, +0.081%
+                #   1     0.06599 vs 0.06550, +0.75%   1.34977 vs 1.34935, +0.031%
+                #
+                # The rate reads above the root at every ν, as numerical
+                # dissipation can only make it, and by a residue that is the x
+                # sweep's: at ν = 1 halving Δx and Δt takes it from 0.75% to
+                # 0.03%, while halving Δv moves γ by 0.01%.
+                cases = ((0.0, (6.0, 30.0), (8.0, 28.0)),
+                         (0.1, (6.0, 35.0), (10.0, 40.0)),
+                         (0.3, (8.0, 40.0), (10.0, 45.0)),
+                         (1.0, (10.0, 50.0), (15.0, 55.0)))
+                γs = Float64[]
+                for (ν, window, alt) in cases
+                    r = runs[ν]
+                    root = collisional_root(k, ν; Δx = r.Δx)
+                    γ, npeaks = damping_rate(r.t, r.ε_e; tmin = window[1], tmax = window[2])
+                    ω, nmins = oscillation_frequency(r.t, r.ε_e; tmin = window[1], tmax = window[2])
+                    γ_alt, _ = damping_rate(r.t, r.ε_e; tmin = alt[1], tmax = alt[2])
+                    push!(γs, γ)
+                    println("  ν = ", rpad(ν, 4), " γ = ", rpad(round(γ; digits = 5), 7), " vs ",
+                            round(-imag(root); digits = 5), "  (",
+                            round(100*(γ/(-imag(root)) - 1); digits = 2), "%, ", npeaks,
+                            " maxima)   ω = ", rpad(round(ω; digits = 5), 7), " vs ",
+                            round(real(root); digits = 5), "  (",
+                            round(100*(ω/real(root) - 1); digits = 3), "%, ", nmins,
+                            " minima)   alt window γ ", round(100*(γ_alt/γ - 1); digits = 3), "%")
+                    @test isapprox(γ, -imag(root); rtol = 0.015)
+                    @test isapprox(ω, real(root); rtol = 0.003)
+                    @test isapprox(γ_alt, γ; rtol = 0.005)
+                end
+
+                # The one thing a run can say about the operator without
+                # trusting any absolute rate: which way collisions move the
+                # damping. BGK's falls as ν rises; the Krook model's and the
+                # momentum-only model's rise (dγ/dν = +0.684 and +0.114 at ν = 0,
+                # against BGK's −0.243).
+                @test issorted(γs; rev = true)
+            end
+
+            @testset "and so is the heat mode, which only energy conservation makes" begin
+                # BGK conserves each line's energy, so the collisional plasma has
+                # an energy equation, and with it a third mode at each k: a
+                # temperature perturbation that does not oscillate and decays by
+                # conduction, at `heat_mode_root`. The density seed excites it --
+                # at ν = 1 it is 21% of the wave's amplitude at t = 4 -- and it
+                # decays six times faster than the wave, so the maxima and nulls
+                # above never see it. `mode_exponents` does: a matrix
+                # pencil of E_k(t) over t ∈ [4, 30] returns the wave pair and a
+                # real exponent, and the real one is the heat mode's rate.
+                #
+                # Measured at ν = 1: g = 0.43383 against the grid's root 0.43369,
+                # 0.033%, with an imaginary part of 5e-13; and the same to five
+                # digits over [6, 30], at every 5th sample, or at order 5. The
+                # pencil's wave, 1.34928 − 0.06603i, agrees with the maxima and
+                # nulls above to 0.06% in γ and 0.04% in ω, which is what says
+                # the estimator is reading the run rather than inventing a mode.
+                r = runs[1.0]
+                s = mode_exponents(r.t, r.E; tmin = 4.0, tmax = 30.0)
+                heat = s[argmin(abs.(imag.(s)))]
+                wave = s[argmax(imag.(s))]
+                g = heat_mode_root(k, 1.0; Δx = r.Δx)
+                println("  ν = 1: heat mode ", round(-real(heat); digits = 5), " vs ",
+                        round(g; digits = 5), " (", round(100*(-real(heat)/g - 1); digits = 3),
+                        "%), imaginary part ", abs(imag(heat)), ";  pencil wave ",
+                        round(imag(wave); digits = 5), " - ", round(-real(wave); digits = 5), "i")
+                @test abs(imag(heat)) < 1e-8
+                @test isapprox(-real(heat), g; rtol = 0.002)
+                γ, _ = damping_rate(r.t, r.ε_e; tmin = 10.0, tmax = 50.0)
+                ω, _ = oscillation_frequency(r.t, r.ε_e; tmin = 10.0, tmax = 50.0)
+                @test isapprox(-real(wave), γ; rtol = 0.005)
+                @test isapprox(imag(wave), ω; rtol = 0.002)
+                for (lo, stride, order) in ((6.0, 10, 3), (4.0, 5, 3), (4.0, 10, 5))
+                    s′ = mode_exponents(r.t, r.E; tmin = lo, tmax = 30.0, stride, order)
+                    @test isapprox(-real(s′[argmin(abs.(imag.(s′)))]), -real(heat); rtol = 1e-3)
+                end
+            end
+
+            @testset "an operator that restores less lands on its own root" begin
+                # The roots above would be a weak target if any operator landed
+                # near them. `PartialBGK` restores the density alone -- the Krook
+                # model -- or the density and the drift, at the background
+                # temperature, and each run lands on the root `collisional_root`
+                # gives for what it restores, far from BGK's:
+                #
+                #   restores   ν     γ vs its own root   vs BGK's   ω vs its own   vs BGK's
+                #   (:n,)      0.3   +0.31%              +235%      +0.30%         −2.2%
+                #   (:n, :u)   1     +0.23%              +110%      +0.04%         −10.3%
+                #
+                # So the dispersion relation is checked for all three operators
+                # rather than one, and a BGK that lost its temperature or its drift
+                # would fail the testset above by a factor, not a tolerance.
+                for (C, ν, window) in (((:n,), 0.3, (4.0, 16.0)), ((:n, :u), 1.0, (8.0, 40.0)))
+                    r = collisional_landau(ν; collisions = PartialBGK{C}(1/ν))
+                    own = collisional_root(k, ν; Δx = r.Δx, conserve = C)
+                    bgk = collisional_root(k, ν; Δx = r.Δx)
+                    γ, _ = damping_rate(r.t, r.ε_e; tmin = window[1], tmax = window[2])
+                    ω, _ = oscillation_frequency(r.t, r.ε_e; tmin = window[1], tmax = window[2])
+                    println("  ", rpad(string(C), 10), "ν = ", ν, ": γ ", round(γ; digits = 5),
+                            " (", round(100*(γ/(-imag(own)) - 1); digits = 2), "% from its own root, ",
+                            round(100*(γ/(-imag(bgk)) - 1); digits = 1), "% from BGK's), ω ",
+                            round(ω; digits = 5), " (", round(100*(ω/real(own) - 1); digits = 2),
+                            "%, ", round(100*(ω/real(bgk) - 1); digits = 1), "%)")
+                    @test isapprox(γ, -imag(own); rtol = 0.015)
+                    @test isapprox(ω, real(own); rtol = 0.01)
+                    @test γ > 1.5*(-imag(bgk))
+                end
+            end
+
+            @testset "the invariants hold, on a window wide enough" begin
+                # BGK conserves each line's density, momentum and energy, so the
+                # collisional run keeps them as the collisionless one does. On ±8,
+                # over the ν = 1 run, as this suite runs it:
+                #
+                #   mass       7.4e-14 relative
+                #   momentum   1.5e-15 absolute, on mass 25.1
+                #   energy     1.4e-7 relative -- the order of the collisionless
+                #              run's 7.3e-8, the v-sweep's, and 16 times less at
+                #              Δv = 0.05
+                #   entropy    +3.3e-5, monotone increasing -- eleven times the
+                #              2.9e-6 of numerical dissipation the collisionless
+                #              run makes, since the collisions thermalise the
+                #              whole perturbation
+                r = runs[1.0].r
+                mass, mom = r.mass[1:end-1], r.momentum[1:end-1]
+                ε, S = r.ε[1:end-1], r.entropy[1:end-1]
+                println("  ν = 1 on ±8: mass ", maximum(abs, mass .- mass[1])/mass[1],
+                        ", momentum ", maximum(abs, mom), ", energy ", (ε[end] - ε[1])/ε[1],
+                        ", entropy ", S[end] - S[1], " monotone: ", all(diff(S) .≥ -1e-15))
+                @test maximum(abs, mass .- mass[1])/mass[1] < 1e-12
+                @test maximum(abs, mom) < 1e-12
+                @test abs(ε[end] - ε[1])/ε[1] < 1e-6
+                @test all(diff(S) .≥ -1e-15)
+
+                # **On the ±4 the collisionless case runs on, it cools.** `BGK`
+                # takes the temperature by the trapezoid over the window, which
+                # has lost the tail beyond |v| = 4, and puts back a Maxwellian
+                # that is narrower by exactly that: 1.2e-3 of the energy per full
+                # relaxation. At ν = 1 that is one relaxation per unit time, and
+                # by t = 60 the run has lost 5.3% of its energy and T has fallen
+                # to 0.949, with γ 3.0% below the root and ω 0.72% below it.
+                #
+                # The first sign of it is not the energy but the bound: the
+                # narrowed Maxwellian peaks above the initial maximum of f, which
+                # PFC's limiter is built on, and PFC refuses the data on the first
+                # step rather than run past its bound. Given 50% of headroom it
+                # runs, and cools: f's maximum ends 2.2% above where it started,
+                # where the Vlasov flow alone would keep it.
+                @test_throws AssertionError collisional_landau(1.0; vmax = 4.0, Δt = 0.08)
+                loose(w) = f -> PFCNonUniform(w; fmin = 0.0, fmax = 1.5*maximum(f))
+                narrow = collisional_landau(1.0; vmax = 4.0, Δt = 0.08, invariants = true,
+                                            scheme_x = loose(cell_widths(runs[1.0].x)),
+                                            scheme_v = loose(cell_widths(collect(-4.0:0.1:4.0))))
+                εn = narrow.r.ε[1:end-1]
+                cooling = (εn[end] - εn[1])/εn[1]
+                root = collisional_root(k, 1.0; Δx = narrow.Δx)
+                γn, _ = damping_rate(narrow.t, narrow.ε_e; tmin = 10.0, tmax = 50.0)
+                println("  ν = 1 on ±4: energy ", cooling, ", γ ",
+                        round(100*(γn/(-imag(root)) - 1); digits = 2), "% from the root")
+                @test cooling < -0.01
+                @test abs(ε[end] - ε[1])/ε[1] < 1e-4*abs(cooling)
+            end
+        end
+
         @testset "Plasma oscillations, Bohm–Gross frequency" begin
             # `docs/normalization.md` says the plasma-oscillation study verifies
             # the analytic plasma frequency. Nothing measured a frequency

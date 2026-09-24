@@ -16,7 +16,7 @@ As for now, the following functionality has been implemented:
 
 ## Verification
 
-Seven runnable studies live in `verification/`. They execute directly and write
+Eight runnable studies live in `verification/`. They execute directly and write
 their figures beside themselves, and they are written in Literate.jl comment
 form so they can also be rendered:
 
@@ -28,6 +28,7 @@ julia --project=verification verification/two-stream.jl
 julia --project=verification verification/bump-on-tail.jl
 julia --project=verification verification/plasma-echo.jl
 julia --project=verification verification/bgk-equilibrium.jl
+julia --project=verification verification/collisional-damping.jl
 ```
 
 Their headline claims are asserted by the test suite rather than left in prose.
@@ -45,7 +46,10 @@ three constants typed into the test file — the growth rate of *warm*
 counter-streaming beams, which is what the runs contain, and the growing root of
 the bump-on-tail distribution, on the continuum and on the grid's own
 centred-difference field. The cold two-stream closed form remains as its
-zero-temperature limit and is checked as such.
+zero-temperature limit and is checked as such. With the `BGK` operator in the
+loop, the same `Z` gives the collisional relation: a 3×3 closure on the three
+moments the operator restores, checked against the Landau root at `ν = 0`, the
+Krook model's closed form, and the Chapman–Enskog fluid at large `ν`.
 
 | claim | asserted | measured |
 |---|---|---|
@@ -60,6 +64,11 @@ zero-temperature limit and is checked as such.
 | strong Landau damping, α = 0.5 | γ₁ in the literature's −0.281…−0.292; γ₂ within 0.070…0.090, just under the cited 0.0815…0.0858, and refining moves it toward them | 0.2863, 0.0787 (0.0813 at twice the resolution) |
 | and the non-uniform velocity grid agrees | both rates within 2% of the uniform grid at the same Δt | 0.06%, 0.5% |
 | a drifting plasma damps the same way | boosted mode matches the rest-frame one once the Doppler phase is removed at each sample's own time, and the fitted rates agree within 0.1% | 1.7e-3, 1.8e-3 rad, 0.014% |
+| collisional Landau damping, `BGK` at ν = 0.1, 0.3, 1 | γ within 1.5% and ω within 0.3% of the collisional root on the grid's field, and γ *falling* as ν rises | +0.37%, +0.48%, +0.75%; +0.05%, +0.08%, +0.03%; 0.1547 → 0.1341 → 0.1074 → 0.0660 |
+| which is BGK's root and no other operator's | a relaxation restoring only n, or only n and u, lands on its own root and over 1.5× BGK's rate | 0.31%, 0.23% from their own; 3.3×, 2.1× BGK's |
+| and the mode energy conservation adds | a matrix pencil of the field finds a real exponent within 0.2% of `heat_mode_root` at ν = 1 | 0.43383 against 0.43369 |
+| the collisional relation is the right one | the Landau root at ν = 0, Krook's closed form for density alone, and Chapman–Enskog as ν → ∞ with gaps closing as 1/ν² | 2.3e-14, 4.7e-16; gaps ×3.85–4.08 per doubling |
+| and `BGK` needs its window | at ν = 1 the energy holds to 1e-6 on ±8, where on ±4 the run cools | 1.4e-7; −5.3% by t = 60 |
 | trapping stops the damping on the bounce time | ω_B·t₀ between 6.5 and 8.5 at four amplitudes, and t₀ ∝ α^(−1/2) | 7.09–8.00, slope −0.556 |
 | each mode recurs at its own 2π/(kΔv) | within a plasma period, for the seeded mode and the harmonic it generates | 128.6 vs 125.7, 64.3 vs 62.8 |
 | a plasma echo, field off, is the closed form's | pointwise within 0.3% of the peak, the peak within two steps of its own, the sign reversing with the kick | 0.12%, t = 15.28 on both |
@@ -119,7 +128,21 @@ at a bounce frequency of 1.95 times the growth rate whatever the seed; the
 trapped beam swings round the well and the field swings with it; and the
 averaged distribution loses the slope the growth ran on.
 
-An eighth study compares the advection schemes on the physics rather than on a
+The collisional study is the first run with the collision operator in it. `BGK`
+had been checked on a single velocity line, and never with a field. Put between
+the kicks at three rates, it lands on its own dispersion relation, which says
+something one might not guess: collisions that restore density, momentum and
+energy *weaken* the damping, from Landau's 0.153 towards a fluid wave that damps
+only by conducting heat. A relaxation that restored less would damp harder, and
+the testset runs two such relaxations to show that each lands on its own root.
+Conserved energy also adds a mode that does not oscillate, a temperature
+perturbation decaying by conduction, and a matrix pencil of the field finds it
+to 0.03%. The operator needs a velocity window of ±8 where the collisionless
+runs use ±4: it takes each line's temperature over the window and puts back a
+Maxwellian over the whole line, so a window that cuts the tail cools the plasma
+a little at every relaxation.
+
+A ninth study compares the advection schemes on the physics rather than on a
 shifted sine, and is advisory rather than asserted:
 
 ```bash
