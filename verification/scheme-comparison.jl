@@ -66,7 +66,9 @@ end
 # `PFC` is bounded by the distribution it carries, `[0, maximum(f)]`, as the
 # harness bounds its own `PFCNonUniform` default. It is given as a function of `f`
 # because the driver rescales the initial condition before running, and a bound
-# taken from `f₀` beforehand would sit under the rescaled maximum.
+# taken from `f₀` beforehand would sit under the rescaled maximum -- by one to
+# four ulps, the rescaling being 1 to round-off here, which is enough to trip
+# `PFC`'s check.
 #
 # `Godunov(PiecewiseLinear())` without a limiter is missing on purpose: it is
 # `LaxWendroff`, whose row is already here, as `test_amplification.jl` asserts

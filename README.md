@@ -68,7 +68,7 @@ zero-temperature limit and is checked as such.
 | the loss is truncation | PFC's error falls at least 5× per halving of Δv | 7.4×, 6.9× |
 | a plasma echo, field on, is second-order kinetic theory's | pointwise within 1% of `echo_second_order`, the peak within 1% of its size and two steps of its time | 0.48%, 0.48%, t = 29.05 on both |
 | which is not the field-off echo | the closed form's peak over 1/0.6 times the run's and 0.5 later | 2.1×, 1.14 |
-| and the residual is the run's | it falls 2.5× from Nx = 64 to 128 | 3.4× |
+| and the residual is the run's | it falls 2.5× from Nx = 64 to 128 | 3.3× |
 | a nonlinear equilibrium stays put, two thirds of it trapped | f within 0.5% of its peak and the field within 1% through t = 50 | 0.15%, 0.39% |
 | and what moves it is the scheme | L² falls and entropy rises; f and field converge at third order, 5× and 4× per halving | 7.6×, 6.1× |
 | with a kink in F on the separatrix, the error sits on it | the worst cell within one of the separatrix at two resolutions, converging at first order | on it both times, 1.75× |
@@ -127,10 +127,12 @@ julia --project=verification verification/scheme-comparison.jl
 ```
 
 Ranked by error in the Landau damping rate, `LaxWendroff` (0.67%) and cubic
-`SemiLagrangian` (1.09%) lead and upwind trails at 48.8% — its own dissipation
-being two orders of magnitude larger than the damping it is measuring. At 50%
-amplitude the two schemes that lead are exactly the two that drive `f` negative,
-which is why the solvers default to `PFC`.
+`SemiLagrangian` (1.09%) lead the schemes that dissipate, and upwind trails at
+48.8% — its own dissipation being two orders of magnitude larger than the
+damping it is measuring. At 50% amplitude those two are exactly the two that
+drive `f` negative, which is why the solvers default to `PFC`. `Superbee` heads
+the table, at 0.21%, from below: its compression anti-diffuses, and its lead is
+a cancellation.
 
 The wakefield example was asserted only to run and stay bounded until recently,
 because that was all it could support: it had **no ponderomotive coupling**, so

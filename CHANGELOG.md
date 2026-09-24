@@ -382,10 +382,10 @@ This project has not been released; entries below describe work on `master`.
     field no longer crosses the velocity Courant limit on the first step: it
     peaks at 0.9938 of a narrow cell, where it asked for 1.0017 with `f` 0.79%
     too large, so `line_advector` now splits no call on that run.
-  * **Time reversal at α = 0.5**: 0.164 → 0.157 became 0.167 → 0.157, and the
+  * **Time reversal at α = 0.5**: 0.164 → 0.156 became 0.167 → 0.157, and the
     ranking reads `LaxWendroff` 0.090, cubic `SemiLagrangian` 0.108, `PFC`
-    0.167, Upwind 0.332. Upwind's error is 1.99 times `PFC`'s where it was
-    2.02, so the test asks for 1.8 times, not 2. At α = 0.05 the ratios are 4.3
+    0.167, Upwind 0.332. Upwind's error is 1.98 times `PFC`'s where it was
+    2.03, so the test asks for 1.8 times, not 2. At α = 0.05 the ratios are 4.3
     and 4.1 (were 4.4 and 4.1).
   * **Smaller moves**: the Landau rates at k = 0.3 and 0.5 read 0.70% and 0.95%
     off (were 0.71% and 0.94%), the k = 0.3 window spread 0.17% (0.18%), two
@@ -399,6 +399,57 @@ This project has not been released; entries below describe work on `master`.
   On the matched pair the rescaling now does nothing, so the test hands the
   driver ions with 1% more charge than `f`: the default keeps `f₀`'s mass, and
   forcing the rescaling gives 1.01 of it.
+
+- **What the charge fix moved that the entry above does not list, and quotes
+  that were stale before it** (`test/test_verification.jl`,
+  `test/verification_harness.jl`, `verification/scheme-comparison.jl`,
+  `verification/two-stream.jl`, `README.md`, and this file). A new assertion
+  pins the strong-damping test's α = 0.5 seed: one step in, its flux-form mass
+  is its own to 4e-15, where the trapezoid made it 0.39% more on those 128
+  cells.
+
+  Moved by the fix, measured on master before it and after, with the value
+  before in brackets:
+
+  * the local damping rates of the k = 0.3, α = 1e-2 run, .0120 at t = 41 and
+    −.0035 at t = 84 (.0119, −.0036);
+  * the recurrence run's least amplitude of the seeded mode, 1.0e-8 (8.7e-9),
+    and the round-off its harmonic starts from, which the table now quotes as
+    CI prints it, 6.25e-17 (8.18e-17), and without bounds checking, 3.81e-17
+    (2.63e-17);
+  * the field-on echo's residual at Nx = 128, 4.84e-3 of the peak (4.80e-3),
+    3.3 times under Nx = 64's (3.4), and the run's peak, 2.373e-4 (2.374e-4);
+  * the last `ε_e` of the stable two-stream run at a = 1.6, 1.1e-9 (1.2e-9);
+  * the α = 0.5 round trip, 17% of the peak at Nx = 64 (16%), and Upwind's L²
+    loss there, 4.5 times `PFC`'s (4.4);
+  * the two-stream beams' density once rescaled: 1 − 1.7e-9 at a = 0.4 to 1.0,
+    where the trapezoid left 1 + 1.1e-5 to 1 + 2.7e-5. Across the a = 0.6
+    temperature scan the rates moved by 6.6e-6 to 7.9e-6 of themselves, which
+    `growth_rate`'s docstring now quotes in place of an estimate;
+  * figures quoted again elsewhere: the two negative minima at 50% amplitude
+    in the cross-scheme entry, −0.093 and −0.105 (−0.094 and −0.098), and the
+    a = 0.8 band fit in `growth_rate`'s docstring and the two-stream entry,
+    +0.30% (+0.31%).
+
+  Stale before the fix, with what master read then in brackets:
+
+  * the window sweep in `damping_rate`'s docstring, 0.14837 to 0.15755 fitting
+    every sample and 0.15451 to 0.15571 through the maxima (0.14824 to 0.15525
+    and 0.15439 to 0.15532); it reads 0.14840 to 0.15526 and 0.15442 to 0.15536;
+  * the 1% Landau runs' window spreads, 0.43% at k = 0.5 and 1.45% at k = 0.3
+    (0.16% and 1.46%; now 0.16% and 1.47%), and that k = 0.3 run's "0.42% low"
+    (0.38%; now 0.35%);
+  * the recurrence's point ratio, "between 20 and 520" (2.6 to 430 over
+    t ∈ [62, 66]; now 2.6 to 420), and this file's "at t = 64 the harmonic is
+    42 times" the seeded mode, which is not what the test compares: over
+    t ∈ [58, 72] the harmonic's peak is 21 times the seeded mode's;
+  * the echo's residual at Nx = 128, "4.81e-3" (4.80e-3), and "cutting α
+    tenfold moves it by 3e-5" (2.6e-4; now 2.3e-4);
+  * Upwind's L² loss, "four times" `PFC`'s (4.4);
+  * `two-stream.jl`'s peel of "18.0x" at a = 0.8, which is 17.95 and rounds to
+    17.9;
+  * the README's "`LaxWendroff` and cubic `SemiLagrangian` lead", out of date
+    since Superbee, which leads from below at 0.21% (0.39%).
 
 - **The energy histories are the sums the schemes conserve, and taken at one
   instant** (`test/verification_harness.jl`, `test/test_verification.jl`, and
@@ -732,11 +783,12 @@ This project has not been released; entries below describe work on `master`.
   `test_free_streaming.jl`, `verification/plasma-echo.jl`) or 1
   (the reversibility ranking in `test_verification.jl`,
   `verification/scheme-comparison.jl`). A bound taken from `f₀` by the caller
-  cannot work where the driver rescales `f` before running — by 0.8% at α = 0.5,
-  above the bound, into `PFC`'s own check — so `vlasov_poisson`, `ballistic_echo`
-  and `free_stream` now also take a scheme as a function of the initial `f`,
-  `f -> PFC(fmin = 0.0, fmax = maximum(f))`, and call it with the `f` they start
-  from.
+  cannot work where the driver rescales `f` before running — by 0.8% at α = 0.5
+  then, and still by one to four ulps since the rescaling became exact to
+  round-off (see Fixed), above the bound, into `PFC`'s own check — so
+  `vlasov_poisson`, `ballistic_echo` and `free_stream` now also take a scheme
+  as a function of the initial `f`, `f -> PFC(fmin = 0.0, fmax = maximum(f))`,
+  and call it with the `f` they start from.
 
   The numbers barely move: the
   echo's PFC error goes from 1.23e-3 to 1.25e-3 of the peak (and 9.83e-3 to
@@ -825,12 +877,12 @@ This project has not been released; entries below describe work on `master`.
   `vlasov_poisson` gained a `modes` keyword for this — complex field amplitudes
   per mode, since `ε_e` sums the box and cannot tell two modes apart. Asserted:
   the seeded mode peaks at t = 128.6 against 125.7 and comes back with 52% of
-  its amplitude, the harmonic at 64.3 against 62.8 from a floor of 2.6e-17, and
-  at t = 64 the harmonic is 42 times the mode that was seeded. The notebook runs
-  to t = 140 now so that both recurrences are inside it, plots them separately,
-  and takes its theory curve from `landau_root` — the asymptotic it plotted
-  before is a rate for the energy, 2γ, which is why it looked right against
-  `ε_e` while being twice γ.
+  its amplitude, the harmonic at 64.3 against 62.8 from a round-off floor
+  (6.3e-17 as CI runs the suite), and over t ∈ [58, 72] the harmonic peaks at
+  21 times the mode that was seeded. The notebook runs to t = 140 now so that
+  both recurrences are inside it, plots them separately, and takes its theory
+  curve from `landau_root` — the asymptotic it plotted before is a rate for the
+  energy, 2γ, which is why it looked right against `ε_e` while being twice γ.
 
 - **The laser in the wakefield study was travelling six percent slow, and the
   explanation on file was wrong.** `wake_wavelength` said there was no closed
@@ -1041,15 +1093,16 @@ This project has not been released; entries below describe work on `master`.
   form — moves its results by 1.1 points at most and was not kept.
 
   Three other explanations were measured and rejected: refining `Δv` moves the
-  result by 1e-5; the driver's renormalisation leaves the effective density at
-  1.0000158, worth 0.0008% on `γ`; and although the second harmonic at
-  `a = 0.4` really is the more unstable of the two (`γ(0.8) = 0.311` against
+  result by 1e-5; the driver's renormalisation left the effective density at
+  1.0000158, worth 0.0007% to 0.0008% on `γ` across the scan (it leaves it at
+  1 − 1.7e-9 now; see Fixed); and although the second harmonic at `a = 0.4`
+  really is the more unstable of the two (`γ(0.8) = 0.311` against
   `γ(0.4) = 0.308`), it starts at `O(α²)` and gains 13% over the run against a
   head start of 1e-6.
 
   The test now asserts the relative statement — a colder beam grows faster at
   fixed wavenumber — rather than the tidier "every rate lies below `γ_cold`",
-  which is false: `a = 0.8` comes out 0.31% above. The residual ripple biases
+  which is false: `a = 0.8` comes out 0.30% above. The residual ripple biases
   either way depending on how much of a beat period the band leaves unaveraged,
   so the sign at any single wavenumber is not a property worth asserting.
   Comparing two temperatures at the same wavenumber holds the band fixed and
@@ -1358,7 +1411,7 @@ This project has not been released; entries below describe work on `master`.
   schemes on positivity at all: every one returns the same `min f = 1.3e-4`,
   which is only the Maxwellian's tail at `v = ±4`. At 50% amplitude the two
   schemes that *lead* the accuracy table are exactly the two that drive `f`
-  negative — `LaxWendroff` to −0.094 and cubic `SemiLagrangian` to −0.098,
+  negative — `LaxWendroff` to −0.093 and cubic `SemiLagrangian` to −0.105,
   against a peak of 0.6. That is Godunov's theorem arriving in the physics, and
   it is why the harness defaults to `PFC` despite it not leading the first table.
   (`Godunov`+`Superbee`, added since, now heads the first table at 0.21% and

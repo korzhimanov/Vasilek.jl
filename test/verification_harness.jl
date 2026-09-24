@@ -507,16 +507,17 @@ Fitting every sample instead -- which is what this suite did until now -- fits
 oscillation. The result is dominated by how close the window edges happen to
 land to a null, and it moves discontinuously as the window is nudged.
 
-Measured at k = 0.5, where the tabulated root is 0.15336. Fitting every sample:
-0.14837 to 0.15755 as the window varies over plausible choices, a spread of 6.2%
-of the value -- and the window this file used, `t ∈ [5.9, 29.9]`, began *exactly*
-on a minimum, which is the entire reason it reported 0.1498 (2.3% low). Moving
-the start one step, to 6.0, gives 0.1532 (0.1%) from the same data.
+Measured on the k = 0.5 run of `verification/landau-damping-1d1v.jl` (α = 0.01,
+Δt = 0.1), where the tabulated root is 0.15336. Fitting every sample: 0.14840 to
+0.15526 as the window varies over nine plausible choices, a spread of 4.6% --
+and the window this file used, `t ∈ [5.9, 29.9]`, begins *exactly* on a minimum,
+which is the entire reason it reported 0.1498 (2.3% low) and reads 0.15022 (2.0%
+low) now. Moving the start one step, to 6.0, gives 0.15355 (0.12% high) from the
+same data.
 
-Through the maxima the same sweep gives 0.15451 to 0.15571, a spread of 0.8%,
-consistently about 1% above the analytic value. That residue is numerical
-damping and does not move under refinement; the 6.2% was an artefact of the
-estimator.
+Through the maxima the same sweep gives 0.15442 to 0.15536, a spread of 0.6%,
+0.7% to 1.3% above the analytic value. That residue is numerical damping and
+does not move under refinement; the 4.6% was an artefact of the estimator.
 """
 function damping_rate(t, ε_e; tmin, tmax)
     p = local_extrema(t, ε_e; tmin = tmin, tmax = tmax, maxima = true)
@@ -1074,15 +1075,18 @@ over the same run, fitting `t ∈ [8,18]`, `[10,20]`, `[12,22]`, `[14,24]` gives
     in use, enough to average the ripple. Adding `cos ω₊t` and `sin ω₊t` to the
     design matrix -- still a linear fit, since `ω₊` is known in closed form --
     was tried and moves the band results by 1.1 points at most (−2.10% to
-    −3.24%, −3.15% to −3.08%, +0.31% to +0.43%). It is not worth the machinery.
+    −3.24%, −3.15% to −3.08%, +0.30% to +0.43%). It is not worth the machinery.
 
     This is what produced the apparent overshoot above `γ_cold` at small beam
     temperature: `vt` changes `γ` slightly, which moves the beat's phase within
     a fixed window, and the fitted rate follows it across the cold value. Two
     other explanations were measured and rejected first -- refining `Δv` moves
-    the result by 1e-5, and the driver's renormalisation leaves the effective
-    density at 1.0000158, worth 0.0008% on `γ`. So was a third: at `a = 0.4` the
-    second harmonic really is more unstable than the fundamental
+    the result by 1e-5, and the driver's charge rescaling, which then left the
+    effective density at 1.0000158, was worth 0.0007% to 0.0008% on `γ` for
+    `vt` from 0.15 to 0.6: that is what the rate moved by when the rescaling
+    took the sums the scheme conserves, which leave the density at 1 − 1.7e-9
+    (see `vlasov_poisson`). So was a third: at `a = 0.4` the second harmonic
+    really is more unstable than the fundamental
     (`γ(0.8) = 0.311` against `γ(0.4) = 0.308`), but it starts at `O(α²)` and
     gains 13% over the run against a head start of 1e-6, so it contributes
     nothing here.

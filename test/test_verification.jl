@@ -52,7 +52,7 @@ arrest.
 
 Measured for the three cases here, at `α = 1e-3`: 0.21, 0.45 and 1.70. For the
 `α = 0.01` this suite used at `k = 0.3`, over its old window: 3.7 -- which is
-where the damping had started to stop, and the reason that case read 0.42% *low*
+where the damping had started to stop, and the reason that case reads 0.35% *low*
 where every other measurement in the suite reads high.
 """
 trapping_phase(α, γ, T) = sqrt(α)/γ*(1 - exp(-γ*T))
@@ -70,7 +70,7 @@ restating it -- restated, the guard was a check on a constant, and passed at the
 linear, and at 1% it is not: see [`trapping_phase`](@ref) and the trapping
 testset. Dropping the amplitude costs nothing in signal -- the fit runs through
 the maxima of a quantity that spans decades either way -- and it moves the
-`k = 0.3` measurement from 0.42% below the analytic rate to 0.70% above it,
+`k = 0.3` measurement from 0.35% below the analytic rate to 0.70% above it,
 which is where the other two sit and where numerical dissipation puts them.
 
 **The grid is not free.** The velocity window has to contain the resonance at
@@ -123,9 +123,10 @@ end
             #
             # All three sit *above* the analytic rate now, and that is the point
             # of the amplitude change: the residue is numerical dissipation,
-            # which can only add damping. At `α = 1e-2` the k = 0.3 case read
-            # 0.42% below instead -- trapping pulling one way while dissipation
-            # pulled the other, and the agreement was the two cancelling. See
+            # which can only add damping. At `α = 1e-2` the k = 0.3 case reads
+            # 0.35% below instead, over the [10, 50] it was fitted on then --
+            # trapping pulling one way while dissipation pulled the other, and
+            # the agreement was the two cancelling. See
             # [`trapping_phase`](@ref) and the trapping testset.
             #
             # `window` is the fitting stretch: after the initial transient, and
@@ -174,9 +175,9 @@ end
                 # per-sample version moved by 2.3% when its start was nudged one
                 # step, because it began on a null. Through the maxima the two
                 # windows here agree to 0.04%, 0.05% and 0.17% -- tighter than
-                # the 0.43%, 0.44% and 1.45% of the 1% runs, the k = 0.3 case by
-                # a factor of eight, because what moved that one between windows
-                # was trapping rather than the estimator.
+                # the 0.16%, 0.44% and 1.47% of the 1% runs over the windows they
+                # had, the k = 0.3 case by a factor of eight, because what moved
+                # that one between windows was trapping rather than the estimator.
                 γ_alt, _ = damping_rate(t, ε_e; tmin = alt[1], tmax = alt[2])
                 spread = abs(γ - γ_alt)/γ
                 println("      window sensitivity: γ = ", round(γ_alt; digits = 5),
@@ -219,7 +220,7 @@ end
             # The local rate between maxima two apart, at k = 0.3, α = 1e-2:
             #
             #   t      8     19    30    41    52    63    73    84    95
-            #   γ      .0127 .0130 .0128 .0119 .0092 .0048 .0000 -.0036 -.0055
+            #   γ      .0127 .0130 .0128 .0120 .0092 .0048 .0000 -.0035 -.0055
             #
             # It does not merely stop -- it goes negative, which is the field
             # growing again as the trapped population sloshes. At α = 1e-3 the
@@ -311,10 +312,12 @@ end
             # Measured on the notebook's own grid, to t = 140:
             #
             #   mode     |E| at t=0   least      peak       at t     T_R
-            #   k = 0.5  1.99e-2      8.7e-9     1.03e-2    128.6    125.7
-            #   k = 1.0  2.63e-17     --         7.60e-5    64.3     62.8
+            #   k = 0.5  1.99e-2      1.0e-8     1.03e-2    128.6    125.7
+            #   k = 1.0  6.25e-17     --         7.60e-5    64.3     62.8
             #
-            # ("least" is the smallest |E| between the decay and the return.)
+            # ("least" is the smallest |E| between the decay and the return.
+            # The harmonic's |E| at t=0 is round-off: 6.25e-17 with bounds
+            # checked, as CI runs the suite, and 3.81e-17 without.)
             # The harmonic starts at round-off -- it is not seeded -- and around
             # its recurrence it is 21 times the seeded mode, which around the
             # seeded mode's own recurrence is 121 times it. In `ε_e` both are
@@ -354,8 +357,8 @@ end
             #
             # Compared over an envelope rather than at an instant, deliberately.
             # Each mode oscillates at its own frequency and passes through deep
-            # nulls, so a point sample of the ratio swings between 20 and 520
-            # across three time units without anything physical changing. The
+            # nulls, so a point sample of the ratio swings between 2.6 and 420
+            # over t ∈ [62, 66] without anything physical changing. The
             # peak over the window is the quantity the recurrence is about.
             # Measured over t ∈ [58, 72]: 3.67e-6 against 7.60e-5, a factor 21.
             lo, hi = findfirst(≥(58.0), t), findfirst(≥(72.0), t)
@@ -389,7 +392,7 @@ end
             #                             peak |A₃|   at t
             #   closed form, field off    5.018e-4    30.19
             #   second-order theory       2.385e-4    29.05
-            #   run                       2.374e-4    29.05
+            #   run                       2.373e-4    29.05
             #
             # Half the size, a time unit early, and then it rings: the k₃ mode
             # the echo builds is a Langmuir wave, which goes on oscillating and
@@ -439,9 +442,9 @@ end
             @test fr.off > 0.5
 
             # The residual is the run's truncation, not the theory's: 1.61e-2 at
-            # Nx = 64 against 4.81e-3 at 128, a factor 3.4. At Nx = 64, halving Δv
+            # Nx = 64 against 4.84e-3 at 128, a factor 3.3. At Nx = 64, halving Δv
             # or Δt instead leaves it at 1.53e-2 and 1.65e-2, cutting α tenfold
-            # moves it by 3e-5, and halving ε by 8e-4 -- the curvature of J₁.
+            # moves it by 2.3e-4, and halving ε by 8e-4 -- the curvature of J₁.
             @test cr.err > 2.5*fr.err
         end
 
@@ -643,9 +646,9 @@ end
                 # distribution into filaments finer than Δv within a few plasma
                 # periods. Past that the information needed to run the film
                 # backwards is not on the grid any more, and the round trip
-                # returns 16% of the peak whatever the resolution: measured
-                # 1.67e-1 at Nx = 64 against 1.57e-1 at 128, a factor of 1.06
-                # where the linear case gains 4.3.
+                # returns 16% to 17% of the peak whatever the resolution:
+                # measured 1.67e-1 at Nx = 64 against 1.57e-1 at 128, a factor of
+                # 1.06 where the linear case gains 4.3.
                 #
                 # This is the honest counterweight to the testset above. The
                 # scheme is third order and the splitting is symmetric, and
@@ -691,7 +694,7 @@ end
                 end
                 @test results["LaxWendroff"].err < results["PFC"].err
                 @test results["SemiLagrangian cubic"].err < results["PFC"].err
-                # twice PFC's, near enough: 1.99 times (2.02 while the driver
+                # twice PFC's, near enough: 1.98 times (2.03 while the driver
                 # still rescaled f by the trapezoid)
                 @test results["Upwind"].err > 1.8*results["PFC"].err
                 # and the price, which is why the default is the slower one
@@ -699,7 +702,7 @@ end
                 @test results["SemiLagrangian cubic"].fmin < -0.05
                 @test results["PFC"].fmin ≥ 0.0
                 # upwind keeps positivity and loses the physics instead: a fifth
-                # of the L² norm, four times what PFC dissipates
+                # of the L² norm, four and a half times what PFC dissipates
                 @test results["Upwind"].l2 < 4*results["PFC"].l2
             end
         end
@@ -749,7 +752,7 @@ end
                 r = vlasov_poisson(x, v, f₀, t; invariants = true)
                 γ₁, n₁ = damping_rate(t, r.ε_e; tmin = 0.5, tmax = 12.0)
                 γ₂, n₂ = damping_rate(t, r.ε_e; tmin = 20.0, tmax = 40.0)
-                return (; γ₁, n₁, γ₂ = -γ₂, n₂, r)
+                return (; γ₁, n₁, γ₂ = -γ₂, n₂, r, f₀, cells = (v[2] - v[1])*Δx)
             end
 
             fine = strong_case(128, 0.05, 0.025)
@@ -757,6 +760,15 @@ end
                     " maxima), γ₂ = ", round(fine.γ₂; digits = 4), " (", fine.n₂, " maxima)")
             @test 0.27 < fine.γ₁ < 0.30       # the literature's -0.281 to -0.292
             @test 0.070 < fine.γ₂ < 0.090     # cited 0.0815 to 0.08584; 0.0787 here
+
+            # And the run starts from the seed it was handed. The driver balances
+            # the charges by the sums the scheme conserves, over which the
+            # perturbation cancels, so one step in this seed's flux-form mass is
+            # f₀'s to 4e-15. The trapezoid it balanced them by before put 0.39%
+            # more electrons into the seed here, and 0.79% on the 64 cells below:
+            # a plasma frequency squared that much too high, which put γ₁ on
+            # those 64 cells 0.9% low.
+            @test fine.r.mass[1] ≈ sum(fine.f₀)*fine.cells rtol = 1e-12
 
             # Refinement moves γ₂ toward the published value rather than away
             # from it, which is the statement that the agreement is not a
@@ -1276,7 +1288,7 @@ end
 
                 # Measured over t ≤ 26, as a ratio of peak ε_e to initial:
                 # a = 1.2 gives 1.00 (4.84e-5 decaying to 2.54e-6) and a = 1.6
-                # gives 1.00 (2.02e-5 to 1.2e-9), against 1.6e5 at a = 0.6 over
+                # gives 1.00 (2.02e-5 to 1.1e-9), against 1.6e5 at a = 0.6 over
                 # its own t ≤ 24. (This said 2.0e8, from when that run went
                 # past its velocity Courant limit unchecked; see `two_stream`.)
                 for a in (1.2, 1.6)
