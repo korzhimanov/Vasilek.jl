@@ -786,7 +786,7 @@ end
             # first step and Δt = 0.05 is the width of the narrow cells, so it
             # asks for 1.0017 of them. `advect!` refuses that, `line_advector`
             # splits those four calls in two, and γ₁ and γ₂ move in the sixth
-            # digit (0.279257 → 0.279258, 0.072051 → 0.072050).
+            # and seventh digit (0.279250 → 0.279251, 0.0720565 → 0.0720560).
             stretched = strong_case(64, 0.1, 0.05;
                 v = vcat(collect(-6:0.1:-1.1), collect(-1:0.05:1), collect(1.1:0.1:6)))
             println("  non-uniform Δv: γ₁ = ", round(stretched.γ₁; digits = 4),
@@ -822,7 +822,7 @@ end
             #
             #   amplitude ratio     within 1.7e-3
             #   phase               within 1.8e-3 rad
-            #   fitted γ            0.136% apart
+            #   fitted γ            0.014% apart
             #   fitted ω            identical to the estimator's resolution
             #
             # **The Doppler factor is removed at the time the field was sampled,
@@ -865,6 +865,15 @@ end
 
             # And the rates, which is the same statement read through the
             # estimators the rest of this file uses.
+            #
+            # **The boosted mode travels, and that is what the tolerance on γ
+            # is for.** `ε_e` summed with the trapezoid read the two rates
+            # 0.136% apart, nine times what they are: a wave moving through the
+            # box crosses its seam, where the trapezoid's half-weighted end
+            # points sit, and the trapezoid books the crossing as field energy
+            # (see `vlasov_poisson`). The rest-frame mode stands, with a node on
+            # the seam, and its rate moved by 5e-6 of itself. 0.1% passes the
+            # sum and fails the trapezoid.
             γ₀, _ = damping_rate(t, rest.ε_e; tmin = 6.0, tmax = 30.0)
             γ_u, _ = damping_rate(t, boosted.ε_e; tmin = 6.0, tmax = 30.0)
             ω₀, _ = oscillation_frequency(t, rest.ε_e; tmin = 6.0, tmax = 30.0)
@@ -872,7 +881,7 @@ end
             println("  γ = ", round(γ₀; digits = 5), " at rest, ", round(γ_u; digits = 5),
                     " boosted (", round(100*abs(γ_u - γ₀)/γ₀; digits = 3), "%)",
                     "   ω = ", round(ω₀; digits = 5), " and ", round(ω_u; digits = 5))
-            @test isapprox(γ_u, γ₀; rtol = 5e-3)
+            @test isapprox(γ_u, γ₀; rtol = 1e-3)
             @test isapprox(ω_u, ω₀; rtol = 1e-3)
 
             # Teeth: the Doppler shift being taken out is a real shift, not a
@@ -902,7 +911,7 @@ end
             # 0.81 and only the discretisation moves. Measured at k = 0.5:
             #
             #   Nx    Δv      Δt     γ         error    ΔL²/L² over the run
-            #   32    0.2     0.16   0.16318   6.41%    -1.11e-4
+            #   32    0.2     0.16   0.16321   6.42%    -1.11e-4
             #   64    0.1     0.08   0.15536   1.31%    -1.01e-5
             #   128   0.05    0.04   0.15430   0.61%    -1.27e-6
             #   256   0.025   0.02   0.15407   0.47%    -1.63e-7
@@ -1073,14 +1082,28 @@ end
             f(v) = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. (1.0 + 0.01*cos(2π*x/100)))'
 
             # The uniform-grid claim the notebook makes: below 0.5% at t = 3000.
+            # Measured 0.379%.
             uniform = collect(-4:0.1:4)
             ε = vlasov_poisson(x, uniform, f(uniform), t).ε
             drift = (ε[end-1] - ε[1])/ε[1]
             println("  uniform grid Δε/ε = ", drift)
             @test abs(drift) < 0.005
 
+            # And within a plasma period `ε` holds still: 6.0e-5 of itself over
+            # the last one, which is the kinetic energy centred on the kick (see
+            # `vlasov_poisson`). Summed after the kick, `ε` swung by 1.2e-3 a
+            # period, a third of the drift above, and by 1.7e-3 with the
+            # trapezoid as well, which is how this test read it before; the
+            # 0.381% it reported then was a point on that swing that happened to
+            # land near the drift. 3e-4 fails both.
+            last_period = findall(≥(3000 - 2π), t[1:end-1])
+            swing = (maximum(ε[last_period]) - minimum(ε[last_period]))/ε[1]
+            println("  uniform grid swing over the last plasma period = ", swing)
+            @test swing < 3e-4
+
             # The non-uniform grid was reported at "about 12%" with the limiter
-            # computed globally. Per-cell-triple ξ brings it to 4.85%.
+            # computed globally. Per-cell-triple ξ brings it to 4.75% -- 4.85%
+            # by the trapezoid after the kick.
             nonuniform = vcat(collect(-4:0.2:-1.2), collect(-1:0.1:1), collect(1.2:0.2:4))
             ε = vlasov_poisson(x, nonuniform, f(nonuniform), t).ε
             drift = (ε[end-1] - ε[1])/ε[1]
@@ -1118,7 +1141,7 @@ end
             # is held to any more. `two_stream_warm` solves the same relation
             # with Maxwellian beams instead of delta functions, and the
             # difference is not cosmetic: at the `vt = 0.3` of the three
-            # growth-rate runs the cold form is off by up to 3.14% where the
+            # growth-rate runs the cold form is off by up to 3.15% where the
             # warm root is off by 1.95%, and at the `vt = 0.6` run by 7.44%
             # against 2.01% -- the cold error grows with the temperature, the
             # warm one does not. The one place it changes a *conclusion* rather
@@ -1160,8 +1183,8 @@ end
                 # ε_e rising from 100x its initial value to 5.0:
                 #
                 #   a = kv₀   γ measured   γ warm     error    γ cold     error
-                #   0.4       0.30173      0.30362   -0.62%    0.30819   -2.10%
-                #   0.6       0.34228      0.34909   -1.95%    0.35339   -3.14%
+                #   0.4       0.30173      0.30362   -0.63%    0.30819   -2.10%
+                #   0.6       0.34228      0.34909   -1.95%    0.35339   -3.15%
                 #   0.8       0.31229      0.31201   +0.09%    0.31134   +0.31%
                 #
                 # The a = 0.4 row read 0.30245, -0.39%, while `two_stream` built
@@ -1244,8 +1267,9 @@ end
 
                 # Measured over t ≤ 26, as a ratio of peak ε_e to initial:
                 # a = 1.2 gives 1.00 (4.84e-5 decaying to 2.54e-6) and a = 1.6
-                # gives 1.00 (2.02e-5 to 1.2e-9), against 2.0e8 at a = 0.6 over
-                # its own t ≤ 24.
+                # gives 1.00 (2.02e-5 to 1.2e-9), against 1.6e5 at a = 0.6 over
+                # its own t ≤ 24. (This said 2.0e8, from when that run went
+                # past its velocity Courant limit unchecked; see `two_stream`.)
                 for a in (1.2, 1.6)
                     t, ε_e = two_stream(a; tmax = 26.0)
                     ratio = maximum(ε_e)/ε_e[1]
@@ -1265,7 +1289,7 @@ end
                 # against a number, in a regime where the two theories differ by
                 # infinity rather than by percent.
                 #
-                # Measured γ = 0.09516 against 0.09823, which is 3.12%, fitted
+                # Measured γ = 0.09517 against 0.09823, which is 3.12%, fitted
                 # over t ∈ [45.6, 78.2]. The band is the same `[100ε₀, 5.0]`
                 # every other case uses; `tmax = 80` is what it takes to reach
                 # 5.0 at a tenth of the growth rate, and the velocity sweep stays

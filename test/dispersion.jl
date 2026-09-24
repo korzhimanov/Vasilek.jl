@@ -10,7 +10,7 @@
 # three, and the two-stream measurement can be compared against the beams the
 # solver was actually given -- warm ones -- instead of against a cold limit it is
 # known to miss. Measured at the `vt = 0.3` of the three growth-rate runs, the
-# warm root takes the worst error from the cold form's 3.14% to 1.95%. The gap is
+# warm root takes the worst error from the cold form's 3.15% to 1.95%. The gap is
 # widest at the `vt = 0.6` run, 7.44% against 2.01%, because the cold form's error
 # grows with the beam temperature and the warm root's does not.
 #
@@ -171,10 +171,10 @@ returns 0.0 rather than a value nobody should trust.
 suite fits, with the beams at `vt = 0.3` the runs actually use:
 
     a     warm      cold      measured   vs warm   vs cold
-    0.4   0.30362   0.30819   0.30173    -0.62%    -2.10%
-    0.6   0.34909   0.35339   0.34228    -1.95%    -3.14%
+    0.4   0.30362   0.30819   0.30173    -0.63%    -2.10%
+    0.6   0.34909   0.35339   0.34228    -1.95%    -3.15%
     0.8   0.31201   0.31134   0.31229    +0.09%    +0.31%
-    1.0   0.09823   0         0.09516    -3.12%      --
+    1.0   0.09823   0         0.09517    -3.12%      --
 
 Two things fall out of that table which the cold form actively misleads about.
 The first is the tolerance: 2.01% against the warm root where the cold one needs

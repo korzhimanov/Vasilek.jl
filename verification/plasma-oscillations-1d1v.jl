@@ -79,6 +79,9 @@ g = f';
 #
 function run()
     global f, g, t, n, e, ε, ε_e, ω
+    # The energies as `vlasov_poisson` in test/verification_harness.jl takes
+    # them: cell-width sums, and the kinetic energy centred on the kick.
+    K = sum(@. f*v^2*Δv*Δx')
     for k in 1:length(t)-1
         Δt = t[k+1] - t[k]
         
@@ -94,13 +97,14 @@ function run()
         
         StrangSplitting.make_time_step_2d!((g, f), (vΔt, eΔt), (advect_x!, advect_v!))
         
-        ε_e[k] = integrate(x, e.^2)
-        ε[k] = integrate(x, integrate(v, @. f*v^2)) + ε_e[k]
+        ε_e[k] = sum(@. e^2*Δx)
+        K₋, K = K, sum(@. f*v^2*Δv*Δx')
+        ε[k] = (K₋ + K)/2 + ε_e[k]
     end
     n[end,:] = sum(f.*Δv, dims=1)'
     solve_poisson!(e, ω, n[end,:]-ni, Δx)
-    ε_e[end] = integrate(x, e.^2)
-    ε[end] = integrate(x, integrate(v, @. f*v^2)) + ε_e[end]
+    ε_e[end] = sum(@. e^2*Δx)
+    ε[end] = K + ε_e[end]
     return
 end;
 #
@@ -119,7 +123,9 @@ xlabel!("ωₚt")
 ylabel!("Δε/ε")
 savefig(figure("plasma-oscillations-1d1v-01"))
 #
-# We see that despite slow growth a relative energy conservation violation is still below 0.5% at almost 500 wave periods.
+# We see that despite slow growth a relative energy conservation violation is still below 0.5% at almost 500 wave periods: 0.38% at $t = 3000$.
+#
+# The curve is smooth within each plasma period because of how the energy is taken. The kinetic part is the cell-width sum the scheme conserves, not the trapezoid, and it is the mean of its values on either side of the velocity step, which is where the field was solved. Summed by the trapezoid after that step instead, as this study did until recently, the energy swung by 0.17% within every period, three quarters of it half the work of each step's acceleration counted early.
 #
 # Now we check the amplitude of plasma oscillations at central point where it reaches maximum.
 #
@@ -190,6 +196,9 @@ g = f';
 #
 function run()
     global f, g, t, n, e, ε, ε_e, ω
+    # The energies as `vlasov_poisson` in test/verification_harness.jl takes
+    # them: cell-width sums, and the kinetic energy centred on the kick.
+    K = sum(@. f*v^2*Δv*Δx')
     for k in 1:length(t)-1
         Δt = t[k+1] - t[k]
         
@@ -205,13 +214,14 @@ function run()
         
         StrangSplitting.make_time_step_2d!((g, f), (vΔt, eΔt), (advect_x!, advect_v!))
         
-        ε_e[k] = integrate(x, e.^2)
-        ε[k] = integrate(x, integrate(v, @. f*v^2)) + ε_e[k]
+        ε_e[k] = sum(@. e^2*Δx)
+        K₋, K = K, sum(@. f*v^2*Δv*Δx')
+        ε[k] = (K₋ + K)/2 + ε_e[k]
     end
     n[end,:] = sum(f.*Δv, dims=1)'
     solve_poisson!(e, ω, n[end,:]-ni, Δx)
-    ε_e[end] = integrate(x, e.^2)
-    ε[end] = integrate(x, integrate(v, @. f*v^2)) + ε_e[end]
+    ε_e[end] = sum(@. e^2*Δx)
+    ε[end] = K + ε_e[end]
     return
 end;
 #
@@ -224,7 +234,7 @@ xlabel!("ωₚt")
 ylabel!("Δε/ε")
 savefig(figure("plasma-oscillations-1d1v-04"))
 #
-# In this case, as clearly seen, the violation of energy conservation is more pronounced but still at reasonable level: even after almost 500 plasma oscillations it's only about 12%.
+# In this case, as clearly seen, the violation of energy conservation is more pronounced but still at reasonable level: even after almost 500 plasma oscillations it's only about 4.75%. (This study used to report about 12% here, with the limiter's coefficient computed once for the whole grid; per cell triple, as `PFCNonUniform` computes it now, it is the figure above.)
 #
 plot(t, n[:,end÷2].-ni[end÷2], label="nₑ−nᵢ")
 xlabel!("ωₚt")

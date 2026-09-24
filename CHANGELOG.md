@@ -93,9 +93,9 @@ This project has not been released; entries below describe work on `master`.
 
     | scheme | γ error | L² change |
     |---|---|---|
-    | Superbee | −2.41%, −0.39%, −0.68%, +0.13% | rises at every level, +5.0e-4 to +7.3e-6 |
-    | `VanLeer` | +7.76%, +1.43%, +0.52%, +0.43% (monotone) | falls |
-    | `PFC` | +6.41% to +0.47% (monotone) | falls |
+    | Superbee | −2.60%, −0.39%, −0.68%, +0.13% | rises at every level, +5.0e-4 to +7.3e-6 |
+    | `VanLeer` | +7.69%, +1.43%, +0.52%, +0.43% (monotone) | falls |
+    | `PFC` | +6.42% to +0.47% (monotone) | falls |
 
     Its lead is a cancellation. At 50% amplitude it stays positive (3.08e-9).
   * **Cost.** 1.38 ns per cell per step on smooth data and 1.35 on the pulse,
@@ -248,7 +248,7 @@ This project has not been released; entries below describe work on `master`.
   Nothing in the discretisation is Galilean invariant — the grid does not move
   and the boosted Maxwellian sits on it asymmetrically — so the agreement is a
   measurement: over the eleven maxima in the fitting window, amplitudes within
-  1.7e-3 and phases within 1.8e-3 rad, with fitted rates 0.136% apart and
+  1.7e-3 and phases within 1.8e-3 rad, with fitted rates 0.014% apart and
   frequencies identical to the estimator's resolution. The phase is compared at
   each sample's own time, `t[k] + Δt/2` — the field is recorded mid-step — and
   removing the Doppler factor at `t[k]` instead reads 8.0e-3, of which 6.25e-3 is
@@ -347,6 +347,66 @@ This project has not been released; entries below describe work on `master`.
 
 ### Fixed
 
+- **The energy histories are the sums the schemes conserve, and taken at one
+  instant** (`test/verification_harness.jl`, `test/test_verification.jl`, and
+  the two verification scripts with their own loops). `vlasov_poisson` summed
+  `ε` and `ε_e` by the trapezoid over `x`, which on the periodic grid halves the
+  two end points and leaves out the cell between them. A standing wave has a
+  node there and barely notices. A travelling wave crosses it, and the trapezoid
+  books the crossing as energy: on the bump-on-tail instability of Arber and
+  Vann, seeded at 1e-6 on 64 × 361 cells, where `ε` is 61.8, it swung by −0.346
+  to +0.175 over t ∈ [60, 100], and by −0.185 to +0.093 at Nx = 128, first
+  order in Δx. The energies are now `Σ f v² ΔvΔx + Σ e² Δx`, the weights the
+  invariants already used, and the same run drifts by 9.7e-3 and 1.0e-3. The x
+  half-steps alone moved the trapezoid's kinetic energy by up to 3.9e-4 of it
+  per half-step, where they cannot move the kinetic energy at all.
+
+  The kinetic energy was also taken at the wrong instant: after the step, while
+  the field is solved mid-step, before the velocity kick. The x half-steps leave
+  the sum alone (2.4e-16 per half-step at worst), so the two differed by half
+  the kick's work, an error first order in Δt that oscillates with the power the
+  field exchanges with the particles. With the sums but after the kick, the
+  bump-on-tail's energy still wandered over 1.5e-2 at Nx = 128, halving with
+  Δt. The kinetic energy is now the mean of the two sides of the kick, so `ε` is
+  sampled at `t[k] + Δt/2` as `ε_e` is.
+
+  What moved:
+
+  * **The Galilean test.** Its boosted mode travels, and its fitted damping rate
+    read 0.136% off the rest frame's; it reads 0.014%. The tolerance is now 0.1%
+    where it was 0.5%, which the trapezoid fails.
+  * **Plasma oscillations.** Over t ≤ 3000 the drift reads 0.379% where it read
+    0.381% on the uniform grid, and 4.75% where it read 4.85% on the non-uniform
+    one. Within a plasma period `ε` swung by 1.7e-3 of itself, 1.2e-3 of that
+    the kick's timing, and now moves by 6.0e-5; the test asserts under 3e-4.
+    The agreement at t = 3000 was a point on that swing landing near the drift.
+  * **Fits to a standing wave's `ε_e`** — the Landau rates, frequencies and
+    window spreads, the trapping arrest times, the strong-damping rates over
+    every window quoted, the Bohm–Gross frequency — move in the fourth
+    significant figure at most, and no figure quoted for them changes. The
+    coarsest rung of the k = 0.5 refinement ladder moves more: 6.41% → 6.42%
+    for `PFC`, 7.76% → 7.69% for `VanLeer`, −2.41% → −2.60% for Superbee. The
+    two-stream rates move by 5.4e-5 of themselves at most, which moves three
+    roundings: −0.62% → −0.63% at a = 0.4, 3.14% → 3.15% from the cold root
+    at a = 0.6, and 0.09516 → 0.09517 at a = 1.0. On the stretched velocity
+    grid the split steps still move γ₁ in the sixth digit, and now γ₂ in the
+    seventh. The first-order schemes in `verification/scheme-comparison.jl`
+    read 48.79% off where they read 48.80%.
+  * **`wakefield`** takes the same sums: its `x` grid wraps too, since `PFC` and
+    `PoissonFourier1D` are both periodic. Its seam starts in vacuum, and the
+    change moves `Δε/ε` by 2.3e-5.
+  * **The verification scripts** `plasma-oscillations-1d1v.jl` and
+    `landau-damping-1d1v.jl` carry their own Strang loops and now take the
+    energies the same way. The first says 4.75% for the non-uniform grid, where
+    it said "about 12%", a figure stale since the limiter became per-cell.
+
+  Two stale quotes turned up on the way. The two-stream stable cases were set
+  against "2.0e8 at a = 0.6", from when that run went past its velocity Courant
+  limit unchecked; it is 1.6e5. And this file's temperature scan of the
+  two-stream rate read −2.38% and −2.11% at `vt` = 0.2 and 0.15, which is what
+  those runs give with the explicit bound of 3 they had before PFC's bound came
+  from `f` (reproduced); with the bound from `f` they read −2.32% and −2.10%.
+
 - **`PFCNonUniform` checks its data against its bounds, as `PFC` does**
   (`src/VlasovSolver/Advection.jl`, `test/test_contracts.jl`). It takes the same
   `fmin` and `fmax` and builds them into the same limiter — its `ξ(fmax − f)`
@@ -398,7 +458,7 @@ This project has not been released; entries below describe work on `master`.
   actually had.
 
   The grid is now `range(Δx; step = Δx, length = Nx)`, `Nx` points by
-  construction. On 96 cells the rate is 0.30173: −0.62% from the warm root and
+  construction. On 96 cells the rate is 0.30173: −0.63% from the warm root and
   −2.10% from the cold, fitted over t ∈ [15.50, 21.60], inside the 3% tolerance
   and still below the peak at a = 0.6. What `growth_rate` and `two_stream` quote
   at a = 0.4 moved with it: fixed time windows give 10.65%, 6.43%, 3.99% and
@@ -813,15 +873,15 @@ This project has not been released; entries below describe work on `master`.
 
 - **The two-stream case is measured against warm beams.** The runs have
   Maxwellian beams at `vt = 0.3` and were compared against the cold closed form,
-  which at that temperature is off by up to 3.14% — half of a 6% tolerance spent
+  which at that temperature is off by up to 3.15% — half of a 6% tolerance spent
   on a known approximation, and 7.44% at the `vt = 0.6` run, where the cold error
   has grown with the temperature. Against `two_stream_warm` the same three
-  measurements read −0.62%, −1.95% and +0.09%, and the tolerance is now 3%.
+  measurements read −0.63%, −1.95% and +0.09%, and the tolerance is now 3%.
 
   `a = 1.0`, the cold stability boundary, turns from a qualitative case into the
   sharpest one in the testset. The cold form predicts exactly zero there and the
   old assertion could only say "something grows" (a factor of 4.91 over t ≤ 26);
-  the warm root predicts 0.09823 and the run gives 0.09516, which is 3.12%. It
+  the warm root predicts 0.09823 and the run gives 0.09517, which is 3.12%. It
   costs a longer run — `tmax = 80` to bring `ε_e` up to the same amplitude band
   every other case uses, against a divergence at t = 86.2 — and is held to 8%
   because the beat ripple `growth_rate` documents is worst where `γ` is
@@ -962,13 +1022,13 @@ This project has not been released; entries below describe work on `master`.
   using it.
 
   Measured at three wavenumbers, with the beams at `vt = 0.3`: γ = 0.30173,
-  0.34228 and 0.31229 against 0.30819, 0.35339 and 0.31134 — 2.10%, 3.14% and
+  0.34228 and 0.31229 against 0.30819, 0.35339 and 0.31134 — 2.10%, 3.15% and
   0.31%. **`γ(a)` is non-monotone**, peaking at `a = √(3/8) ≈ 0.612`, so
   reproducing all three is a statement about the branch rather than about one
   point: a solver that merely amplified what it was given could not put the
   maximum in the right place. The residue is the beams' finite temperature and
   moves the right way — widening them at `a = 0.6` gives a monotone approach,
-  −7.44%, −5.77%, −4.31%, −3.14%, −2.69%, −2.38% and −2.11% at `vt` from 0.6
+  −7.44%, −5.77%, −4.31%, −3.15%, −2.69%, −2.32% and −2.10% at `vt` from 0.6
   down to 0.15.
 
   The sharpest assertion is the **stability boundary**, which is qualitative and
@@ -1216,13 +1276,13 @@ This project has not been released; entries below describe work on `master`.
   weights, which no conservation law protects. Measured on the same run, the
   trapezoid reports 2.4e-4 of mass drift and 7.3e-4 of momentum against 2.8e-16
   and 5.3e-16 — twelve orders of magnitude of apparent non-conservation that
-  belongs entirely to the quadrature. The energy histories keep `integrate`,
-  being compared at half-a-percent tolerances where it cannot matter.
+  belongs entirely to the quadrature. The energy histories use the same sums
+  now, after keeping `integrate` for longer (see Fixed, above).
 
 - **Landau damping converges under refinement.** Agreement at one resolution
   inside a 3% band can be two errors of opposite sign meeting in the middle.
   Halving Δx, Δv and Δt together — so the Courant number stays at 0.81 and only
-  the discretisation moves — gives γ errors of 6.41%, 1.31%, 0.61% and 0.47%.
+  the discretisation moves — gives γ errors of 6.42%, 1.31%, 0.61% and 0.47%.
   The L² dissipation over the same ladder falls by 11.0x, 7.9x and 7.8x against
   the 8x a third-order scheme predicts, which is what identifies the residual
   error in γ: the fitted rate is the physical damping plus the scheme's own,
@@ -1528,7 +1588,7 @@ This project has not been released; entries below describe work on `master`.
   `VASILEK_EXTENDED=1`. The claims the verification documents made in prose
   are now assertions: Landau damping at k = 0.5 within 5% of the tabulated
   0.1533 (measured 0.1498), and energy drift below 0.5% on the uniform grid
-  and 6% on the non-uniform one at t = 3000 (measured 0.38% and 4.85%).
+  and 6% on the non-uniform one at t = 3000 (measured 0.38% and 4.75%).
 - [docs/normalization.md](docs/normalization.md): the unit conventions, the
   wavenumber convention that the Poisson bug came from, the FDTD current
   convention that the wakefield instability came from, and why the PFC bounds
@@ -1711,7 +1771,7 @@ This project has not been released; entries below describe work on `master`.
 - **`PFCNonUniform` computed its limiter from the global spacing ratio,** so
   one refined region tightened it everywhere (ξ ≈ 0.571 against 2 on the
   notebooks' velocity grid). Now per cell triple. Energy drift of the
-  non-uniform plasma-oscillation case falls from a reported 12% to 4.85% at
+  non-uniform plasma-oscillation case falls from a reported 12% to 4.75% at
   t = 3000; the uniform grid is bit-identical, as it must be.
 - `PFCNonUniform` hardcoded `fₘᵢₙ = 0`, `fₘₐₓ = 1`; now required keywords, as
   in `PFC`. **Breaking API change.**

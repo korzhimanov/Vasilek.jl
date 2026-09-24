@@ -196,7 +196,7 @@ function main()
     println("from below. Its compression is anti-diffusion: its L² is the only one")
     println("that grows, and its rate sits under the analytic value where every")
     println("other scheme's sits above. Refined to Nx = 256 at the same Courant")
-    println("number, its error changes sign (-2.41%, -0.39%, -0.68%, +0.13%) rather")
+    println("number, its error changes sign (-2.60%, -0.39%, -0.68%, +0.13%) rather")
     println("than shrinking, so its lead here is a cancellation, not accuracy.")
 end
 
