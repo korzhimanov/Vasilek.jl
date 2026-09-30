@@ -10,6 +10,7 @@
 using Vasilek
 using Vasilek: StrangSplitting, FDTD1D, PoissonFourier1D
 using NumericalIntegration, FFTW
+using LinearAlgebra: svd, pinv, eigvals
 
 # The kinetic dispersion relation: `landau_root`, `two_stream_warm` and the
 # pieces they are built from. Separate file because nothing in it runs a
@@ -125,9 +126,10 @@ end
 
 """
     vlasov_poisson(x, v, f₀, t; scheme_x, scheme_v, invariants = false, modes = (),
-                   nᵢ = nothing, renormalize = nᵢ === nothing)
+                   nᵢ = nothing, renormalize = nᵢ === nothing, collisions = nothing)
 
-Strang-split Vlasov–Poisson on a static grid.
+Strang-split Vlasov–Poisson on a static grid, and Vlasov--Poisson--BGK when
+`collisions` is a collision operator.
 
 Returns a NamedTuple with `ε_e` (electric energy) and `ε` (total energy)
 histories. With `invariants = true` it also returns the `mass`, `momentum`,
@@ -228,10 +230,23 @@ it, or below, to the last bit. `PFCNonUniform` now checks every call it takes,
 sub-steps included, and none of them is out of bounds -- the two-stream runs
 carried past their velocity Courant limits into saturation among them, since
 [`line_advector`](@ref) splits every step that would cross a cell.
+
+**`collisions` puts a collision operator in the step**, applied to every velocity
+line for half a step on either side of the kick:
+
+    X(Δt/2) · C(Δt/2) K(Δt) C(Δt/2) · X(Δt/2)
+
+The v-sweep is where a column of `f` is a velocity line at fixed `x`, which is
+all a collision operator acts on, and the composition stays symmetric, so the
+step stays second order. `BGK` conserves each line's density, momentum and
+energy, so the field solved before the kick is still the field after the first
+half-collision, and the kinetic energy is still moved by the kick alone -- the
+centring above holds as it stands.
 """
 function vlasov_poisson(x, v, f₀, t;
                         scheme_x = nothing, scheme_v = nothing, invariants = false,
-                        modes = (), nᵢ = nothing, renormalize = nᵢ === nothing)
+                        modes = (), nᵢ = nothing, renormalize = nᵢ === nothing,
+                        collisions = nothing)
     Δx = cell_widths(x)
     Δv = cell_widths(v)
 
@@ -257,6 +272,10 @@ function vlasov_poisson(x, v, f₀, t;
 
     advect_x! = line_advector(sx, Δx)
     advect_v! = line_advector(sv, Δv)
+    if collisions !== nothing
+        cws = Vasilek.Collisions.workspace(collisions, length(v))
+        cbuf = similar(v)
+    end
 
     solve_poisson! = make_poisson(x)
     e = similar(x)
@@ -297,7 +316,13 @@ function vlasov_poisson(x, v, f₀, t;
             solve_poisson!(e, nₖ - nᵢ)
             return e*Δt
         end
-        StrangSplitting.make_time_step_2d!((g, f), (vΔt, eΔt), (advect_x!, advect_v!))
+        kick! = collisions === nothing ? advect_v! : function (col, α)
+            collide!(cbuf, col, collisions, v, Δt/2, cws); copyto!(col, cbuf)
+            advect_v!(col, α)
+            collide!(cbuf, col, collisions, v, Δt/2, cws); copyto!(col, cbuf)
+            return col
+        end
+        StrangSplitting.make_time_step_2d!((g, f), (vΔt, eΔt), (advect_x!, kick!))
         if E_modes !== nothing
             for (j, km) in enumerate(modes)
                 E_modes[k, j] = mode_amplitude(e, x, km)
@@ -542,6 +567,42 @@ function oscillation_frequency(t, ε_e; tmin, tmax)
     m = local_extrema(t, ε_e; tmin = tmin, tmax = tmax, maxima = false)
     length(m) ≥ 2 || error("oscillation_frequency needs at least 2 minima in [$tmin, $tmax], found $(length(m))")
     return π/((t[m[end]] - t[m[1]])/(length(m) - 1)), length(m)
+end
+
+"""
+    mode_exponents(t, E; tmin, tmax, order = 3, stride = 10)
+
+The complex exponents `sⱼ` of `E(t) ≈ Σ cⱼ·exp(sⱼt)` over `tmin ≤ t ≤ tmax`, by
+the matrix pencil method [Hua and Sarkar, IEEE Trans. Acoust. Speech Signal
+Process. 38, 814 (1990)]: the `order` dominant left singular vectors of the
+Hankel matrix of every `stride`-th sample, shifted by one sample against
+themselves, have the `exp(sⱼh)` as eigenvalues. A damped wave comes back as
+`−γ ∓ iω`, a mode that does not oscillate as a real `s`.
+
+**The left singular vectors, not the right.** The Hankel matrix is `UΣVᴴ`; the
+rows of `U` shift by `exp(sh)`, but on the other side it is the columns of `Vᴴ`
+that do, and those are the *conjugates* of `V`'s rows, so `V` as it stands
+returns every `s` conjugated. On a sum of three exponentials that swaps a
+wave's direction and nothing else -- `−0.1 − 1.3i` came back as `−0.1 + 1.3i` --
+which a standing wave, whose two directions come in a pair, would never have
+shown. `U` returns all three to 1e-14.
+
+**Every other estimator here assumes one mode**, and this one exists for the
+case where there are two at the same `k` and one of them does not oscillate:
+the heat mode of a collisional run, a real exponential under the Langmuir wave.
+[`damping_rate`](@ref) fits the maxima of `ε_e`, which a non-oscillating
+component merely shifts, and [`mode_rates`](@ref) fits `log|E|`, which two modes
+beat in; both return a blend. The pencil returns each.
+"""
+function mode_exponents(t, E; tmin, tmax, order = 3, stride = 10)
+    i = findall(s -> tmin ≤ s ≤ tmax, t)[1:stride:end]
+    N = length(i)
+    N ≥ 4*order || error("mode_exponents needs at least $(4*order) samples in " *
+                         "[$tmin, $tmax] at stride $stride, found $N")
+    L = N ÷ 2
+    Y = [E[i[a + b]] for a in 0:N-L-1, b in 1:L+1]
+    U = svd(Y).U[:, 1:order]
+    return log.(eigvals(pinv(U[1:end-1, :])*U[2:end, :])) ./ (t[i[2]] - t[i[1]])
 end
 
 # ----------------------------------------------------- laser wakefield
@@ -1319,4 +1380,78 @@ function bump_on_tail(; α = 0.04, k = 0.3, Nx = 64, Δv = 0.05, vmin = -8.0,
     f₀ = F * (@. 1.0 + α*cos(k*x))'
     r = vlasov_poisson(x, v, f₀, t; modes = (k,), nᵢ = ones(Nx), invariants = invariants)
     return (; t = t[1:end-1] .+ Δt/2, x, v, f₀, E = r.E_modes[1:end-1, 1], r)
+end
+
+# ------------------------------------------------ collisional Landau damping
+#
+# Shared with `verification/collisional-damping.jl`, which draws what the
+# testset asserts.
+
+"""
+    collisional_landau(ν; k = 0.5, Nx = 64, vmax = 8.0, Δv = 0.1, Δt = 0.04,
+                       tmax = 60.0, α = 1e-3, collisions = BGK(1/ν),
+                       scheme_x = nothing, scheme_v = nothing, invariants = false)
+
+The linear Landau case -- two wavelengths of `k`, a Maxwellian perturbed by
+`α cos kx` -- with a collision operator in the step, `BGK` at rate `ν` unless
+`collisions` says otherwise, and none at `ν = 0` (see [`vlasov_poisson`](@ref)).
+Returns `t`, the times the field was sampled at, which are mid-step; `x`, `v`,
+`Δx`; `ε_e` and `E`, the complex amplitude of the `k` mode, at those times; and
+the driver's result `r`.
+
+**The velocity window is ±8, where the collisionless case runs on ±4**, and that
+is the operator's requirement rather than the physics'. `BGK` takes each line's
+temperature by the trapezoid over the window it is given and puts back a
+Maxwellian that fills the whole real line, so a window that cuts the tail cools
+every line it relaxes; see the testset. `Δt` falls with the window to keep the
+x-sweep's Courant number where the collisionless case has it, `vmax·Δt/Δx = 0.81`,
+and at that step splitting the collisions from the rest costs nothing that shows:
+halving `Δt` alone moves γ by 0.04% at `ν = 1` and 0.05% at `ν = 3`, and ω by
+less than a part in 10⁶.
+"""
+function collisional_landau(ν; k = 0.5, Nx = 64, vmax = 8.0, Δv = 0.1, Δt = 0.04,
+                            tmax = 60.0, α = 1e-3, collisions = ν == 0 ? nothing : BGK(1/ν),
+                            scheme_x = nothing, scheme_v = nothing, invariants = false)
+    L = 2*(2π/k)
+    Δx = L/Nx
+    x = collect(range(Δx; step = Δx, length = Nx))    # not Δx:Δx:L -- see `two_stream`
+    v = collect(-vmax:Δv:vmax)
+    t = collect(0.0:Δt:tmax)
+    f₀ = 1/sqrt(2π)*(@. exp(-0.5*v^2)) * (@. (1.0 + α*cos(k*x)))'
+    r = vlasov_poisson(x, v, f₀, t; collisions, scheme_x, scheme_v, invariants, modes = (k,))
+    return (; t = t[1:end-1] .+ Δt/2, x, v, Δx, ε_e = r.ε_e[1:end-1],
+            E = r.E_modes[1:end-1, 1], r)
+end
+
+"""
+    PartialBGK{C}(τ)
+
+A relaxation that restores only the moments named in `C` -- `(:n,)`, the Krook
+model, or `(:n, :u)` -- towards a Maxwellian at the background temperature,
+where `BGK` restores all three. Not an operator anyone should run: it is what
+`BGK` would be with its temperature or its drift lost, and the collisional
+testset runs it to show that a measurement can tell the difference, which is
+what [`collisional_root`](@ref)'s `conserve` predicts.
+
+Its moments are the cell-width sums the driver conserves.
+"""
+struct PartialBGK{C} <: AbstractCollisionOperator
+    τ::Float64
+end
+
+function Vasilek.Collisions.collide!(dest, src, op::PartialBGK{C}, v, Δt, ::Nothing) where {C}
+    :n in C && issubset(C, (:n, :u)) ||
+        throw(ArgumentError("PartialBGK restores :n, and :u with it or not; got $C"))
+    n = zero(eltype(src))
+    p = zero(eltype(src))
+    for i in eachindex(v)
+        h = i == firstindex(v) ? v[i+1] - v[i] :
+            i == lastindex(v)  ? v[i] - v[i-1] : (v[i+1] - v[i-1])/2
+        n += src[i]*h
+        p += src[i]*v[i]*h
+    end
+    u = :u in C ? p/n : zero(p)
+    e = exp(-Δt/op.τ)
+    @. dest = src*e + (1 - e)*n/sqrt(2π)*exp(-(v - u)^2/2)
+    return dest
 end

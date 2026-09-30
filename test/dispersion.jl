@@ -29,6 +29,7 @@
 # replaces the first and refuses the second on the spot, saying why.
 
 using SpecialFunctions: erfcx
+using LinearAlgebra: det
 
 """
     Z(ζ)
@@ -257,4 +258,196 @@ function bump_on_tail_root(k; Δx = 0.0)
     beam = BUMP_ON_TAIL[2]
     guess = k*(beam.drift - beam.vt) + 0.1im
     return kinetic_root(ω -> dielectric(ω, k, BUMP_ON_TAIL; Δx = Δx), guess, guess + 0.01)
+end
+
+# ------------------------------------------------------------------ collisions
+#
+# The same relation with the `BGK` operator in the loop. Everything above is
+# collisionless; the one collision operator the package exports had been
+# checked only on a single velocity line, never in a run with a field.
+
+"""
+    resolvent_moments(ζ)
+
+`Jₘ(ζ) = ∫vᵐF₀(v)/(v − ζ)dv` for `m = 0, …, 4`, with `F₀` the unit Maxwellian,
+on the Landau contour: the plain integral for `Im ζ > 0`, its continuation
+below.
+
+`J₀ = Z(ζ/√2)/√2`, and the rest follow from `v/(v − ζ) = 1 + ζ/(v − ζ)`, which
+gives `Jₘ₊₁ = μₘ + ζJₘ` with `μₘ` the Maxwellian's own moments 1, 0, 1, 0. So
+`J₁ = 1 + ζJ₀` is the `1 + ζZ` of the collisionless susceptibility, and the
+higher ones are what a collision operator that restores more than the density
+needs.
+"""
+function resolvent_moments(ζ)
+    J₀ = Z(ζ/sqrt(2))/sqrt(2)
+    J₁ = 1 + ζ*J₀
+    J₂ = ζ*J₁
+    J₃ = 1 + ζ*J₂
+    J₄ = ζ*J₃
+    return (J₀, J₁, J₂, J₃, J₄)
+end
+
+"""
+    collisional_determinant(ω, k, ν; s = 1.0, conserve = (:n, :u, :T))
+
+The linear response of a unit Maxwellian to Vlasov--Poisson with the `BGK`
+operator at rate `ν = 1/τ`, as a determinant whose zeros are the modes.
+
+`BGK` relaxes each velocity line towards the Maxwellian with the line's own
+density, mean velocity and temperature. Linearised about `F₀`, that Maxwellian is
+
+    M₁ = F₀·[n₁ + u₁v + T₁(v² − 1)/2],
+    n₁ = ∫f₁dv,   u₁ = ∫vf₁dv,   T₁ = ∫(v² − 1)f₁dv
+
+and a mode `exp(i(kx − ωt))` of the kinetic equation, with the field the
+harness's -- `ik·e₁ = n₁`, the kick `+e∂ᵥ` -- is
+
+    f₁ = F₀·[−(is/k)·n₁·v + ν·M₁/F₀] / (ik(v − ζ)),     ζ = (ω + iν)/k
+
+`s` scales the field, as `centred_field` does for [`dielectric`](@ref). Taking the
+three moments of `f₁` closes a 3×3 linear system on `(n₁, u₁, T₁)` through the
+[`resolvent_moments`](@ref), and a mode is where its determinant vanishes. At
+`ν = 0` the last two rows are the identity and the determinant **is**
+`1 + (s/k²)(1 + ζZ)`, the collisionless dielectric function.
+
+`conserve` names what the relaxation restores, for the two operators `BGK` is
+not: `(:n,)` is the Krook model, relaxing to the background temperature at the
+local density, and `(:n, :u)` restores momentum but not energy. They are here
+because they are what a slip in the operator would turn it into, and the modes
+tell the three apart; see [`collisional_root`](@ref).
+"""
+function collisional_determinant(ω, k, ν; s = 1.0, conserve = (:n, :u, :T))
+    issubset(conserve, (:n, :u, :T)) ||
+        throw(ArgumentError("conserve takes :n, :u and :T, got $conserve"))
+    ζ = (ω + im*ν)/k
+    J₀, J₁, J₂, J₃, J₄ = resolvent_moments(ζ)
+    cn, cu, cT = (:n in conserve), (:u in conserve), (:T in conserve)
+    # f₁ = F₀·(a₀ + a₁v + a₂v²)/(ik(v − ζ)), each aᵢ linear in (n₁, u₁, T₁):
+    # the tuples are their coefficients on the three.
+    a₀ = (ν*cn, 0.0, -ν*cT/2)
+    a₁ = (-im*s/k, ν*cu, 0.0)
+    a₂ = (0.0, 0.0, ν*cT/2)
+    A = [(j == i) - (a₀[j]*m₀ + a₁[j]*m₁ + a₂[j]*m₂)/(im*k)
+         for (i, (m₀, m₁, m₂)) in enumerate(((J₀, J₁, J₂),
+                                             (J₁, J₂, J₃),
+                                             (J₂ - J₀, J₃ - J₁, J₄ - J₂))),
+             j in 1:3]
+    return det(A)
+end
+
+"""
+    collisional_susceptibility(ω, k, ν; conserve = (:n, :u, :T))
+
+`χ` such that the dielectric function with collisions is `ε = 1 + s·χ`, the form
+[`dielectric`](@ref) has: the field enters [`collisional_determinant`](@ref)
+through one coefficient, so the determinant is linear in `s`, `D(s) = D₀ + s·D₁`,
+and `ε = D(s)/D₀`. `D₀` is the response with the field switched off.
+
+At `ν = 0` this is [`susceptibility`](@ref) exactly.
+"""
+function collisional_susceptibility(ω, k, ν; conserve = (:n, :u, :T))
+    D₀ = collisional_determinant(ω, k, ν; s = 0.0, conserve)
+    return (collisional_determinant(ω, k, ν; s = 1.0, conserve) - D₀)/D₀
+end
+
+"""
+    collisional_root(k, ν; Δx = 0.0, conserve = (:n, :u, :T))
+
+The Langmuir root `ω − iγ` at collision rate `ν`, followed from the Landau root
+at `ν = 0` in small steps of `ν`. With `Δx` it is the grid's, as for
+[`dielectric`](@ref).
+
+At `k = 0.5`, for the operator `BGK` is and for the two it is not:
+
+    ν      (:n, :u, :T) -- BGK    (:n, :u)               (:n,) -- Krook
+    0      1.415662 - 0.153359i   (the Landau root, for all three)
+    0.1    1.401930 - 0.132698i   1.380107 - 0.162038i   1.395693 - 0.221399i
+    0.3    1.382899 - 0.106214i   1.321691 - 0.166026i   1.348187 - 0.355524i
+    1      1.351750 - 0.065176i   1.212495 - 0.137218i   1.078340 - 0.809220i
+
+**Collisions that restore all three moments weaken the damping; restoring fewer
+strengthens it.** `dγ/dν` at `ν = 0` is −0.243, +0.114 and +0.684. Landau damping
+at `k = 0.5` is resonant particles at `v = 2.83` phase-mixing, and scattering
+them spoils the resonance; what replaces it depends on what the collisions keep.
+Kept momentum and energy leave a fluid, whose wave damps only by conducting
+heat, at a rate that falls as `1/ν`, and the root goes to the adiabatic
+`√(1 + 3k²)` (see [`heat_mode_root`](@ref)). Without energy it goes to the
+isothermal `√(1 + k²)`, and without momentum collisions are friction on the flow
+itself: the Krook pair slows, damps harder, and merges on the imaginary axis
+between `ν = 1.8` and 1.9, past which following it means nothing.
+
+So the sign of the change is enough to say which operator a run has, and by
+`ν = 1` the three frequencies are 10% and 20% apart.
+
+The zeros are taken of [`collisional_determinant`](@ref) rather than of `ε`,
+which has poles where the field-free response `D₀` vanishes.
+
+**The secant stops at steps of 1e-9 rather than [`kinetic_root`](@ref)'s 1e-12**,
+because the determinant is not that precise at large `ν`. `J₃` and `J₄` are built
+as `1 + ζJ₂`, which cancels to `|ζ|²` once `|ζ| = |ω + iν|/k` is large: measured
+against quadrature, they carry 1.2e-10 of their size at `ν = 20` and `k = 0.5`,
+and 2.8e-10 at `ν = 40`, where `J₀` to `J₂` carry 3e-13. The 1e-12 steps sit
+inside that noise, and at `ν = 20` the secant ran out of iterations taking them.
+Superlinear convergence leaves the returned root far better than the last step.
+"""
+function collisional_root(k, ν; Δx = 0.0, conserve = (:n, :u, :T))
+    s = centred_field(k, Δx)
+    electrons = ((density = 1.0, drift = 0.0, vt = 1.0),)
+    z = kinetic_root(ω -> dielectric(ω, k, electrons; Δx = Δx),
+                     sqrt(1 + 3k^2) - 0.05im, sqrt(1 + 3k^2) - 0.06im)
+    ν == 0 && return z
+    for νⱼ in range(0.0, ν; length = 41 + ceil(Int, 2ν))[2:end]
+        z = kinetic_root(ω -> collisional_determinant(ω, k, νⱼ; s, conserve), z, z + 1e-4;
+                         tol = 1e-9)
+    end
+    return z
+end
+
+"""
+    heat_mode_root(k, ν; Δx = 0.0)
+
+The rate `g` of the purely damped root `ω = −ig` of [`collisional_determinant`](@ref)
+with all three moments restored: heat conduction, the one mode here that does
+not oscillate.
+
+**It exists because `BGK` conserves energy.** A fluid with an energy equation has
+three modes at each `k` -- the two Langmuir waves and a non-propagating
+temperature perturbation that decays by conduction -- and one without has two.
+Scanned along the axis at `k = 0.5`, `(:n, :u)` has no root at all below `g = 5`
+at `ν = 1` or below `g = 14` at `ν = 10`, where BGK's is at 0.434 and 0.0534.
+
+The Chapman--Enskog closure of 1D BGK has no viscosity -- in one dimension the
+pressure is `nT` by the definition of `T` -- and conducts heat as
+`Q = −(3nT/ν)∂ₓT`, which puts the three modes at the roots of
+
+    ω³ + iχω² − (1 + 3k²)ω − iχ(1 + k²) = 0,      χ = 3k²/ν
+
+so `g → χ(1 + k²)/(1 + 3k²)`, 0.5357/ν at `k = 0.5`, and the Langmuir root
+`→ √(1 + 3k²) − iχk²/(1 + 3k²)`: the adiabatic Bohm--Gross frequency, since one
+degree of freedom makes the adiabatic index 3, and a damping that falls as
+`1/ν`. `test_dispersion.jl` holds the kinetic roots to that limit.
+
+The determinant is real on the imaginary axis -- `F₀` is even, so `D(−ω*) = D(ω)*`
+-- which is why this bisects a real function, as [`two_stream_warm`](@ref) does,
+from a scan for the first sign change. **The scan stops at `g = ν + 2k`**, where
+`Im ζ = −2`: further down, the continuation of `Z` grows as `exp(|ζ|²/2)` and
+`1 + ζZ` cancels away every digit, and a scan to `g = 30` at `ν = 1` found
+dozens of spurious sign changes past `g ≈ 5`, in BGK's determinant and in that
+of `(:n, :u)`. The heat mode is above that line whenever it is a fluid mode at
+all.
+"""
+function heat_mode_root(k, ν; Δx = 0.0)
+    s = centred_field(k, Δx)
+    D(g) = real(collisional_determinant(-im*g, k, ν; s))
+    grid = exp.(range(log(1e-4), log(ν + 2k); length = 400))
+    i = findfirst(j -> D(grid[j])*D(grid[j+1]) < 0, 1:length(grid)-1)
+    i === nothing && error("heat_mode_root: no sign change of D on the imaginary " *
+                           "axis above Im ζ = -2 at ν = $ν")
+    lo, hi = grid[i], grid[i+1]
+    for _ in 1:200
+        mid = 0.5*(lo + hi)
+        D(lo)*D(mid) ≤ 0 ? (hi = mid) : (lo = mid)
+    end
+    return 0.5*(lo + hi)
 end
