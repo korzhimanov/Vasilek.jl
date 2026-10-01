@@ -185,6 +185,11 @@ end
     @test ws !== nothing
     @test all(isfinite, collide!(similar(f₀), f₀, BGK(1.0), v, 0.1, ws))
     @test Vasilek.workspace === Vasilek.Collisions.workspace
+    # the buffers follow the operator's element type, or the one asked for
+    @test Vasilek.workspace(BGK(1.0f0), 8).maxwellian isa Vector{Float32}
+    @test Vasilek.workspace(BGK(1.0), 8, Float32).maxwellian isa Vector{Float32}
+    # Landau1P is experimental and exported from nowhere
+    @test !(:Landau1P in names(Vasilek)) && !(:Landau1P in names(Vasilek.Collisions))
 end
 
 @testset "BGK leaves an empty or unresolved line alone" begin

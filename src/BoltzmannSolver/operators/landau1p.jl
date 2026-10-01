@@ -37,7 +37,8 @@ Landau collision integral in one-dimensional velocity space.
     The update also differences a cell-centred `I` rather than staggered fluxes,
     so mass is not conserved to machine precision even in principle.
 
-    Not exported.
+    Not exported, from `Vasilek` or from `Collisions`: reach it as
+    `Vasilek.Collisions.Landau1P`.
 """
 struct Landau1P{T<:AbstractFloat} <: AbstractCollisionOperator
     A::T
@@ -50,7 +51,8 @@ struct Landau1PWorkspace{T}
     I::Vector{T}
     J::Vector{T}
 end
-workspace(::Landau1P, n::Integer) = Landau1PWorkspace(Vector{Float64}(undef, n), Vector{Float64}(undef, n))
+workspace(::Landau1P{T}, n::Integer, ::Type{S} = T) where {T, S} =
+    Landau1PWorkspace(Vector{S}(undef, n), Vector{S}(undef, n))
 
 function collide!(dest, src, op::Landau1P, v, Δt, ws::Landau1PWorkspace)
     I, J = ws.I, ws.J

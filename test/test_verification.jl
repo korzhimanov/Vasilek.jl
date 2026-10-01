@@ -533,7 +533,7 @@ end
                 # the damage it stands between can go away unnoticed.
                 old(checked) = (scheme_x = PFCNonUniform(cell_widths(cold.x); fmin = 0.0, fmax = 1.0, checked),
                                 scheme_v = PFCNonUniform(cell_widths(cold.v); fmin = 0.0, fmax = 1.0, checked))
-                @test_throws AssertionError vlasov_poisson(cold.x, cold.v, cold.f₀, [0.0, 0.05];
+                @test_throws DomainError vlasov_poisson(cold.x, cold.v, cold.f₀, [0.0, 0.05];
                                                            cold.nᵢ, old(true)...)
                 wrecked = vlasov_poisson(cold.x, cold.v, cold.f₀, collect(0:0.05:50.0);
                                          cold.nᵢ, old(false)...)
@@ -1222,7 +1222,7 @@ end
                 # step rather than run past its bound. Given 50% of headroom it
                 # runs, and cools: f's maximum ends 2.2% above where it started,
                 # where the Vlasov flow alone would keep it.
-                @test_throws AssertionError collisional_landau(1.0; vmax = 4.0, Δt = 0.08)
+                @test_throws DomainError collisional_landau(1.0; vmax = 4.0, Δt = 0.08)
                 loose(w) = f -> PFCNonUniform(w; fmin = 0.0, fmax = 1.5*maximum(f))
                 narrow = collisional_landau(1.0; vmax = 4.0, Δt = 0.08, invariants = true,
                                             scheme_x = loose(cell_widths(runs[1.0].x)),

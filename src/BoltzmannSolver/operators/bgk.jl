@@ -12,7 +12,8 @@ struct BGKWorkspace{T}
     maxwellian::Vector{T}
     moment::Vector{T}
 end
-workspace(::BGK, n::Integer) = BGKWorkspace(Vector{Float64}(undef, n), Vector{Float64}(undef, n))
+workspace(::BGK{T}, n::Integer, ::Type{S} = T) where {T, S} =
+    BGKWorkspace(Vector{S}(undef, n), Vector{S}(undef, n))
 
 function collide!(dest, src, op::BGK, v, Δt, ws::BGKWorkspace)
     e = exp(-Δt/op.τ)
@@ -30,6 +31,6 @@ function collide!(dest, src, op::BGK, v, Δt, ws::BGKWorkspace)
     T > 0 || return copyto!(dest, src)
 
     @. M = n/sqrt(2π*T)*exp(-(v - u)^2/(2T))
-    @. dest = src*e + (1.0 - e)*M
+    @. dest = src*e + (1 - e)*M
     return dest
 end

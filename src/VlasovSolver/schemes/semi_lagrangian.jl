@@ -22,7 +22,7 @@ function _sample!(dest, n, buf, itp_type, c)
     itp = interpolate!(buf, itp_type)
     etp = extrapolate(itp, Periodic(OnCell()))
     for i = 1:n
-        if 1.0 ≤ i - c ≤ length(itp)
+        if 1 ≤ i - c ≤ length(itp)
             dest[i] = itp(i - c)
         else
             dest[i] = etp(i - c)

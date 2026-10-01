@@ -13,7 +13,9 @@ using NumericalIntegration
 # was a MethodError.
 import ..Advection: workspace
 
-export AbstractCollisionOperator, collide!, BGK, Landau1P
+# `Landau1P` is defined here but not exported: it is experimental, see its
+# docstring.
+export AbstractCollisionOperator, collide!, BGK
 
 """
     AbstractCollisionOperator
@@ -25,11 +27,12 @@ A velocity-space collision operator. Advance one step with
 abstract type AbstractCollisionOperator end
 
 """
-    workspace(op, n)
+    workspace(op, n[, T])
 
-Scratch for `op` at `n` velocity points, or `nothing`.
+Scratch for `op` at `n` velocity points, of the operator's element type unless
+`T` is given, or `nothing`.
 """
-workspace(::AbstractCollisionOperator, ::Integer) = nothing
+workspace(::AbstractCollisionOperator, ::Integer, ::Type = Float64) = nothing
 
 collide!(dest, src, op::AbstractCollisionOperator, v, Δt) =
     collide!(dest, src, op, v, Δt, workspace(op, length(dest)))

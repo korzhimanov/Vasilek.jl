@@ -18,8 +18,8 @@ using Vasilek
         over = copy(f);  over[10] = 5.0
         under = copy(f); under[10] = -1.0
         for c in (0.4, -0.4)
-            @test_throws AssertionError march!(over, PFC(fmin = 0.0, fmax = 2.0), c, 1)
-            @test_throws AssertionError march!(under, PFC(fmin = 0.0, fmax = 2.0), c, 1)
+            @test_throws DomainError march!(over, PFC(fmin = 0.0, fmax = 2.0), c, 1)
+            @test_throws DomainError march!(under, PFC(fmin = 0.0, fmax = 2.0), c, 1)
         end
 
         # Touching the bounds exactly is legal: the assertions are `≤`.
@@ -73,8 +73,8 @@ end
         over = copy(f);  over[10] = 5.0
         under = copy(f); under[10] = -1.0
         for α in (0.02, -0.02)
-            @test_throws AssertionError march!(over, scheme(), α, 1)
-            @test_throws AssertionError march!(under, scheme(), α, 1)
+            @test_throws DomainError march!(over, scheme(), α, 1)
+            @test_throws DomainError march!(under, scheme(), α, 1)
         end
 
         # Touching the bounds exactly is legal: the assertions are `≤`.
@@ -89,9 +89,9 @@ end
         under = copy(f); under[10] = -1.0
         message(s, c, g) = try march!(g, s, c, 1); "" catch e; e.msg end
         @test message(scheme(), 0.02, over) == message(PFC(fmin = 0.0, fmax = 2.0), 0.4, over) ==
-              "fmax = 2.0 is below maximum(src) = 5.0"
+              "fmax = 2.0 is below maximum(src) = 5.0: the PFC limiter is built on [fmin, fmax]"
         @test message(scheme(), 0.02, under) == message(PFC(fmin = 0.0, fmax = 2.0), 0.4, under) ==
-              "fmin = 0.0 exceeds minimum(src) = -1.0"
+              "fmin = 0.0 exceeds minimum(src) = -1.0: the PFC limiter is built on [fmin, fmax]"
     end
 
     @testset "checked = false compiles it away without changing the answer" begin
@@ -146,6 +146,20 @@ end
             c = name == "PFCNonUniform" ? 0.02 : 0.4
             @test_throws ArgumentError advect!(a, a, scheme, c, workspace(scheme, N))
         end
+    end
+
+    @testset "so is a view sharing src's memory" begin
+        # `===` alone let these through: `view(f, :)` as dest was 0.047 off for
+        # Upwind with no error. `Base.mightalias` sees the shared memory.
+        for (name, scheme) in all_schemes
+            a = copy(f)
+            c = name == "PFCNonUniform" ? 0.02 : 0.4
+            @test_throws ArgumentError advect!(view(a, :), a, scheme, c, workspace(scheme, N))
+            @test_throws ArgumentError advect!(a, view(a, :), scheme, c, workspace(scheme, N))
+        end
+        # disjoint halves of one array are not aliases
+        buf = repeat(f, 2)
+        @test advect!(view(buf, 1:N), view(buf, N+1:2N), Upwind(), 0.4) == advect!(similar(f), f, Upwind(), 0.4)
     end
 
     @testset "unequal lengths are rejected" begin
@@ -253,6 +267,14 @@ end
                                          PFC(fmin = 0.0, fmax = 2.0, checked = false), 1.2)
     end
 
+    @testset "SemiLagrangian refuses only a non-finite c" begin
+        # It used to take NaN and Inf too, and return NaN everywhere.
+        for spline in (LinearSpline(), CubicSpline()), c in (NaN, Inf, -Inf)
+            s = SemiLagrangian(spline)
+            @test_throws DomainError advect!(similar(f), f, s, c, workspace(s, N))
+        end
+    end
+
     @testset "SemiLagrangian has no Courant limit, and is not checked" begin
         # Its accuracy past |c| = 1 is test_symmetry's business (c = 3.7, and
         # c ± N); here, only that the check does not reach it.
@@ -327,29 +349,45 @@ end
 end
 
 @testset "element types" begin
-    # Float32 data runs, and the result keeps its type. The workspaces do not:
-    # `workspace(::SemiLagrangian, n)` hard-codes `Vector{Float64}`, so a Float32
-    # line is prefiltered in double precision and narrowed on the way out.
-    # Pinned as it stands rather than fixed -- making the workspaces generic is a
-    # change to `src`, and worth doing on its own.
+    # Float32 data runs and keeps its type, and so do the workspaces, built
+    # with `workspace(scheme, n, Float32)` or by the four-argument `advect!`
+    # from `src`. `PFCNonUniform` used to throw a MethodError on Float32 data
+    # (its limiter was annotated `::Float64`), and the spline workspace was
+    # Float64 whatever the data.
     N = 64
     g = Float32[1.0 + 0.5*sin(2π*(i-1)/N) for i = 1:N]
-    for (name, scheme) in [("Upwind", Upwind()), ("LaxWendroff", LaxWendroff()),
-                           ("Godunov", Godunov(PiecewiseLinear(), VanLeer())),
-                           ("Godunov Superbee", Godunov(PiecewiseLinear(), Superbee())),
-                           ("SemiLagrangian", SemiLagrangian(CubicSpline())),
-                           ("PFC", PFC(fmin = 0.0f0, fmax = 2.0f0))]
+    for (name, scheme, c) in [("Upwind", Upwind(), 0.4f0), ("LaxWendroff", LaxWendroff(), 0.4f0),
+                              ("Godunov", Godunov(PiecewiseLinear(), VanLeer()), 0.4f0),
+                              ("Godunov Superbee", Godunov(PiecewiseLinear(), Superbee()), 0.4f0),
+                              ("SemiLagrangian", SemiLagrangian(CubicSpline()), 0.4f0),
+                              ("SemiLagrangian linear", SemiLagrangian(LinearSpline()), 0.4f0),
+                              ("PFC", PFC(fmin = 0.0f0, fmax = 2.0f0), 0.4f0),
+                              ("PFCNonUniform", PFCNonUniform(fill(0.05f0, N); fmin = 0.0f0, fmax = 2.0f0), 0.02f0)]
         dst = similar(g)
-        advect!(dst, g, scheme, 0.4f0, workspace(scheme, N))
-        @test eltype(dst) === Float32
+        @test (@inferred advect!(dst, g, scheme, c, workspace(scheme, N, Float32))) === dst
         @test all(isfinite, dst)
+        # and the answer is the Float64 one to single precision
+        ref = advect!(similar(g, Float64), Float64.(g), scheme, Float64(c))
+        @test maximum(abs, dst .- ref) < 1e-5
+        @test eltype(advect!(similar(g), g, scheme, c)) === Float32
     end
 
-    # PFCNonUniform does carry its element type through, workspace included.
-    s32 = PFCNonUniform(fill(0.05f0, N); fmin = 0.0f0, fmax = 2.0f0)
-    @test s32 isa PFCNonUniform{Float32}
-    @test workspace(s32, N).accumulator isa Vector{Float32}
-
-    # The semi-Lagrangian workspace is the one that does not.
+    @test workspace(SemiLagrangian(CubicSpline()), N, Float32).buffer isa Vector{Float32}
     @test workspace(SemiLagrangian(CubicSpline()), N).buffer isa Vector{Float64}
+    s32 = PFCNonUniform(fill(0.05f0, N); fmin = 0.0f0, fmax = 2.0f0)
+    @test workspace(s32, N).accumulator isa Vector{Float32}
+end
+
+@testset "constructors refuse what the schemes cannot use" begin
+    @test_throws ArgumentError PFC(fmin = 2.0, fmax = 1.0)
+    @test_throws ArgumentError PFCNonUniform(fill(0.1, 8); fmin = 2.0, fmax = 1.0)
+    @test_throws ArgumentError PFCNonUniform([0.1, 0.0, 0.1, 0.1]; fmin = 0.0, fmax = 1.0)
+    @test_throws ArgumentError PFCNonUniform([0.1, -0.1, 0.1, 0.1]; fmin = 0.0, fmax = 1.0)
+    @test_throws ArgumentError PFCNonUniform([0.1, NaN, 0.1, 0.1]; fmin = 0.0, fmax = 1.0)
+    @test_throws ArgumentError PFCNonUniform([0.1, 0.1]; fmin = 0.0, fmax = 1.0)
+    # a piecewise-constant reconstruction has no slope to limit
+    @test_throws ArgumentError Godunov(PiecewiseConstant(), VanLeer())
+    @test_throws ArgumentError Godunov(PiecewiseConstant(), Superbee())
+    @test Godunov(PiecewiseConstant()) isa Godunov{PiecewiseConstant, NoLimiter}
+    @test Godunov(PiecewiseConstant(), NoLimiter()) isa Godunov{PiecewiseConstant, NoLimiter}
 end

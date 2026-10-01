@@ -328,6 +328,31 @@ This project has not been released; entries below describe work on `master`.
 
 ### Changed
 
+- **`PFC`'s and `PFCNonUniform`'s bounds check throws `DomainError`**, not
+  `AssertionError`: it is part of the schemes' contract, and `@assert` is a
+  debugging aid that may be compiled out. Code catching `AssertionError` must
+  catch `DomainError`.
+- **`advect!` refuses more wrong calls:**
+  - a `dest` that shares memory with `src`, such as `view(src, :)`
+    (`Base.mightalias`); `===` alone let it through, 0.047 off for `Upwind`;
+  - offset (non-one-based) arrays;
+  - a non-finite Courant number for `SemiLagrangian`, which returned NaN.
+- **Constructors refuse what the schemes cannot use:**
+  - `fmin > fmax`;
+  - non-positive or non-finite cell widths, or fewer than three cells, for
+    `PFCNonUniform`;
+  - a limiter with `Godunov(PiecewiseConstant(), …)`, which ignored it.
+- **Element types are carried through.**
+  - `PFCNonUniform` runs on Float32 data; its limiter was annotated
+    `::Float64` and threw a `MethodError`.
+  - `workspace(scheme, n, T)` builds scratch of element type `T`, and the
+    four-argument `advect!` uses `src`'s. `workspace(BGK(τ), n)` follows `τ`'s
+    type.
+  - The kernels lost their Float64 literals. Float64 results are bit-identical,
+    as the golden data confirms.
+- **`Landau1P` is no longer exported from `Collisions`**; reach it as
+  `Vasilek.Collisions.Landau1P`. It is experimental, as its docstring says.
+
 - **`Godunov(PiecewiseLinear(), VanLeer())` steps 7 to 14 times faster and
   `Superbee` 6.5 to 11.5 times, to the same bits, and on Julia 1.10 the scheme
   without a limiter 18 to 42 times.** With `VanLeer` the step cost 14.1 ns per

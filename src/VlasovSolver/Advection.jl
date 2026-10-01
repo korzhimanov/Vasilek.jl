@@ -86,9 +86,9 @@ smooth phase-space dynamics.
 """
 struct Superbee <: AbstractLimiter end
 
-(::NoLimiter)(r) = 1.0
-(::VanLeer)(r) = (r + abs(r))/(1.0 + abs(r))
-(::Superbee)(r) = max(0.0, min(2r, 1.0), min(r, 2.0))
+(::NoLimiter)(r) = one(r)
+(::VanLeer)(r) = (r + abs(r))/(1 + abs(r))
+(::Superbee)(r) = max(zero(r), min(2r, one(r)), min(r, oftype(r, 2)))
 
 """Interpolating spline used by [`SemiLagrangian`](@ref)."""
 abstract type AbstractSpline end
@@ -174,6 +174,16 @@ struct Godunov{R<:AbstractReconstruction, L<:AbstractLimiter} <: AbstractAdvecti
 end
 Godunov(r::AbstractReconstruction) = Godunov(r, NoLimiter())
 
+# `PiecewiseConstant` has no slope to limit, so a limiter given with it would be
+# silently ignored. Refused instead.
+function Godunov(r::PiecewiseConstant, l::AbstractLimiter)
+    l isa NoLimiter || throw(ArgumentError(
+        "Godunov(PiecewiseConstant(), $(nameof(typeof(l)))()): a piecewise-constant " *
+        "reconstruction has no slope, so the limiter would be ignored; use " *
+        "PiecewiseLinear() to limit one"))
+    return Godunov{PiecewiseConstant, typeof(l)}(r, l)
+end
+
 """
     SemiLagrangian(spline = CubicSpline())
 
@@ -211,6 +221,7 @@ end
 
 function PFC(; fmin, fmax, checked::Bool = true)
     lo, hi = promote(float(fmin), float(fmax))
+    _check_bracket(lo, hi)
     return PFC{typeof(lo), checked}(lo, hi)
 end
 
@@ -262,6 +273,9 @@ Base.@constprop :aggressive function PFCNonUniform(Δx_::AbstractVector{T}; fmin
                                                    checked::Bool = true) where {T<:AbstractFloat}
     Δx = collect(Δx_)
     n = length(Δx)
+    n ≥ 3 || throw(ArgumentError("PFCNonUniform needs at least 3 cells, got $n"))
+    all(d -> isfinite(d) && d > 0, Δx) || throw(ArgumentError(
+        "PFCNonUniform needs finite, positive cell widths; got extrema $(extrema(Δx))"))
     ξ = similar(Δx)
     for i in eachindex(Δx)
         d₋ = Δx[i == 1 ? n : i-1]
@@ -269,38 +283,46 @@ Base.@constprop :aggressive function PFCNonUniform(Δx_::AbstractVector{T}; fmin
         ξ[i] = slope_limit(min(d₋, Δx[i], d₊)/max(d₋, Δx[i], d₊))
     end
     fmn, fmx = promote(float(fmin), float(fmax))
+    _check_bracket(fmn, fmx)
     return PFCNonUniform{T, checked}(Δx, ξ, minimum(Δx), T(fmn), T(fmx))
 end
+
+@noinline _check_bracket(lo, hi) = lo ≤ hi || throw(ArgumentError(
+    "fmin = $lo exceeds fmax = $hi"))
 
 # ------------------------------------------------------------------ workspace
 
 """
-    workspace(scheme, n)
+    workspace(scheme, n[, T])
 
-Scratch memory for `scheme` at problem size `n`, or `nothing` when it needs
+Scratch memory for `scheme` at problem size `n` and element type `T`
+(`Float64` unless the scheme carries its own), or `nothing` when it needs
 none. One workspace per task: that is what makes the schemes safe to run
 concurrently over the lines of a multidimensional sweep.
 """
-workspace(::AbstractAdvection1D, ::Integer) = nothing
+workspace(::AbstractAdvection1D, ::Integer, ::Type = Float64) = nothing
 
 struct SplineWorkspace{T}
     buffer::Vector{T}
 end
-workspace(::SemiLagrangian{LinearSpline}, n::Integer) = SplineWorkspace(Vector{Float64}(undef, n + 1))
-workspace(::SemiLagrangian, n::Integer) = SplineWorkspace(Vector{Float64}(undef, n))
+workspace(::SemiLagrangian{LinearSpline}, n::Integer, ::Type{T} = Float64) where {T} =
+    SplineWorkspace(Vector{T}(undef, n + 1))
+workspace(::SemiLagrangian, n::Integer, ::Type{T} = Float64) where {T} =
+    SplineWorkspace(Vector{T}(undef, n))
 
 struct PFCWorkspace{T}
     accumulator::Vector{T}
 end
-workspace(s::PFCNonUniform{T}, n::Integer) where {T} = PFCWorkspace(Vector{T}(undef, n))
+workspace(s::PFCNonUniform{T}, n::Integer, ::Type{S} = T) where {T, S} =
+    PFCWorkspace(Vector{S}(undef, n))
 
 """
     advect!(dest, src, scheme, c[, ws])
 
 Advance `src` one step into `dest` at Courant number `c`.
 
-The four-argument form allocates a workspace when the scheme needs one; pass
-one explicitly in any loop that runs more than once.
+The four-argument form allocates a workspace of `src`'s element type when the
+scheme needs one; pass one explicitly in any loop that runs more than once.
 
 `dest` and `src` must be distinct arrays of equal length, at least three
 elements long; `ws` must be the workspace `workspace(scheme, length(src))`
@@ -309,7 +331,7 @@ returns; and `|c| ≤ 1` unless the scheme is `SemiLagrangian` -- for
 those is checked; see [`_validate`](@ref) for why.
 """
 advect!(dest, src, scheme::AbstractAdvection1D, c) =
-    advect!(dest, src, scheme, c, workspace(scheme, length(dest)))
+    advect!(dest, src, scheme, c, workspace(scheme, length(dest), float(eltype(src))))
 
 # ----------------------------------------------------------------- validation
 
@@ -323,7 +345,8 @@ answer rather than an error, and this package has twice paid for exactly that
 class of failure -- the two `PFC` overloads that disagreed by a factor of 740,
 and the `LaxWendroff` methods that sized their loops from a captured array.
 
-  * **`dest === src`.** Every scheme except `SemiLagrangian` and
+  * **`dest` aliasing `src`**, the same array or a view sharing its memory
+    (`Base.mightalias`; `===` alone let `view(src, :)` through). Every scheme except `SemiLagrangian` and
     `PFCNonUniform` reads neighbours of `src` that it has already overwritten
     in `dest`, so aliasing silently corrupts the result -- measured 0.013 for
     `Upwind` and 0.21 for `PFC`. The two that survive do so by accident of
@@ -350,7 +373,8 @@ method put `checked` at 8.0%. As a call on its own it takes under 3 ns, 0.16% of
 the cheapest step at that size, `Upwind`'s 1.9 µs.
 """
 @inline function _validate(dest, src, scheme::AbstractAdvection1D, c, ws)
-    dest === src && _err_alias()
+    Base.require_one_based_indexing(dest, src)
+    Base.mightalias(dest, src) && _err_alias()
     length(dest) == length(src) || _err_length(length(dest), length(src))
     length(src) ≥ 3 || _err_short(length(src))
     _validate_workspace(scheme, ws, length(src))
@@ -359,7 +383,7 @@ the cheapest step at that size, `Upwind`'s 1.9 µs.
 end
 
 @noinline _err_alias() = throw(ArgumentError(
-    "advect! requires dest !== src: every scheme reads neighbours of src that " *
+    "advect! requires dest and src not to share memory: every scheme reads neighbours of src that " *
     "an aliased dest would already have overwritten"))
 @noinline _err_length(nd, ns) = throw(DimensionMismatch(
     "advect! requires length(dest) == length(src), got $nd and $ns"))
@@ -393,24 +417,32 @@ end
 
 The check `PFC` and `PFCNonUniform` run on every call when built with
 `checked = true`: that `src` lies inside the `[fmin, fmax]` their limiters are
-built on. Both call this one function, so they refuse the same data with the
-same message. Inlined, so a checked call compiles to the two assertions in place,
-and each scheme's `if Checked` removes it whole.
+built on, or a `DomainError`. Both call this one function, so they refuse the
+same data with the same message. Inlined, so each scheme's `if Checked` removes
+it whole. An exception rather than `@assert`, which is a debugging aid that may
+be compiled out, and this is part of the schemes' contract.
 """
 @inline function _check_bounds(src, lo, hi)
-    @assert lo ≤ minimum(src) "fmin = $lo exceeds minimum(src) = $(minimum(src))"
-    @assert maximum(src) ≤ hi "fmax = $hi is below maximum(src) = $(maximum(src))"
+    m = minimum(src)
+    lo ≤ m || _err_bound_low(lo, m)
+    M = maximum(src)
+    M ≤ hi || _err_bound_high(hi, M)
     return nothing
 end
+
+@noinline _err_bound_low(lo, m) = throw(DomainError(m,
+    "fmin = $lo exceeds minimum(src) = $m: the PFC limiter is built on [fmin, fmax]"))
+@noinline _err_bound_high(hi, M) = throw(DomainError(M,
+    "fmax = $hi is below maximum(src) = $M: the PFC limiter is built on [fmin, fmax]"))
 
 """
     _validate_courant(scheme, c)
 
 Refuse a step `scheme` cannot take: `|c| > 1` for the schemes with a Courant
 limit, and for `PFCNonUniform`, whose `c` is a displacement, `|c|` wider than
-its narrowest cell. `c = ±1` exactly is accepted; so is anything at all by
-`SemiLagrangian`, since characteristic tracing has no Courant limit. `NaN` is
-refused, as no comparison with it holds.
+its narrowest cell. `c = ±1` exactly is accepted; so is any finite `c` by
+`SemiLagrangian`, since characteristic tracing has no Courant limit. `NaN` and
+`±Inf` are refused by every scheme.
 
 `Upwind`, `LaxWendroff`, `Godunov` and `PFC` are explicit, and none of them
 survives a characteristic crossing more than one cell per step. Measured over
@@ -439,7 +471,7 @@ wide one -- takes data with an exact zero to -7.6e-6 in one step.
 """
 _validate_courant(scheme::AbstractAdvection1D, c) =
     abs(c) ≤ 1 ? nothing : _err_courant(scheme, c)
-_validate_courant(::SemiLagrangian, c) = nothing
+_validate_courant(::SemiLagrangian, c) = isfinite(c) ? nothing : _err_nonfinite(c)
 _validate_courant(p::PFCNonUniform, α) =
     abs(α) ≤ p.Δxmin ? nothing : _err_displacement(α, p.Δxmin)
 
@@ -447,6 +479,8 @@ _validate_courant(p::PFCNonUniform, α) =
     "$(nameof(typeof(scheme))) is stable only for |c| ≤ 1: a characteristic may " *
     "not cross more than one cell per step. Take more, smaller steps, or use " *
     "SemiLagrangian, which has no Courant limit"))
+@noinline _err_nonfinite(c) = throw(DomainError(c,
+    "SemiLagrangian needs a finite Courant number"))
 @noinline _err_displacement(α, h) = throw(DomainError(α,
     "PFCNonUniform needs |α| ≤ minimum(Δx) = $h: its fourth argument is a " *
     "displacement, and each cell gives up its outgoing flux alone, so none may " *

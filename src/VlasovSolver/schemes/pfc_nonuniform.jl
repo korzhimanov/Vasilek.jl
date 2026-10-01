@@ -1,4 +1,4 @@
-@inline function _nu_ϵ⁺(f::Float64, g::Float64, ξ::Float64, lo, hi)::Float64
+@inline function _nu_ϵ⁺(f, g, ξ, lo, hi)
     if f < g
         return min(g - f, ξ*(f - lo))
     else
@@ -6,7 +6,7 @@
     end
 end
 
-@inline function _nu_ϵ⁻(f::Float64, g::Float64, ξ::Float64, lo, hi)::Float64
+@inline function _nu_ϵ⁻(f, g, ξ, lo, hi)
     if f < g
         return max(f - g, -ξ*(f - lo))
     else

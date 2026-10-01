@@ -10,7 +10,8 @@
 @inline function _ratio(f, i, i⁻, i⁺)
     Δ⁻ = f[i] - f[i⁻]
     Δ⁺ = f[i⁺] - f[i]
-    return ifelse(iszero(Δ⁻), 0.0, ifelse(iszero(Δ⁺), 2.0, Δ⁻/Δ⁺))
+    r = Δ⁻/Δ⁺
+    return ifelse(iszero(Δ⁻), zero(r), ifelse(iszero(Δ⁺), oftype(r, 2), r))
 end
 
 # The flux through the face between cell i and its upwind neighbour i⁻, which
@@ -24,7 +25,7 @@ end
 # every read inside them.
 @inline function _Φ(f, i, i⁻, i⁻², c, ::PiecewiseLinear, limiter)
     a = abs(c)
-    return a*(f[i⁻] + limiter(_ratio(f, i⁻, i⁻², i))*0.5*(1 - a)*(f[i] - f[i⁻]))
+    return a*(f[i⁻] + limiter(_ratio(f, i⁻, i⁻², i))*((1 - a)/2)*(f[i] - f[i⁻]))
 end
 
 # One `advect!` for every reconstruction, so the step is validated in one place;
