@@ -35,9 +35,13 @@ struct PML{T<:Integer, S<:AbstractFloat}
     r₁::Vector{S}
     r₂::Vector{S}
     function PML(N::T, σ_max::S, Δx, Δt) where {T, S}
+        N ≥ 0 || throw(ArgumentError("PML needs N ≥ 0 cells, got $N"))
+        σ_max ≥ 0 || throw(ArgumentError("PML needs σ_max ≥ 0, got $σ_max"))
         σ = [σ_max*(i/2N)^3 for i = 1:2N]
         r₁ = exp.(-Δt.*σ)
-        r₂ = (1.0 .- r₁)./(Δx.*σ)
+        # (1 - exp(-Δtσ))/(Δxσ), through `expm1` so that it does not cancel as
+        # Δtσ → 0, and at σ = 0 its limit Δt/Δx, the interior coefficient.
+        r₂ = [iszero(s) ? Δt/Δx : -expm1(-Δt*s)/(Δx*s) for s in σ]
         new{T,S}(N, σ_max, r₁, r₂)
     end
 end
@@ -57,6 +61,15 @@ PML(; N, σ_max, Δx, Δt) = PML(N, σ_max, Δx, Δt)
 
 Build `advance_fields!(t, j)`, one leapfrog step on the mesh `f`.
 
+`cfl` must equal `Δt/Δx`: the interior update uses `cfl` and the absorbing
+layer `Δt/Δx`, so two different values would put an impedance step at the edge
+of the layer. It is checked.
+
+`pulse_shape` is a named tuple `(y, z)` of functions `(t, x) -> amplitude`,
+injected one-way (rightwards) at the first interior node `pml.N + 2`. Their
+`x` argument is `x_min + Δx` for the electric field and `x_min + 1.5Δx` for the
+magnetic one, so `x_min` is the coordinate the source is measured from.
+
 `j` is a named tuple `(y, z)` of arrays indexed like `f.ey`, and is added
 **straight into the field**, so the caller owes it the time step: the argument
 is `-J Δt`, not `J`. See `docs/normalization.md`.
@@ -68,13 +81,22 @@ still span the full `N+1` nodes so that they index alongside `f.ey`.
 """
 function make_advance_fields(f::YeeMesh1D{T,S}, cfl, pulse_shape, Δt, Δx, x_min, pml::PML = PML(; N = 10, σ_max = 1e3, Δx = Δx, Δt = Δt)) where {T,S}
     Nx = f.N
+    isapprox(cfl, Δt/Δx; rtol = 1e-12) || throw(ArgumentError(
+        "cfl = $cfl but Δt/Δx = $(Δt/Δx): the interior and the absorbing layer " *
+        "would use different Courant numbers"))
+    Nx ≥ 2*pml.N + 2 || throw(ArgumentError(
+        "a mesh of $Nx cells cannot hold two absorbing layers of $(pml.N) cells " *
+        "and an interior; need N ≥ $(2*pml.N + 2)"))
 
     function generate_fields_x_min!(t)
         f.ey[pml.N+2] -= cfl*pulse_shape.y(t, x_min + Δx)
         f.ez[pml.N+2] -= cfl*pulse_shape.z(t, x_min + Δx)
         
+        # A right-going wave has hz = ey but hy = -ez: the (ez, hy) pair is
+        # (ey, -hz). With `-=` here the z source launched its pulse to the left,
+        # into the absorbing layer.
         f.hz[pml.N+2] -= cfl*pulse_shape.y(t + 0.5*Δt, x_min + 1.5*Δx)
-        f.hy[pml.N+2] -= cfl*pulse_shape.z(t + 0.5*Δt, x_min + 1.5*Δx)
+        f.hy[pml.N+2] += cfl*pulse_shape.z(t + 0.5*Δt, x_min + 1.5*Δx)
     end
 
     function update_ey!(jy)

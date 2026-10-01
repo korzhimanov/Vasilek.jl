@@ -19,10 +19,15 @@ function collide!(dest, src, op::BGK, v, Δt, ws::BGKWorkspace)
     M, moment = ws.maxwellian, ws.moment
 
     n = integrate(v, src)
+    # An empty line (vacuum) has no drift or temperature to relax towards, and
+    # 0/0 would fill it with NaN; nor does one colder than the grid resolves.
+    # Collisions leave both as they are.
+    n > 0 || return copyto!(dest, src)
     @. moment = v*src
     u = integrate(v, moment)/n
     @. moment = (v - u)^2 * src
     T = integrate(v, moment)/n
+    T > 0 || return copyto!(dest, src)
 
     @. M = n/sqrt(2π*T)*exp(-(v - u)^2/(2T))
     @. dest = src*e + (1.0 - e)*M

@@ -1,5 +1,5 @@
 using Vasilek
-using Vasilek.Collisions: collide!, workspace as collision_workspace
+using Vasilek.Collisions: collide!
 
 @isdefined(march!) || include(joinpath(@__DIR__, "scheme_cases.jl"))
 
@@ -79,14 +79,14 @@ end
     data = [[exp(-(x - 0.3*sin(l))^2) for x in v] for l = 1:128]
     op = BGK(1e-1)
 
-    serial = [(o = similar(d); collide!(o, d, op, v, 0.1, collision_workspace(op, length(v))); o)
+    serial = [(o = similar(d); collide!(o, d, op, v, 0.1, workspace(op, length(v))); o)
               for d in data]
 
     out = [similar(d) for d in data]
     chunks = collect(Iterators.partition(eachindex(data),
                                          cld(length(data), max(Threads.nthreads(), 1))))
     Threads.@threads for k in eachindex(chunks)
-        ws = collision_workspace(op, length(v))
+        ws = workspace(op, length(v))
         for l in chunks[k]
             collide!(out[l], data[l], op, v, 0.1, ws)
         end

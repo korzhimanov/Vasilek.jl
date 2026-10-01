@@ -1,5 +1,5 @@
 using Vasilek
-using Vasilek.Collisions: Landau1P, collide!, workspace as collision_workspace
+using Vasilek.Collisions: Landau1P, collide!
 
 @isdefined(march!) || include(joinpath(@__DIR__, "scheme_cases.jl"))
 
@@ -318,7 +318,7 @@ end
             v = collect(range(-4, 4; length = n))
             src = @. exp(-v^2)
             dst = similar(src)
-            ws = collision_workspace(op, n)
+            ws = workspace(op, n)
             return () -> collide!(dst, src, op, v, 0.1, ws)
         end
     end

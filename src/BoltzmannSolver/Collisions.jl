@@ -8,6 +8,10 @@ into an explicit destination.
 module Collisions
 
 using NumericalIntegration
+# One `workspace` for the package: a function of its own here was a second
+# generic that the exported name never reached, so `workspace(BGK(τ), n)`
+# was a MethodError.
+import ..Advection: workspace
 
 export AbstractCollisionOperator, collide!, BGK, Landau1P
 
