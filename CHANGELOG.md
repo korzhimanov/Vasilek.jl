@@ -347,7 +347,8 @@ This project has not been released; entries below describe work on `master`.
     `::Float64` and threw a `MethodError`.
   - `workspace(scheme, n, T)` builds scratch of element type `T`, and the
     four-argument `advect!` uses `src`'s. `workspace(BGK(τ), n)` follows `τ`'s
-    type.
+    type, but `collide!` without a workspace follows the data's, as `advect!`
+    does.
   - The kernels lost their Float64 literals. Float64 results are bit-identical,
     as the golden data confirms.
 - **`Landau1P` is no longer exported from `Collisions`**; reach it as
