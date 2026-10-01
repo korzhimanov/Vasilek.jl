@@ -196,6 +196,20 @@ end
         dest = collide!(similar(f₀), f₀, BGK(1.0), v, 0.1)
         @test dest == f₀
     end
+    # The grid above is dyadic (Δv = 0.1875), so every spike there has T = 0
+    # exactly. At Δv = 0.1, sixteen of the 159 interior nodes (v = ±0.1, ±0.4,
+    # ±2.7, ...) put u an ulp off the node, T near 1e-34, and a guard of T > 0
+    # let them through as a 1e14 spike carrying 1e14 times the mass. Every node
+    # is tried, since which ones miss depends on rounding.
+    v = collect(range(-8, 8, length = 161))
+    @test all(2:160) do j
+        f₀ = [i == j ? 1.0 : 0.0 for i in 1:161]
+        collide!(similar(f₀), f₀, BGK(1.0), v, 0.1) == f₀
+    end
+    # A line just resolved still relaxes.
+    T = 1.5*0.1^2
+    f₀ = @. exp(-(v - 0.3)^2/(2T)) * (1 + 0.5*sin(5v))
+    @test collide!(similar(f₀), f₀, BGK(1.0), v, 0.1) != f₀
 end
 
 @testset "BGK satisfies the H-theorem" begin
