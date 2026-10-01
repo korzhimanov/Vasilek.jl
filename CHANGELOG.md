@@ -328,6 +328,25 @@ This project has not been released; entries below describe work on `master`.
 
 ### Changed
 
+- **The Poisson solver is a value, `PoissonFFT1D(n, Δx)`, with a `workspace`**
+  (`PoissonFourier1D`). The 0.1 closure captured its buffers and could not be
+  shared between tasks, which was the whole argument for making the advection
+  schemes values.
+  - `solve!(e, ρ, p, ws)` takes any vector, a view or a column included.
+  - `derivative = :spectral` takes `ê = −iρ̂/k`, exact for every resolved mode.
+  - The default `:centered` is the 0.1 solver bit for bit, and a test
+    reimplements 0.1 to hold it there.
+  - `generate_solver` remains as a deprecated wrapper.
+  - The verification harness now runs this solver instead of its own copy.
+- **`StrangSplitting.strang_step!(f, scheme_x, scheme_v, cx, cv, ws)`** takes
+  schemes and a workspace from `workspace(scheme_x, scheme_v, f)`, and is the
+  closure form's step to the bit.
+- **`make_time_step_2d!` leaves both arrays holding the step**: `f₂` used to
+  lag `f₁` by the final half step. When `f₂` shares `f₁`'s memory, as in the
+  harness, the transposes are skipped.
+- **`workspace` is defined once, in `Vasilek`**, and the advection,
+  collision, splitting and Poisson modules add methods to it.
+
 - **`PFC`'s and `PFCNonUniform`'s bounds check throws `DomainError`**, not
   `AssertionError`: it is part of the schemes' contract, and `@assert` is a
   debugging aid that may be compiled out. Code catching `AssertionError` must

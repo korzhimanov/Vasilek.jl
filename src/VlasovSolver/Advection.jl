@@ -26,6 +26,7 @@ in order of weight:
 module Advection
 
 using Interpolations
+import ..workspace
 
 export AbstractAdvection1D, advect!, workspace,
        Upwind, LaxWendroff, Godunov, SemiLagrangian, PFC, PFCNonUniform,

@@ -91,9 +91,9 @@ end
         function poisson_bytes(n)
             ρ = [sin(2π*i/n) for i = 0:n-1]
             e = similar(ρ)
-            solve! = PoissonFourier1D.generate_solver(ρ, 0.01)
-            solve!(e, ρ); solve!(e, ρ)
-            return @allocated solve!(e, ρ)
+            p = PoissonFourier1D.PoissonFFT1D(n, 0.01); ws = workspace(p)
+            PoissonFourier1D.solve!(e, ρ, p, ws); PoissonFourier1D.solve!(e, ρ, p, ws)
+            return @allocated PoissonFourier1D.solve!(e, ρ, p, ws)
         end
 
         function fdtd_bytes(n)

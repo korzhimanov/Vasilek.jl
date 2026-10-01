@@ -19,7 +19,7 @@
             failures += 1
             continue
         end
-        ref = PoissonFourier1D.generate_solver(ρ, x[2] - x[1])(similar(x), ρ)
+        ref = PoissonFourier1D.solve!(similar(x), ρ, PoissonFourier1D.PoissonFFT1D(Nx, x[2] - x[1]))
         worst = max(worst, maximum(abs, e .- ref))
     end
     println("  make_poisson over Nx = 8:512: ", failures, " failures, max|Δe| vs package = ", worst)
