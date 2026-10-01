@@ -1,5 +1,5 @@
 using Vasilek
-using Vasilek.Collisions: Landau1P, collide!, workspace as collision_workspace
+using Vasilek.Collisions: Landau1P, collide!
 using NumericalIntegration
 
 """
@@ -13,7 +13,7 @@ step one -- which is why an index bug in Landau1P survived for years.
 function relax(op, v, Δt, f₀, nsteps)
     src = copy(f₀)
     dst = similar(src)
-    ws = collision_workspace(op, length(src))
+    ws = workspace(op, length(src))
     for _ = 1:nsteps
         collide!(dst, src, op, v, Δt, ws)
         copyto!(src, dst)
@@ -158,21 +158,58 @@ end
     M = @. n/sqrt(2π*T)*exp(-(v - u)^2/(2T))
 
     # Δt ≪ τ: nothing happens. Measured 3.5e-12 at Δt/τ = 1e-10.
-    collide!(dest, f₀, BGK(1.0), v, 1e-10, collision_workspace(BGK(1.0), length(v)))
+    collide!(dest, f₀, BGK(1.0), v, 1e-10, workspace(BGK(1.0), length(v)))
     println("  Δt/τ = 1e-10: max|dest − src| = ", maximum(abs, dest .- f₀))
     @test maximum(abs, dest .- f₀) < 1e-10
 
     # Δt ≫ τ: the local Maxwellian, bit-for-bit -- `e` underflows to zero and
     # the update collapses to `M` exactly.
-    collide!(dest, f₀, BGK(1e-8), v, 1.0, collision_workspace(BGK(1e-8), length(v)))
+    collide!(dest, f₀, BGK(1e-8), v, 1.0, workspace(BGK(1e-8), length(v)))
     @test dest == M
     @test minimum(dest) ≥ 0.0
 
     # and in between, the stated formula, also bit-for-bit
     τ, Δt = 0.7, 0.3
-    collide!(dest, f₀, BGK(τ), v, Δt, collision_workspace(BGK(τ), length(v)))
+    collide!(dest, f₀, BGK(τ), v, Δt, workspace(BGK(τ), length(v)))
     e = exp(-Δt/τ)
     @test dest == @. f₀*e + (1.0 - e)*M
+end
+
+@testset "BGK through the exported workspace" begin
+    # `workspace` is one generic for advection and collisions alike: the
+    # collision module used to define a second one, which the exported name did
+    # not reach, so this was a MethodError.
+    v = collect(range(-6, 6, length = 65))
+    f₀ = @. exp(-v^2/2)/sqrt(2π)
+    ws = Vasilek.workspace(BGK(1.0), length(v))
+    @test ws !== nothing
+    @test all(isfinite, collide!(similar(f₀), f₀, BGK(1.0), v, 0.1, ws))
+    @test Vasilek.workspace === Vasilek.Collisions.workspace
+end
+
+@testset "BGK leaves an empty or unresolved line alone" begin
+    # n = 0 (vacuum) has no drift or temperature; n/0 used to fill the whole
+    # line with NaN. A single-node spike has T = 0 to round-off, which is
+    # equally undefined. Both pass through unchanged.
+    v = collect(range(-6, 6, length = 65))
+    for f₀ in (zeros(65), [i == 33 ? 1.0 : 0.0 for i in 1:65])
+        dest = collide!(similar(f₀), f₀, BGK(1.0), v, 0.1)
+        @test dest == f₀
+    end
+    # The grid above is dyadic (Δv = 0.1875), so every spike there has T = 0
+    # exactly. At Δv = 0.1, sixteen of the 159 interior nodes (v = ±0.1, ±0.4,
+    # ±2.7, ...) put u an ulp off the node, T near 1e-34, and a guard of T > 0
+    # let them through as a 1e14 spike carrying 1e14 times the mass. Every node
+    # is tried, since which ones miss depends on rounding.
+    v = collect(range(-8, 8, length = 161))
+    @test all(2:160) do j
+        f₀ = [i == j ? 1.0 : 0.0 for i in 1:161]
+        collide!(similar(f₀), f₀, BGK(1.0), v, 0.1) == f₀
+    end
+    # A line just resolved still relaxes.
+    T = 1.5*0.1^2
+    f₀ = @. exp(-(v - 0.3)^2/(2T)) * (1 + 0.5*sin(5v))
+    @test collide!(similar(f₀), f₀, BGK(1.0), v, 0.1) != f₀
 end
 
 @testset "BGK satisfies the H-theorem" begin
@@ -190,7 +227,7 @@ end
         v = collect(-halfwidth:Δv:halfwidth)
         f₀ = @. exp(-(v - 1.0)^2) + 0.6*exp(-(v + 1.5)^2/0.5)
         op = BGK(1e-1)
-        ws = collision_workspace(op, length(v))
+        ws = workspace(op, length(v))
         src = copy(f₀); dst = similar(src)
         H(f) = -integrate(v, [x > 0 ? x*log(x) : 0.0 for x in f])
         previous = H(src); worst = 0.0
@@ -313,7 +350,7 @@ end
 
     for τ in (0.5, 1.0, 2.0)
         op = BGK(τ)
-        ws = collision_workspace(op, length(v))
+        ws = workspace(op, length(v))
         n, u, T = moments(v, f₀)
         M = @. n/sqrt(2π*T)*exp(-(v - u)^2/(2T))
 

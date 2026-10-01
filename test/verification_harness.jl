@@ -22,11 +22,18 @@ using LinearAlgebra: svd, pinv, eigvals
 # `vlasov_poisson`.
 @isdefined(echo_closed_form) || include(joinpath(@__DIR__, "echo.jl"))
 
-"Spectral Poisson solve on a uniform x grid, e = -dφ/dx with φ'' = -ρ."
+"""
+Spectral Poisson solve on a uniform periodic x grid, returning `e` with
+`∂e/∂x = ρ`: internally `φ'' = ρ` and `e = +dφ/dx` by centred difference.
+
+The wavenumbers come from `rfftfreq`, whose length is `rfft`'s by construction.
+A float range `0:1/L:0.5/Δx` was used here, and its length rounds: on the 8π box
+61 of the even `Nx` in 8:512 came out one short and the solve threw on its
+first call.
+"""
 function make_poisson(x)
     Δx = x[2] - x[1]
-    L = x[end] - x[1] + Δx
-    ω = 2π*collect(0.0:1.0/L:0.5/Δx)
+    ω = 2π*collect(FFTW.rfftfreq(length(x), 1/Δx))
     ω[1] = ω[2]
     return function (e, ρ)
         F = FFTW.rfft(ρ)
@@ -273,7 +280,7 @@ function vlasov_poisson(x, v, f₀, t;
     advect_x! = line_advector(sx, Δx)
     advect_v! = line_advector(sv, Δv)
     if collisions !== nothing
-        cws = Vasilek.Collisions.workspace(collisions, length(v))
+        cws = workspace(collisions, length(v))
         cbuf = similar(v)
     end
 

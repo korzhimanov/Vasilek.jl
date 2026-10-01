@@ -87,12 +87,17 @@ end
     # This pins the (Δx, Δt) argument order permanently: swapping them would
     # give Δx/Δt = 1.25 instead of 0.8.
     #
-    # σ_max is not free. r₂ = (1-exp(-Δt·σ))/(Δx·σ) loses precision to
-    # cancellation when Δt·σ approaches eps, and departs from the linear limit
-    # when Δt·σ grows. Measured max relative error against Δt/Δx: 8e-4 at
-    # σ_max=1e-8 (cancellation), 5e-7 at σ_max=1.25e-4, 2e-5 at σ_max=1e-6.
+    # r₂ = (1-exp(-Δt·σ))/(Δx·σ) is taken through `expm1`, so it no longer
+    # cancels as Δt·σ → 0: written as `1 - exp`, σ_max = 1e-9 gave r₂ between
+    # 0.4974 and 0.50002 of a 0.5, and σ_max = 0 gave 0/0.
     vanishing = FDTD1D.PML(10, 1.25e-4, Δx, Δt)
     @test all(r -> isapprox(r, Δt/Δx; rtol = 1e-5), vanishing.r₂)
+    for σ_max in (1e-9, 1e-12, 0.0)
+        tiny = FDTD1D.PML(10, σ_max, Δx, Δt)
+        # the exact value departs from Δt/Δx by Δt·σ/2 ≤ 4e-12 at 1e-9
+        @test all(r -> isapprox(r, Δt/Δx; rtol = 1e-10), tiny.r₂)
+    end
+    @test_throws ArgumentError FDTD1D.PML(10, -1.0, Δx, Δt)
 
     # keyword and positional forms must agree
     positional = FDTD1D.PML(10, 1e3, Δx, Δt)
@@ -103,6 +108,37 @@ end
     # and swapping the two must be observable -- otherwise the default
     # argument could stay wrong without any test noticing
     @test FDTD1D.PML(10, 1e3, Δt, Δx).r₂ != positional.r₂
+end
+
+@testset "make_advance_fields checks its arguments" begin
+    Δx = 0.01; Δt = 0.8*Δx
+    m = FDTD1D.YeeMesh1D{Float64}(50)
+    pml = FDTD1D.PML(; N = 10, σ_max = 1e3, Δx = Δx, Δt = Δt)
+    # the interior would run at 0.9, the layer at 0.8
+    @test_throws ArgumentError FDTD1D.make_advance_fields(m, 0.9, NO_PULSE, Δt, Δx, 0, pml)
+    # two layers of 30 cells do not fit in 50
+    @test_throws ArgumentError FDTD1D.make_advance_fields(m, Δt/Δx, NO_PULSE, Δt, Δx, 0,
+        FDTD1D.PML(; N = 30, σ_max = 1e3, Δx = Δx, Δt = Δt))
+end
+
+@testset "Both polarisations are launched rightwards" begin
+    # (ez, hy) obeys the (ey, hz) equations with hy = -hz, so the same pulse in
+    # `z` must produce the same ez as in `y` it produces ey, bit for bit. The z
+    # source used to inject hy with the sign of hz, which sent all but 0.8% of
+    # the pulse left into the absorbing layer.
+    Δx = 0.05; Δt = 0.5*Δx; N = 400
+    pulse(t, x) = t < 2 ? sin(2π*(x - t))*sin(π*t/2)^2 : 0.0
+    nothing_(t, x) = 0.0
+    pml = FDTD1D.PML(; N = 20, σ_max = 1e3, Δx = Δx, Δt = Δt)
+    j(t, f) = zero_current(length(f.ey))
+    fy = run_fdtd(FDTD1D.YeeMesh1D{Float64}(N), Δt/Δx, (y = pulse, z = nothing_),
+                  Δt, Δx, pml, 200, j)
+    fz = run_fdtd(FDTD1D.YeeMesh1D{Float64}(N), Δt/Δx, (y = nothing_, z = pulse),
+                  Δt, Δx, pml, 200, j)
+    println("FDTD1D one-way source: Σey² = ", sum(abs2, fy.ey), ", Σez² = ", sum(abs2, fz.ez))
+    @test sum(abs2, fy.ey) > 1          # the pulse is on the grid, not in the layer
+    @test fz.ez == fy.ey
+    @test fz.hy == -fy.hz
 end
 
 @testset "Test 1D FDTD solvers" begin

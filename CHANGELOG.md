@@ -413,6 +413,28 @@ This project has not been released; entries below describe work on `master`.
 
 ### Fixed
 
+- **The z-polarised FDTD source launched its pulse into the absorbing layer**
+  (`FDTD1D.make_advance_fields`). It injected `hy` with the sign of `hz`, but
+  `(ez, hy)` mirrors `(ey, −hz)`, so all but 0.8% of a z pulse went left and
+  was absorbed. Now both polarisations launch rightwards, bit-identically.
+- **`workspace(BGK(τ), n)` was a `MethodError`**: `Collisions` defined a second
+  `workspace` the exported name never reached. It now extends
+  `Advection.workspace`; the migration guide's example runs.
+- **`BGK` filled an empty velocity line with NaN** (`n = 0`, as in vacuum) and
+  equally one with `T = 0`. Such lines now pass through unchanged, as does any
+  line colder than the grid resolves (`T < Δv²`): a single-node spike off a
+  dyadic node has `T` near 1e-34 rather than 0, and relaxed into a 1e14 spike.
+- **`PML` coefficients**: `r₂` is taken through `expm1`, so it no longer cancels
+  for small `σΔt` (σ_max = 1e-9 gave 0.4974 for 0.5) and is `Δt/Δx` rather than
+  NaN at `σ_max = 0`. Negative `N` or `σ_max` are refused.
+- **`make_advance_fields` refuses inconsistent arguments**: `cfl` must equal
+  `Δt/Δx` (the interior used one, the layer the other), and the mesh must hold
+  both layers. Its docstring now says what `pulse_shape` and `x_min` are.
+- **The harness's Poisson solve threw on about a quarter of grids**
+  (`test/verification_harness.jl`): its wavenumbers came from a float range
+  whose length rounds. It now uses `rfftfreq`, and a test runs it over every
+  `Nx` in 8:512 against `PoissonFourier1D`.
+
 - **The verification environment can load the harness again**
   (`verification/Project.toml`). The charge-rescaling fix below dropped
   `NumericalIntegration` from it. The two scripts with their own loops had

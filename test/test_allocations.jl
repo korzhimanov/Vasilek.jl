@@ -1,5 +1,5 @@
 using Vasilek
-using Vasilek.Collisions: Landau1P, collide!, workspace as collision_workspace
+using Vasilek.Collisions: Landau1P, collide!
 using Vasilek: PoissonFourier1D, FDTD1D
 
 """
@@ -111,7 +111,7 @@ end
             v = collect(range(-4, 4; length = n))
             src = @. exp(-v^2)
             dst = similar(src)
-            ws = collision_workspace(op, n)
+            ws = workspace(op, n)
             collide!(dst, src, op, v, 0.1, ws); collide!(dst, src, op, v, 0.1, ws)
             return @allocated collide!(dst, src, op, v, 0.1, ws)
         end
