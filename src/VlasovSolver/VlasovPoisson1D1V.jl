@@ -23,13 +23,24 @@ Spectral Poisson solve on a uniform periodic x grid, returning `e` with
 `∂e/∂x = ρ`: the package's `PoissonFFT1D` with its centred derivative and a
 workspace of its own.
 
+The grid must be uniform, and is checked: the solve takes its spacing from the
+first two points, so a stretched x grid gave a wrong field with no error (16% in
+the field energy for spacings within ±8% of the mean). The advection would take
+one; the field solve would need a different method.
+
 This used to be a second implementation, which took its wavenumbers from a
 float range whose length rounds: on the 8π box 61 of the even `Nx` in 8:512
 came out one short and the solve threw on its first call. The verification
 runs now exercise the solver the package ships.
 """
 function make_poisson(x)
-    p = PoissonFFT1D(length(x), x[2] - x[1])
+    length(x) ≥ 2 || throw(ArgumentError("the x grid needs at least 2 points, got $(length(x))"))
+    Δx = x[2] - x[1]
+    for j in 2:length(x)-1
+        abs(x[j+1] - x[j] - Δx) ≤ 1e-10*abs(Δx) || throw(ArgumentError(
+            "the Poisson solve needs a uniform x grid: spacing $(x[j+1] - x[j]) at node $j, $Δx at node 1"))
+    end
+    p = PoissonFFT1D(length(x), Δx)
     ws = workspace(p)
     return (e, ρ) -> solve!(e, ρ, p, ws)
 end
@@ -265,6 +276,10 @@ function vlasov_poisson(x, v, f₀, t;
                         scheme_x = nothing, scheme_v = nothing, invariants = false,
                         modes = (), nᵢ = nothing, renormalize = nᵢ === nothing,
                         collisions = nothing)
+    # Every history entry k is taken during step k, and the last one is copied
+    # from the one before: a single time has no step to take one in.
+    length(t) ≥ 2 || throw(ArgumentError(
+        "t needs at least 2 times, the start and one step, got $(length(t))"))
     Δx = cell_widths(x)
     Δv = cell_widths(v)
 

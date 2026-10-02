@@ -4,8 +4,9 @@
 [![codecov](https://codecov.io/gh/korzhimanov/Vasilek.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/korzhimanov/Vasilek.jl)
 
 An ongoing project on developing a parallel 2D2P Maxwell — Vlasov — Boltzmann
-solver on adaptive meshes. What exists today is 1D1V on static (uniform or
-non-uniform) grids; 2D2P and adaptive meshes are the goal, not yet the code.
+solver on adaptive meshes. What exists today is 1D1V on static grids, uniform
+in x and uniform or non-uniform in v; 2D2P and adaptive meshes are the goal, not
+yet the code.
 
 As for now, the following functionality has been implemented:
 * Advection schemes as dispatchable types: upwind, Lax—Wendroff, Godunov

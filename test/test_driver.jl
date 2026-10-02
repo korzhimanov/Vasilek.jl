@@ -31,4 +31,16 @@ using Vasilek.VlasovPoisson1D1V: line_advector, cell_widths, substeps
     @test_throws ErrorException line_advector(Upwind(), [1.0, 2.0, 1.0, 1.0])
     @test substeps(2.5, 1.0) == 3
     @test cell_widths([0.0, 1.0, 3.0]) == [1.0, 1.5, 2.0]
+
+    # The field solve needs a uniform x grid. A stretched one used to run and
+    # return a field 16% off in energy without a word; it is now refused, and
+    # a collected range, whose spacing rounds, is still taken.
+    s = (0:Nx-1)/Nx
+    stretched = @. 2π/k*(s + 0.08sin(2π*s)/(2π)) + x[1]
+    @test_throws ArgumentError vlasov_poisson(stretched, v, f₀, t)
+    @test_throws ArgumentError Vasilek.VlasovPoisson1D1V.make_poisson(stretched)
+    @test Vasilek.VlasovPoisson1D1V.make_poisson(collect(range(0.1, 25.0, length = 97))) isa Function
+    # A single time has no step to record a history in: refused, rather than a
+    # BoundsError from copying the last entry forward.
+    @test_throws ArgumentError vlasov_poisson(x, v, f₀, [0.0])
 end

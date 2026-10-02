@@ -339,6 +339,11 @@ This project has not been released; entries below describe work on `master`.
   - The harness keeps the setups and the analysis; it is now guarded by
     `VERIFICATION_HARNESS` rather than by `vlasov_poisson`, which `using
     Vasilek` defines.
+  - As a public function it checks what the harness never had to: the x grid
+    must be uniform, since the field solve takes its spacing from the first two
+    points (a stretched grid ran, 16% off in field energy, without an error),
+    and `t` must hold at least two times (one gave a `BoundsError`). Both are
+    an `ArgumentError`. The velocity grid may still be non-uniform.
 - **`verification/landau-damping-1d1v.jl` and `plasma-oscillations-1d1v.jl`
   run the driver.** They carried five copies of the Strang loop and their own
   Poisson solve, and had drifted:
