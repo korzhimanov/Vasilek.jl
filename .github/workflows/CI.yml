@@ -28,6 +28,12 @@ on:
   schedule:
     - cron: '23 5 * * 1'
 
+# Read-only by default. `actions: write` is what julia-actions/cache needs to
+# delete the caches it supersedes (`delete-old-caches`, on by default).
+permissions:
+  contents: read
+  actions: write
+
 concurrency:
   # cancel superseded runs on the same ref, but never on master
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -58,6 +64,10 @@ jobs:
       - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
+        with:
+          # coverage is the Coverage job's; instrumenting every job only
+          # slows it down
+          coverage: false
 
   prerelease:
     # Julia release candidates land weeks before the release itself, so this is
@@ -95,6 +105,8 @@ jobs:
       - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
+        with:
+          coverage: false
 
   coverage:
     name: Coverage
@@ -135,15 +147,19 @@ jobs:
       - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
+        with:
+          coverage: false
 
-  boundscheck:
-    # The advection kernels carry `@inbounds` on their interior loops, which
-    # turns an index error there into silent memory corruption rather than a
-    # BoundsError. Nothing in the normal matrix can see that. Forcing bounds
-    # checking on makes the annotations non-binding for one run, so an index
-    # that escapes its array shows up as a test failure instead of as a wrong
-    # number months later.
-    name: Bounds checking
+  inbounds:
+    # julia-runtest passes `--check-bounds=yes` by default (its `check_bounds`
+    # input), so every other job already runs with bounds checks forced on.
+    # `Pkg.test` itself forces them only on older Julia: 1.10's Pkg puts
+    # `--check-bounds=yes` before `julia_args`, 1.13's passes nothing. A job that forced
+    # them on was a duplicate; what no job did was run the kernels the way users
+    # do, with their `@inbounds` in effect. The allocation gate and the
+    # inlining the kernels' comments rely on were only ever checked with
+    # bounds checks on. A later `--check-bounds` overrides an earlier one.
+    name: "@inbounds in effect"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -153,30 +169,49 @@ jobs:
           version: '1'
       - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
-      - run: julia --project=. -e 'using Pkg; Pkg.test(julia_args = ["--check-bounds=yes"])'
+      - run: julia --project=. -e 'using Pkg; Pkg.test(coverage = false, julia_args = ["--check-bounds=auto"])'
 
   verification:
     # `test/test_verification.jl` is gated behind VASILEK_EXTENDED=1 so that a
     # developer's `Pkg.test()` stays instant. Nothing set it. The body of that
-    # file had therefore never executed in CI, which made the three claims in
-    # the README's verification table -- the Landau damping rate and the two
-    # energy drifts -- assertions in name only: they held whenever someone
+    # file had therefore never executed in CI, which made the claims in the
+    # README's verification table assertions in name only: they held whenever someone
     # remembered to export the variable by hand, and at no other time.
     #
     # Per-PR rather than nightly, and deliberately so. The benchmark suite is
     # advisory because wall-clock timing on a shared runner is not reliable at
     # any tolerance worth having; these are deterministic numerics, so that
-    # argument does not carry over to them. The whole job is about two minutes.
-    name: Extended verification
+    # argument does not carry over to them. The job takes about eight minutes.
+    #
+    # On the LTS as well as the current release: this suite holds most of the
+    # physics assertions, and the [compat] floor is the LTS.
+    #
+    # The suite records a skip, not a pass, when the variable does not reach
+    # it, but a skip is still green. The marker file is written only by a run
+    # that executed the suite, and the last step fails without it.
+    name: Extended verification - Julia ${{ matrix.version }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['lts', '1']
     env:
       VASILEK_EXTENDED: '1'
+      VASILEK_EXTENDED_MARKER: ${{ github.workspace }}/extended-verification-ran
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
         with:
-          version: '1'
+          version: ${{ matrix.version }}
       - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
+        with:
+          coverage: false
+      - name: The extended suite ran
+        run: |
+          if [ ! -f "$VASILEK_EXTENDED_MARKER" ]; then
+            echo "::error::no VASILEK_EXTENDED_MARKER file, so the extended verification did not run"
+            exit 1
+          fi

@@ -12,7 +12,9 @@ const Δx = 0.01
 const Δt = 0.8*Δx
 
 for N in SIZES
-    ρ = [sin(2π*j*Δx) for j = 0:N]
+    # N points, not N + 1: the FFT lengths were 101 (prime), 1001 and 10001,
+    # which timed FFTW's slow path rather than the solver
+    ρ = [sin(2π*j*Δx) for j = 0:N-1]
     e = similar(ρ)
     p = PoissonFourier1D.PoissonFFT1D(length(ρ), Δx); ws = workspace(p)
     SUITE["poisson"]["solve $N"] = @benchmarkable PoissonFourier1D.solve!($e, $ρ, $p, $ws)
