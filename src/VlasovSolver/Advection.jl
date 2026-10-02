@@ -120,6 +120,12 @@ A one-dimensional advection scheme. Advance one step with
 where `c` is the Courant number and `ws` is scratch from [`workspace`](@ref).
 Boundaries are periodic throughout. Every scheme but `SemiLagrangian` needs
 `|c| ≤ 1`, and `advect!` refuses more; see [`_validate_courant`](@ref).
+
+The fourth argument is a Courant number for every scheme but `PFCNonUniform`,
+which takes a displacement, since a non-uniform grid has no single Courant
+number. `Vasilek.VlasovPoisson1D1V.line_advector(scheme, Δz)` hides the
+difference: it takes a displacement for any scheme, refuses a uniform scheme on
+a non-uniform grid, and splits a step wider than the narrowest cell.
 """
 abstract type AbstractAdvection1D end
 
