@@ -44,9 +44,11 @@ function assert_constant(name, bytes_at)
     small = bytes_at(ALLOC_N)
     large = bytes_at(4*ALLOC_N)
     println("  ", rpad(name, 24), "N=", ALLOC_N, ": ", small, "   N=", 4*ALLOC_N, ": ", large)
-    # Independent of N up to one boxed value (16 bytes, see above): an exact
-    # equality would also fail on escape analysis deciding differently at the
-    # two sizes, which is not the regression this guards against.
+    # Independent of N to within 64 bytes, four of the 16-byte boxes described
+    # above: an exact equality would also fail on escape analysis deciding
+    # differently at the two sizes, which is not the regression this guards
+    # against, while a reallocated buffer or a per-element temporary at N = 1000
+    # is kilobytes.
     @test abs(large - small) ≤ 64
     @test small < ALLOC_CEILING
 end
