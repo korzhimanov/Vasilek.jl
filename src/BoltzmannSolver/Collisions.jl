@@ -34,8 +34,11 @@ Scratch for `op` at `n` velocity points, of the operator's element type unless
 """
 workspace(::AbstractCollisionOperator, ::Integer, ::Type = Float64) = nothing
 
+# The scratch follows the data, as the four-argument `advect!`'s does: one built
+# from the operator's type would compute a Float64 line's Maxwellian in Float32
+# under `BGK(0.5f0)`.
 collide!(dest, src, op::AbstractCollisionOperator, v, Δt) =
-    collide!(dest, src, op, v, Δt, workspace(op, length(dest)))
+    collide!(dest, src, op, v, Δt, workspace(op, length(dest), float(eltype(src))))
 
 include(joinpath("operators", "bgk.jl"))
 include(joinpath("operators", "landau1p.jl"))

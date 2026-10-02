@@ -51,7 +51,7 @@ traversal falls from 7.03e-3 to 8.55e-5 on a sine, and rises from 8.45e-3 to
 2.77e-2 on a square pulse, because 0.1's flux also steepened the jump.
 
 `PFC` and `PFCNonUniform` check on every call that the data lie within
-`[fmin, fmax]`, and throw an `AssertionError` when they do not. In 0.1 `PFC`
+`[fmin, fmax]`, and throw a `DomainError` when they do not. In 0.1 `PFC`
 checked once, at construction, and `PFCNonUniform` never did: data outside its
 bounds gave a wrong answer with no error, and now stops at the first call.
 `checked = false` removes the check, at compile time.

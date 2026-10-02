@@ -366,7 +366,8 @@ This project has not been released; entries below describe work on `master`.
     `::Float64` and threw a `MethodError`.
   - `workspace(scheme, n, T)` builds scratch of element type `T`, and the
     four-argument `advect!` uses `src`'s. `workspace(BGK(τ), n)` follows `τ`'s
-    type.
+    type, but `collide!` without a workspace follows the data's, as `advect!`
+    does.
   - The kernels lost their Float64 literals. Float64 results are bit-identical,
     as the golden data confirms.
 - **`Landau1P` is no longer exported from `Collisions`**; reach it as
@@ -465,7 +466,9 @@ This project has not been released; entries below describe work on `master`.
   `workspace` the exported name never reached. It now extends
   `Advection.workspace`; the migration guide's example runs.
 - **`BGK` filled an empty velocity line with NaN** (`n = 0`, as in vacuum) and
-  equally one with `T = 0`. Such lines now pass through unchanged.
+  equally one with `T = 0`. Such lines now pass through unchanged, as does any
+  line colder than the grid resolves (`T < Δv²`): a single-node spike off a
+  dyadic node has `T` near 1e-34 rather than 0, and relaxed into a 1e14 spike.
 - **`PML` coefficients**: `r₂` is taken through `expm1`, so it no longer cancels
   for small `σΔt` (σ_max = 1e-9 gave 0.4974 for 0.5) and is `Δt/Δx` rather than
   NaN at `σ_max = 0`. Negative `N` or `σ_max` are refused.

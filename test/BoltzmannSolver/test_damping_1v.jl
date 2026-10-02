@@ -188,6 +188,11 @@ end
     # the buffers follow the operator's element type, or the one asked for
     @test Vasilek.workspace(BGK(1.0f0), 8).maxwellian isa Vector{Float32}
     @test Vasilek.workspace(BGK(1.0), 8, Float32).maxwellian isa Vector{Float32}
+    # without a workspace, collide! takes the type from the data, as advect!
+    # does: a Float32 τ on Float64 data used to round the result to 7e-9
+    f₁ = @. exp(-(v - 0.3)^2/1.4)*(1 + 0.3*sin(2v))
+    @test collide!(similar(f₁), f₁, BGK(0.5f0), v, 0.1) ==
+          collide!(similar(f₁), f₁, BGK(0.5f0), v, 0.1, Vasilek.workspace(BGK(0.5f0), length(v), Float64))
     # Landau1P is experimental and exported from nowhere
     @test !(:Landau1P in names(Vasilek)) && !(:Landau1P in names(Vasilek.Collisions))
 end
@@ -201,6 +206,20 @@ end
         dest = collide!(similar(f₀), f₀, BGK(1.0), v, 0.1)
         @test dest == f₀
     end
+    # The grid above is dyadic (Δv = 0.1875), so every spike there has T = 0
+    # exactly. At Δv = 0.1, sixteen of the 159 interior nodes (v = ±0.1, ±0.4,
+    # ±2.7, ...) put u an ulp off the node, T near 1e-34, and a guard of T > 0
+    # let them through as a 1e14 spike carrying 1e14 times the mass. Every node
+    # is tried, since which ones miss depends on rounding.
+    v = collect(range(-8, 8, length = 161))
+    @test all(2:160) do j
+        f₀ = [i == j ? 1.0 : 0.0 for i in 1:161]
+        collide!(similar(f₀), f₀, BGK(1.0), v, 0.1) == f₀
+    end
+    # A line just resolved still relaxes.
+    T = 1.5*0.1^2
+    f₀ = @. exp(-(v - 0.3)^2/(2T)) * (1 + 0.5*sin(5v))
+    @test collide!(similar(f₀), f₀, BGK(1.0), v, 0.1) != f₀
 end
 
 @testset "BGK satisfies the H-theorem" begin
