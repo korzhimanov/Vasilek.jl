@@ -23,7 +23,11 @@ holds the Maxwellian's tails: a line relaxed on ±4 lost 0.8% of its density
 and 7% of its energy where ±8 lost 1e-6.
 
 An empty line (`n ≤ 0`) and one colder than the grid resolves (`T < Δv²`,
-which includes a single-node spike) are returned unchanged.
+which includes a single-node spike) are returned unchanged. So is a line whose
+moments no `exp(a + bv + cv²)` on the grid can match, where Newton does not
+converge: all of the mass on the two end nodes is one, with `T` at the largest
+the window allows. Leaving one such line alone conserves everything; throwing
+would end a whole `vlasov_poisson` run over a single column.
 """
 struct BGK{T<:AbstractFloat} <: AbstractCollisionOperator
     τ::T
@@ -140,9 +144,8 @@ function _discrete_maxwellian!(M, f, v)
         end
     end
     m = _maxwellian_moments(v, u, s, α₀, α₁, α₂)
-    max(abs(m[1] - ρ₀), abs(m[2] - ρ₁), abs(m[3] - ρ₂)) ≤ 1024*eps(R)*n || throw(ErrorException(
-        "BGK: the discrete Maxwellian did not converge (n = $n, u = $u, T = $T); " *
-        "the line's moments may not be realisable on this grid"))
+    # Not realisable on this grid: no Maxwellian to relax to, as for n ≤ 0.
+    max(abs(m[1] - ρ₀), abs(m[2] - ρ₁), abs(m[3] - ρ₂)) ≤ 1024*eps(R)*n || return false
     for i in eachindex(v)
         ξ = (v[i] - u)/s
         M[i] = exp(α₀ + ξ*(α₁ + ξ*α₂))
