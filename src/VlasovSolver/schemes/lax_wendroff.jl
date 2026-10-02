@@ -1,5 +1,5 @@
 @inline function _lax_wendroff(f, i, i⁻, i⁺, c)
-    return f[i] - 0.5*c*(f[i⁺] - f[i⁻]) + 0.5*c^2*(f[i⁺] - 2*f[i] + f[i⁻])
+    return f[i] - (c/2)*(f[i⁺] - f[i⁻]) + (c^2/2)*(f[i⁺] - 2*f[i] + f[i⁻])
 end
 
 function advect!(dest, src, scheme::LaxWendroff, c, ws)

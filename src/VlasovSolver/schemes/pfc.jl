@@ -1,26 +1,26 @@
 @inline function _ϵ⁺(f, g, fmin, fmax)
     if f < g
-        return min(g - f, 2.0*(f - fmin))
+        return min(g - f, 2*(f - fmin))
     else
-        return max(g - f, -2.0*(fmax - f))
+        return max(g - f, -2*(fmax - f))
     end
 end
 
 @inline function _ϵ⁻(f, g, fmin, fmax)
     if f < g
-        return max(f - g, -2.0*(f - fmin))
+        return max(f - g, -2*(f - fmin))
     else
-        return min(f - g, 2.0*(fmax - f))
+        return min(f - g, 2*(fmax - f))
     end
 end
 
-_Φ⁺(f, i, i⁻, i⁺, c, lo, hi) = c*(f[i] + (1.0 - c)/3.0*(
-                _ϵ⁺(f[i], f[i⁺], lo, hi)/2.0*(2.0 - c) +
-                _ϵ⁻(f[i], f[i⁻], lo, hi)/2.0*(1.0 + c)))
+_Φ⁺(f, i, i⁻, i⁺, c, lo, hi) = c*(f[i] + (1 - c)/3*(
+                _ϵ⁺(f[i], f[i⁺], lo, hi)/2*(2 - c) +
+                _ϵ⁻(f[i], f[i⁻], lo, hi)/2*(1 + c)))
 
-_Φ⁻(f, i, i⁻, i⁺, c, lo, hi) = c*(f[i] - (1.0 + c)/3.0*(
-                _ϵ⁺(f[i], f[i⁺], lo, hi)/2.0*(1.0 - c) +
-                _ϵ⁻(f[i], f[i⁻], lo, hi)/2.0*(2.0 + c)))
+_Φ⁻(f, i, i⁻, i⁺, c, lo, hi) = c*(f[i] - (1 + c)/3*(
+                _ϵ⁺(f[i], f[i⁺], lo, hi)/2*(1 - c) +
+                _ϵ⁻(f[i], f[i⁻], lo, hi)/2*(2 + c)))
 
 function advect!(dest, src, p::PFC{T,Checked}, c, ws) where {T,Checked}
     _validate(dest, src, p, c, ws)
