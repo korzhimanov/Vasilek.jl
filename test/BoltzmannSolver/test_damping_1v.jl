@@ -238,6 +238,14 @@ end
         f₀ = [i == j ? 1.0 : 0.0 for i in 1:161]
         collide!(similar(f₀), f₀, BGK(1.0), v, 0.1) == f₀
     end
+    # All the mass on the two end nodes passes both guards (n > 0, T = 16 on
+    # ±4) but has no discrete Maxwellian: Newton does not converge. It used to
+    # throw, which would end a driver run over one column; it passes through.
+    let v = collect(-4.0:0.1:4.0)
+        for f₀ in ([i in (1, 81) ? 1.0 : 0.0 for i in 1:81], [i == 1 ? 1.0 : i == 81 ? 0.5 : 0.0 for i in 1:81])
+            @test collide!(similar(f₀), f₀, BGK(1.0), v, 0.5) == f₀
+        end
+    end
     # A line just resolved still relaxes.
     T = 1.5*0.1^2
     f₀ = @. exp(-(v - 0.3)^2/(2T)) * (1 + 0.5*sin(5v))
