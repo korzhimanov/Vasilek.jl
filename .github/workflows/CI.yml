@@ -151,9 +151,10 @@ jobs:
           coverage: false
 
   inbounds:
-    # `Pkg.test` always passes `--check-bounds=yes` (Pkg's
-    # `gen_subprocess_flags`), and so does julia-runtest by default, so every
-    # other job already runs with bounds checks forced on. A job that forced
+    # julia-runtest passes `--check-bounds=yes` by default (its `check_bounds`
+    # input), so every other job already runs with bounds checks forced on.
+    # `Pkg.test` itself forces them only on older Julia: 1.10's Pkg puts
+    # `--check-bounds=yes` before `julia_args`, 1.13's passes nothing. A job that forced
     # them on was a duplicate; what no job did was run the kernels the way users
     # do, with their `@inbounds` in effect. The allocation gate and the
     # inlining the kernels' comments rely on were only ever checked with
