@@ -1,4 +1,4 @@
-@isdefined(vlasov_poisson) || include(joinpath(@__DIR__, "verification_harness.jl"))
+@isdefined(VERIFICATION_HARNESS) || include(joinpath(@__DIR__, "verification_harness.jl"))
 
 @testset "The harness's Poisson solve takes any grid" begin
     # Its wavenumbers used to come from a float range whose length rounded, so

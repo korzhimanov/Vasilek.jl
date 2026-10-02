@@ -3,13 +3,17 @@
 [![CI](https://github.com/korzhimanov/Vasilek.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/korzhimanov/Vasilek.jl/actions/workflows/CI.yml)
 [![codecov](https://codecov.io/gh/korzhimanov/Vasilek.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/korzhimanov/Vasilek.jl)
 
-An ongoing project on developing a parallel 2D2P Maxwell — Vlasov — Boltzmann solver on adaptive meshes.
+An ongoing project on developing a parallel 2D2P Maxwell — Vlasov — Boltzmann
+solver on adaptive meshes. What exists today is 1D1V on static grids, uniform
+in x and uniform or non-uniform in v; 2D2P and adaptive meshes are the goal, not
+yet the code.
 
 As for now, the following functionality has been implemented:
 * Advection schemes as dispatchable types: upwind, Lax—Wendroff, Godunov
   (piecewise-constant or -linear, with flux limiters), semi-Lagrangian
   (linear, quadratic or cubic B-splines), and PFC on uniform and non-uniform grids
-* Strang splitting for 1D1V simulations
+* Strang splitting for 1D1V simulations, and `vlasov_poisson`, the 1D1V
+  electrostatic driver (optionally with a collision operator)
 * 1D Poisson Fourier solver
 * 1D FDTD Maxwell solver with PML
 * BGK collision operator
@@ -207,7 +211,26 @@ but `SemiLagrangian`, which has no Courant limit: `advect!` refuses a step past
 it rather than return an answer that looks right and is unstable. Upgrading from
 0.1: see [docs/migration-0.2.md](docs/migration-0.2.md).
 
-This block is executed by the test suite, so it cannot drift from the API.
+A whole 1D1V run, linear Landau damping at `k = 0.5`, through the driver the
+verification studies use:
+
+```julia
+using Vasilek
+
+k = 0.5
+x = collect(range(2π/k/32; step = 2π/k/32, length = 32))   # periodic, 32 cells
+v = collect(-4.0:0.2:4.0)
+f₀ = [exp(-u^2/2)/sqrt(2π)*(1 + 0.01*cos(k*y)) for u in v, y in x]   # f[v, x]
+t = collect(0.0:0.1:20.0)
+
+r = vlasov_poisson(x, v, f₀, t; modes = (k,))
+r.ε_e        # electric energy per step; r.E_modes[:, 1] the k = 0.5 field
+```
+
+The schemes default to `PFCNonUniform` bounded by `f₀`; `scheme_x`, `scheme_v`,
+`collisions = BGK(τ)` and the diagnostics are in its docstring.
+
+These blocks are executed by the test suite, so they cannot drift from the API.
 
 ## Development
 

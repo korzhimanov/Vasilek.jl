@@ -3,51 +3,21 @@ using Plots
 using FFTW
 
 using Vasilek
-using Vasilek: StrangSplitting
 
 # The Landau roots, computed. This file used to plot the asymptotic
 # `π/(8√2)u³exp(-u²/2)` instead, which is not the damping rate of the field: with
 # the `u = 1/k` below it is 0.3006 at k = 0.5, and what it approximates is the
-# decay rate of the *energy*, 2γ = 0.30672. Plotted against ε_e it looked right,
-# and it was right, for a reason nothing here stated.
+# decay rate of the *energy*, 2γ = 0.30672.
 include(joinpath(@__DIR__, "..", "test", "dispersion.jl"))
 # Run directly, or render with Literate.jl. Figures are written beside this
-# script; under Weave they were captured by the renderer, which is why the
-# .jmd version produced nothing when executed as a script.
+# script.
 figure(name) = joinpath(@__DIR__, "$name.png")
 
-
-# Adapter: schemes now write into an explicit destination, while
-# StrangSplitting still calls advect!(column, alpha) in place. Kept local
-# because StrangSplitting is itself due for replacement when the 2D sweeps
-# land -- its transposes are the thing that has to go.
-#
-# `advect!` refuses a displacement wider than the narrowest cell, and the
-# strong-damping run at the end comes within 0.62% of one on its first step: the
-# field's amplitude is 0.9938 there, and Δt is the width of the narrow cells. It
-# crossed, at 1.0017, while `f0` was rescaled to the ions by the trapezoid. A
-# step like that is split into the fewest sub-steps that fit, as `line_advector`
-# in the test harness does; every call here is now one call, as before.
-function inplace_advect(scheme::PFCNonUniform, n)
-    ws = workspace(scheme, n)
-    buf = Vector{Float64}(undef, n)
-    h = minimum(scheme.Δx)
-    return function (column, alpha)
-        m = isfinite(alpha) ? max(1, ceil(Int, abs(alpha)/h)) : 1
-        abs(alpha/m) > h && (m += 1)
-        for _ = 1:m
-            advect!(buf, column, scheme, alpha/m, ws)
-            copyto!(column, buf)
-        end
-        return column
-    end
-end
-
-function solve_poisson!(e, ω, ρ, Δx)
-    F = FFTW.rfft(ρ)
-    φ = FFTW.irfft(F./(-ω.^2), length(ρ))
-    e[:] = vcat(0.5*[φ[2]-φ[end]], 0.5*(φ[3:end] - φ[1:end-2]), 0.5*[φ[1]-φ[end-1]])./Δx
-end;
+# Every run below goes through the package's driver, `vlasov_poisson`: the same
+# Strang loop, Poisson solve and energy diagnostics the test suite asserts on.
+# This file used to carry three copies of that loop and its own Poisson solve,
+# and had drifted from the asserted runs in the meantime.
+landau_f0(v, x, α) = [exp(-u^2/2)/sqrt(2π)*(1 + α*cos(0.5*y)) for u in v, y in x]
 #
 # # Linear Landau damping on uniform grid
 #
@@ -57,7 +27,7 @@ end;
 # $$
 # f(x, v) = \frac{1}{\sqrt{2\pi}}\exp\left\{-\frac{v^2}{2}\right\}\left(1 + \tilde n\cos kx\right)
 # $$
-# where velocities $v$ are normalised to a thermal velocity $v_{\rm th}$, concentration $n$ is normalized to equilibrium concentration $N_e$, spatial coordinate $x$ is normalized to $v_{\rm th} \over \omega_p$ where $\omega_p^2 = \frac{4\pi e^2 N_e}{m}$ is a plasma frequency ($e$ is the elemaentary charge and $m$ is the electron mass). $k$ normalized to $\omega_p \over v_{\rm th}$ is a wave number. Here we verify the case $k \sim 1$ for which dispersion and Landau damping are significant.
+# where velocities $v$ are normalised to a thermal velocity $v_{\rm th}$, concentration $n$ is normalized to equilibrium concentration $N_e$, spatial coordinate $x$ is normalized to $v_{\rm th} \over \omega_p$ where $\omega_p^2 = \frac{4\pi e^2 N_e}{m}$ is a plasma frequency ($e$ is the elementary charge and $m$ is the electron mass). $k$ normalized to $\omega_p \over v_{\rm th}$ is a wave number. Here we verify the case $k \sim 1$ for which dispersion and Landau damping are significant.
 #
 # Ions are supposed to be uniformly distributed and immobile.
 #
@@ -66,72 +36,10 @@ end;
 # Simulations are performed on a uniform grid $x \in (\frac{\pi}{8},8\pi)$, $\Delta x = \frac{\pi}{8}$, $v \in (-4,4)$, $\Delta v = 0.1$, $t \in (0, 140)$, $\Delta t = 0.1$. The run goes to 140 rather than 70 so that both recurrence times, $2\pi/(k\Delta v) = 125.7$ for the seeded mode and half that for its second harmonic, fall inside it.
 #
 x = collect(π/8:π/8:8π)
-Δx = vcat([x[2]-x[1]], 0.5*(x[3:end] - x[1:end-2]), [x[end]-x[end-1]])
 v = collect(-4:0.1:4)
-Δv = vcat([v[2]-v[1]], 0.5*(v[3:end] - v[1:end-2]), [v[end]-v[end-1]])
-
-fi = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. Δx/Δx)'
-ni = vec(sum(fi.*Δv, dims=1))
-Ni = sum(ni.*Δx)
-
-f0 = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. (1.0 + 0.01*cos(0.5*x)))'
-n0 = vec(sum(f0.*Δv, dims=1))
-N0 = sum(n0.*Δx)
-f0 *= Ni/N0;
-
-# The limiter is bounded by the initial condition: by Liouville's theorem the
-# exact solution never leaves `[0, maximum(f0)]`.
-advect_x! = inplace_advect(PFCNonUniform(Δx; fmin = 0.0, fmax = maximum(f0)), length(Δx))
-advect_v! = inplace_advect(PFCNonUniform(Δv; fmin = 0.0, fmax = maximum(f0)), length(Δv))
-
-f = copy(f0)
-
 t = collect(0.0:0.1:140.0)
-n = t * n0'
-
-ε = similar(t)
-ε_e = similar(ε)
-
-ω = 2π*collect(0.0:1.0/(x[end]-x[1]+x[2]-x[1]):0.5/(x[2]-x[1]))
-ω[1] = ω[2]
-    
-e = similar(x)
-
-g = f';
-#
-function run()
-    global f, g, t, n, e, ε, ε_e, ω
-    # The energies as `vlasov_poisson` in test/verification_harness.jl takes
-    # them: cell-width sums, and the kinetic energy centred on the kick.
-    K = sum(@. f*v^2*Δv*Δx')
-
-    for k in 1:length(t)-1
-        Δt = t[k+1] - t[k]
-        
-        function vΔt(f)
-            return v*Δt
-        end
-        
-        function eΔt(f)
-            n[k,:] = sum(f'.*Δv, dims=1)'
-            solve_poisson!(e, ω, n[k,:] .- ni, Δx)
-            return e*Δt
-        end
-        
-        StrangSplitting.make_time_step_2d!((g, f), (vΔt, eΔt), (advect_x!, advect_v!))
-        
-        ε_e[k] = sum(@. e^2*Δx)
-        K₋, K = K, sum(@. f*v^2*Δv*Δx')
-        ε[k] = (K₋ + K)/2 + ε_e[k]
-    end
-    n[end,:] = sum(f.*Δv, dims=1)'
-    solve_poisson!(e, ω, n[end,:] .- ni, Δx)
-    ε_e[end] = sum(@. e^2*Δx)
-    ε[end] = K + ε_e[end]
-    return
-end;
-#
-run()
+r = vlasov_poisson(x, v, landau_f0(v, x, 0.01), t; modes = (0.5, 1.0))
+ε_e = r.ε_e
 #
 # Below we check damping of electric energy calculated as follows
 #
@@ -157,42 +65,44 @@ savefig(figure("landau-damping-1d1v-01"))
 #
 # (This file previously quoted $\pi/(k\Delta v)$ for the recurrence time. That expression gives the right number, 62.8, for the wrong mode.)
 #
-# The density is stored per time step, so each mode's amplitude is one projection away.
+# The driver records each mode's field amplitude per step, so the two can be plotted apart.
 #
-mode_of(A, kk) = [2*abs(sum((A[j, :] .- ni).*cis.(-kk.*x)))/length(x) for j = 1:size(A, 1)]
-plot(t, mode_of(n, 0.5), yscale=:log10, label="k = 0.5 (seeded)")
-plot!(t, mode_of(n, 1.0), yscale=:log10, label="k = 1.0 (harmonic)")
+plot(t, abs.(r.E_modes[:, 1]), yscale=:log10, label="k = 0.5 (seeded)")
+plot!(t, abs.(r.E_modes[:, 2]), yscale=:log10, label="k = 1.0 (harmonic)")
 vline!([2π/(0.5*0.1)], linestyle=:dash, color=:steelblue, label="2π/(kΔv)")
 vline!([2π/(1.0*0.1)], linestyle=:dash, color=:darkorange, label="2π/(2kΔv)")
 ylims!(1e-12, 1e-1)
 xlabel!("ωₚt")
-ylabel!("|nₖ|")
+ylabel!("|Eₖ|")
 savefig(figure("landau-damping-1d1v-06"))
 #
 # Both curves oscillate at their own frequency and pass through deep nulls, so read the envelopes rather than any instant. `test/test_verification.jl` asserts both recurrence times — the seeded mode peaks at $t = 128.6$ against 125.7, the harmonic at 64.3 against 62.8 — and that each mode dominates around its own: the harmonic by a factor 21 near $t \approx 64$, the seeded mode by 121 near $t \approx 128$.
 #
-# We also can check the dispersion relation for Laingmuir oscillations in warm plasma. We expect that the frequency will be equal to
+# We also can check the real frequency. It is the real part of the same kinetic root, 1.4157 at $k = 0.5$; the Bohm–Gross $\sqrt{1 + 3k^2} = 1.3229$ is its small-$k$ limit and is 7% low here.
 #
-# $$
-# \omega_L = (\omega_p^2 + 3k^2)^{\frac12}
-# $$
+# Here is the spectrum of the seeded mode's field over $t \in (0, 50)$, before the recurrence.
 #
-# Here is the spectrum of oscillations in the central point (we take time interval $t \in (0,50)$ where oscillations does not contain numerical artifacts).
-#
-F = FFTW.rfft(n[1:500,end÷2].-ni[end÷2])
-ω = 2π*collect(0.0:1.0/(t[501]-t[1]):0.5/(t[2]-t[1]))
-plot(ω, abs.(F), yscale=:log10)
+# The mode is a standing wave, so its complex amplitude keeps one phase: project
+# on it, and zero-pad eightfold so that the peak is not read off a bin 0.126
+# wide. Read off the raw real part instead, this used to land on 1.508 and 1.257.
+standing(series) = real.(series .* cis(-angle(series[argmax(abs.(series))])))
+function spectrum(series, t, n; pad = 8)
+    s = vcat(standing(series[1:n]), zeros(n*(pad - 1)))
+    return abs.(FFTW.rfft(s)), 2π*FFTW.rfftfreq(length(s), 1/(t[2] - t[1]))
+end
+F, ω = spectrum(r.E_modes[:, 1], t, 500)
+plot(ω, F, yscale=:log10)
 xlabel!("ω/ωₚ")
-ylabel!("F[nₑ-nᵢ]")
+ylabel!("|F[Eₖ]|")
 xlims!(0,5)
 savefig(figure("landau-damping-1d1v-02"))
 #
-# Below we compare theoretical value for oscillations frequency and the one obtained numerically:
+# Below we compare the kinetic root with the spectral peak:
 #
-println("theoretical: ", sqrt(1 + 3*0.5^2))
-println("numerical:   ", ω[argmax(abs.(F))])
+println("kinetic root: ", real(landau_root(0.5)))
+println("numerical:    ", ω[argmax(F)])
 #
-# Again we have a very good coincidence limited only by resolution of time step.
+# The peak lands at 1.4137, 0.14% below the root. Its precision is set by the length of the record, 50 here, rather than by the time step. `test/test_verification.jl` fits the frequency instead, and holds it within 1% of the root.
 #
 # # Linear Landau damping on non-uniform grid
 #
@@ -208,81 +118,18 @@ println("numerical:   ", ω[argmax(abs.(F))])
 #
 # We also increase time resolution by factor of two.
 #
-x = collect(π/8:π/8:8π)
-Δx = vcat([x[2]-x[1]], 0.5*(x[3:end] - x[1:end-2]), [x[end]-x[end-1]])
 v = vcat(collect(-4:0.1:-1.1), collect(-1:0.05:1), collect(1.1:0.1:4))
-Δv = vcat([v[2]-v[1]], 0.5*(v[3:end] - v[1:end-2]), [v[end]-v[end-1]])
-
-fi = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. Δx/Δx)'
-ni = vec(sum(fi.*Δv, dims=1))
-Ni = sum(ni.*Δx)
-
-f0 = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. (1.0 + 0.01*cos(0.5*x)))'
-n0 = vec(sum(f0.*Δv, dims=1))
-N0 = sum(n0.*Δx)
-f0 *= Ni/N0;
-
-# The limiter is bounded by the initial condition: by Liouville's theorem the
-# exact solution never leaves `[0, maximum(f0)]`.
-advect_x! = inplace_advect(PFCNonUniform(Δx; fmin = 0.0, fmax = maximum(f0)), length(Δx))
-advect_v! = inplace_advect(PFCNonUniform(Δv; fmin = 0.0, fmax = maximum(f0)), length(Δv))
-
-f = copy(f0)
-
 t = collect(0.0:0.05:70.0)
-n = t * n0'
-
-ε = similar(t)
-ε_e = similar(ε)
-
-ω = 2π*collect(0.0:1.0/(x[end]-x[1]+x[2]-x[1]):0.5/(x[2]-x[1]))
-ω[1] = ω[2]
-    
-e = similar(x)
-
-g = f';
-#
-function run()
-    global f, g, t, n, e, ε, ε_e, ω
-    # The energies as `vlasov_poisson` in test/verification_harness.jl takes
-    # them: cell-width sums, and the kinetic energy centred on the kick.
-    K = sum(@. f*v^2*Δv*Δx')
-    for k in 1:length(t)-1
-        Δt = t[k+1] - t[k]
-        
-        function vΔt(f)
-            return v*Δt
-        end
-        
-        function eΔt(f)
-            n[k,:] = sum(f'.*Δv, dims=1)'
-            solve_poisson!(e, ω, n[k,:]-ni, Δx)
-            return e*Δt
-        end
-        
-        StrangSplitting.make_time_step_2d!((g, f), (vΔt, eΔt), (advect_x!, advect_v!))
-        
-        ε_e[k] = sum(@. e^2*Δx)
-        K₋, K = K, sum(@. f*v^2*Δv*Δx')
-        ε[k] = (K₋ + K)/2 + ε_e[k]
-    end
-    n[end,:] = sum(f.*Δv, dims=1)'
-    solve_poisson!(e, ω, n[end,:]-ni, Δx)
-    ε_e[end] = sum(@. e^2*Δx)
-    ε[end] = K + ε_e[end]
-    return
-end;
-#
-run();
+r = vlasov_poisson(x, v, landau_f0(v, x, 0.01), t; modes = (0.5,))
+ε_e = r.ε_e
 #
 # Let us again check damping rate of electric energy and compare it to theoretical prediction
 #
-u = 1/0.5
-γ = π/(8*√2)*u^3*exp(-0.5*u^2)
-ε_th = ε_e[15]*exp.(-γ*(t.-t[15]))
+γ = -imag(landau_root(0.5))
+ε_th = ε_e[15]*exp.(-2γ*(t.-t[15]))
 
 plot(t, ε_e, yscale=:log10, label="simulated")
-plot!(t, ε_th, yscale=:log10, label="theoretical")
+plot!(t, ε_th, yscale=:log10, label="exp(-2γt)")
 ylims!(1e-13,1)
 xlabel!("ωₚt")
 ylabel!("εₑ/(mωₚvₜₕ³/e²)")
@@ -292,89 +139,26 @@ savefig(figure("landau-damping-1d1v-03"))
 #
 # Now we check dispersion relation
 #
-F = FFTW.rfft(n[1:600,end÷2].-ni[end÷2])
-ω = 2π*collect(0.0:1.0/(t[601]-t[1]):0.5/(t[2]-t[1]))
-plot(ω, abs.(F), yscale=:log10)
+F, ω = spectrum(r.E_modes[:, 1], t, 600)
+plot(ω, F, yscale=:log10)
 xlabel!("ω/ωₚ")
-ylabel!("F[nₑ-nᵢ]")
+ylabel!("|F[Eₖ]|")
 xlims!(0,5)
 savefig(figure("landau-damping-1d1v-04"))
 #
-println("theoretical: ", sqrt(1 + 3*0.5^2))
-println("numerical:   ", ω[argmax(abs.(F))])
+println("kinetic root: ", real(landau_root(0.5)))
+println("numerical:    ", ω[argmax(F)])
 #
-# We again have a good coincidence limited only by time resolition
+# Again 1.4137, over a record of 30.
 #
 # # Non-linear Landau damping on non-uniform grid
 #
 # Finaly we check the case of non-linear (strong) Landau damping using non-uniform grid. For this we increase initial perturbation of electron concentration to $\tilde n = 0.5$. To cope with increasing amplitude of oscillations we also increase the velocity domain to $(-6, 6)$
 #
-x = collect(π/8:π/8:8π)
-Δx = vcat([x[2]-x[1]], 0.5*(x[3:end] - x[1:end-2]), [x[end]-x[end-1]])
 v = vcat(collect(-6:0.1:-1.1), collect(-1:0.05:1), collect(1.1:0.1:6))
-Δv = vcat([v[2]-v[1]], 0.5*(v[3:end] - v[1:end-2]), [v[end]-v[end-1]])
-
-fi = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. Δx/Δx)'
-ni = vec(sum(fi.*Δv, dims=1))
-Ni = sum(ni.*Δx)
-
-f0 = 1/sqrt(2π)*(@. exp(-0.5*(v)^2)) * (@. (1.0 + 0.5*cos(0.5*x)))'
-n0 = vec(sum(f0.*Δv, dims=1))
-N0 = sum(n0.*Δx)
-f0 *= Ni/N0;
-
-# The limiter is bounded by the initial condition: by Liouville's theorem the
-# exact solution never leaves `[0, maximum(f0)]`.
-advect_x! = inplace_advect(PFCNonUniform(Δx; fmin = 0.0, fmax = maximum(f0)), length(Δx))
-advect_v! = inplace_advect(PFCNonUniform(Δv; fmin = 0.0, fmax = maximum(f0)), length(Δv))
-
-f = copy(f0)
-
 t = collect(0.0:0.05:70.0)
-n = t * n0'
-
-ε = similar(t)
-ε_e = similar(ε)
-
-ω = 2π*collect(0.0:1.0/(x[end]-x[1]+x[2]-x[1]):0.5/(x[2]-x[1]))
-ω[1] = ω[2]
-    
-e = similar(x)
-
-g = f';
-#
-function run()
-    global f, g, t, n, e, ε, ε_e, ω
-    # The energies as `vlasov_poisson` in test/verification_harness.jl takes
-    # them: cell-width sums, and the kinetic energy centred on the kick.
-    K = sum(@. f*v^2*Δv*Δx')
-    for k in 1:length(t)-1
-        Δt = t[k+1] - t[k]
-        
-        function vΔt(f)
-            return v*Δt
-        end
-        
-        function eΔt(f)
-            n[k,:] = sum(f'.*Δv, dims=1)'
-            solve_poisson!(e, ω, n[k,:]-ni, Δx)
-            return e*Δt
-        end
-        
-        StrangSplitting.make_time_step_2d!((g, f), (vΔt, eΔt), (advect_x!, advect_v!))
-        
-        ε_e[k] = sum(@. e^2*Δx)
-        K₋, K = K, sum(@. f*v^2*Δv*Δx')
-        ε[k] = (K₋ + K)/2 + ε_e[k]
-    end
-    n[end,:] = sum(f.*Δv, dims=1)'
-    solve_poisson!(e, ω, n[end,:]-ni, Δx)
-    ε_e[end] = sum(@. e^2*Δx)
-    ε[end] = K + ε_e[end]
-    return
-end;
-#
-run();
+r = vlasov_poisson(x, v, landau_f0(v, x, 0.5), t)
+ε_e = r.ε_e
 #
 # Let us look again to time evolution of electric energy
 #

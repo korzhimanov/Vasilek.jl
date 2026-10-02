@@ -328,6 +328,40 @@ This project has not been released; entries below describe work on `master`.
 
 ### Changed
 
+- **The 1D1V driver ships with the package: `vlasov_poisson`, exported**, in
+  the new `Vasilek.VlasovPoisson1D1V` with the helpers it is built from:
+  `line_advector`, which takes a displacement for any scheme; `substeps`;
+  `cell_widths`; `mode_amplitude`; and `make_poisson`.
+  - It lived in `test/verification_harness.jl`, so every row of the README's
+    verification table was a statement about test code, and no user could run
+    Landau damping without copying it. It moved verbatim, and every number
+    stands.
+  - The harness keeps the setups and the analysis; it is now guarded by
+    `VERIFICATION_HARNESS` rather than by `vlasov_poisson`, which `using
+    Vasilek` defines.
+  - As a public function it checks what the harness never had to: the x grid
+    must be uniform, since the field solve takes its spacing from the first two
+    points (a stretched grid ran, 16% off in field energy, without an error),
+    and `t` must hold at least two times (one gave a `BoundsError`). Both are
+    an `ArgumentError`. The velocity grid may still be non-uniform. Uniform
+    is to 1e-10 of the spacing or 8 ulps of the largest coordinate, whichever
+    is more, so a Float32 grid, which the harness ran, still runs.
+- **`verification/landau-damping-1d1v.jl` and `plasma-oscillations-1d1v.jl`
+  run the driver.** They carried five copies of the Strang loop and their own
+  Poisson solve, and had drifted:
+  - the non-uniform Landau run still plotted the asymptotic rate the uniform one
+    had dropped;
+  - both compared the spectral peak with Bohm–Gross, 7% below the kinetic root
+    at `k = 0.5`;
+  - "perfect coincidence" was claimed for a comparison that was never made.
+
+  The spectra are now taken from the driver's mode amplitude, projected on the
+  standing wave's phase and zero-padded. They land at 1.4137 against the root's
+  1.4157, and 1.00528 against Bohm–Gross's 1.00590.
+- **The README says what exists**: 1D1V on static grids, with 2D2P and
+  adaptive meshes as the goal. It now shows a whole driver run, which the test
+  suite executes.
+
 - **The Poisson solver is a value, `PoissonFFT1D(n, Δx)`, with a `workspace`**
   (`PoissonFourier1D`). The 0.1 closure captured its buffers and could not be
   shared between tasks, which was the whole argument for making the advection

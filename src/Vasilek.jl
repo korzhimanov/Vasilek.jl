@@ -17,13 +17,17 @@ include(joinpath("VlasovSolver", "StrangSplitting.jl"))
 
 include(joinpath("BoltzmannSolver", "Collisions.jl"))
 
+include(joinpath("VlasovSolver", "VlasovPoisson1D1V.jl"))
+
 using .Advection
 using .Collisions
+using .VlasovPoisson1D1V: vlasov_poisson
 
 export AbstractAdvection1D, advect!, workspace,
        Upwind, LaxWendroff, Godunov, SemiLagrangian, PFC, PFCNonUniform,
        PiecewiseConstant, PiecewiseLinear, NoLimiter, VanLeer, Superbee,
        LinearSpline, QuadraticSpline, CubicSpline,
-       AbstractCollisionOperator, collide!, BGK
+       AbstractCollisionOperator, collide!, BGK,
+       vlasov_poisson
 
 end  # module Vasilek
