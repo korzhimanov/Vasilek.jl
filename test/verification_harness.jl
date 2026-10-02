@@ -457,8 +457,8 @@ Measured across the two, at about four times the wall clock -- halving `Δx` hal
 `Δt` with it, so `Nx` and `Nt` both double (2.5 s against 10 s, timed back to back):
 
     cells/λ₀   pulse speed   wake phase velocity   λ       predicted v_g
-    10         0.8858        0.8925                17.460  0.8993
-    20         0.9261        0.9207                18.010  0.9329
+    10         0.8858        0.8925                17.459  0.8993
+    20         0.9261        0.9207                18.009  0.9329
 
 The wake's *frequency* is insensitive to this -- 19.564 against 19.561 for the
 period -- which is what makes the error easy to miss: every assertion about the

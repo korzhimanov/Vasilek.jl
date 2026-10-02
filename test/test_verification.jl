@@ -1793,7 +1793,7 @@ end
 
             # The wavelength is the driver's own: a wave that keeps station with
             # something moving at `v` has `ω(k) = kv`, which against Bohm--Gross
-            # gives `2π√(v² - 3T)/ωₚ`. Measured 18.010 against 18.076 from the
+            # gives `2π√(v² - 3T)/ωₚ`. Measured 18.009 against 18.076 from the
             # measured driver, 0.37%, and stable to 0.4% across the windows
             # [8,42], [8,55] and [5,58].
             @test isapprox(λ, wake_wavelength(v, n₀, T); rtol = 0.03)
@@ -1801,7 +1801,7 @@ end
             # And against the *predicted* driver, which closes the loop: no
             # quantity measured in this run enters the right-hand side, so the
             # wavelength is now a prediction from the grid parameters and the
-            # plasma alone. Measured 18.010 against 18.214, 1.12% -- larger than
+            # plasma alone. Measured 18.009 against 18.214, 1.12% -- larger than
             # the 0.37% above, as it must be, since it carries the driver's own
             # 0.73% as well.
             @test isapprox(λ, wake_wavelength(v_theory, n₀, T); rtol = 0.03)
@@ -1951,8 +1951,8 @@ end
             # wavelength rather than the ten it used to.
             #
             #   cells/λ₀   measured v   vg_pulse   error    λ        Δε/ε
-            #   10         0.8858       0.8993     -1.51%   17.460   0.084
-            #   20         0.9261       0.9329     -0.73%   18.010   0.137
+            #   10         0.8858       0.8993     -1.51%   17.459   0.084
+            #   20         0.9261       0.9329     -0.73%   18.009   0.137
             #
             # Two statements, and they are different. The first is that each
             # measurement matches the closed form *for its own grid*: the
