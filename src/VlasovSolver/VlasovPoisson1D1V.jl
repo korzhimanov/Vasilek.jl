@@ -339,6 +339,15 @@ Given both schemes, the driver checks neither: the same scheme for both, as
 `PFCNonUniform` with bounds both sweeps keep -- `fmin = -Inf, fmax = Inf` for
 none, which is PFC's reconstruction with nothing to limit it.
 
+The check is about the advection alone. `collisions` can take `f` past
+`maximum(f)` by themselves, since BGK relaxes a line towards a Maxwellian whose
+peak may sit above the line's own, and the default's upper bound then stops the
+run mid-way whatever scheme was given, or none. With `Godunov(PiecewiseLinear(),
+Superbee())` in `v`, which passes the check, and `BGK(1.0)` on the 50% case
+above, `f` reaches 3.3e-7 of `maximum(f)` above it; with both defaults and
+`BGK(0.1)`, a line flat over |v| < 2 reaches 0.416 against a bound of 0.375.
+Both are a `DomainError` from inside the step, as before this check.
+
 That refuses calls that ran. At 1% on ±4, where `f` comes no nearer 0 than
 1.3e-4, `LaxWendroff` and the cubic spline stay inside the bounds in either
 direction, to the end of a run. That was the problem's doing rather than the
