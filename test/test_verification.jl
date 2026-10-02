@@ -1184,8 +1184,10 @@ end
             end
 
             @testset "the invariants hold, on a window wide enough" begin
-                # BGK conserves each line's density, momentum and energy, so the
-                # collisional run keeps them as the collisionless one does. On ±8,
+                # BGK conserves each line's density, momentum and energy -- in the
+                # cell-width sums, to round-off, since its Maxwellian is the
+                # discrete one -- so the collisional run keeps them as the
+                # collisionless one does. On ±8,
                 # over the ν = 1 run, as this suite runs it:
                 #
                 #   mass       7.4e-14 relative
@@ -1208,33 +1210,45 @@ end
                 @test abs(ε[end] - ε[1])/ε[1] < 1e-6
                 @test all(diff(S) .≥ -1e-15)
 
-                # **On the ±4 the collisionless case runs on, it cools.** `BGK`
-                # takes the temperature by the trapezoid over the window, which
-                # has lost the tail beyond |v| = 4, and puts back a Maxwellian
-                # that is narrower by exactly that: 1.2e-3 of the energy per full
-                # relaxation. At ν = 1 that is one relaxation per unit time, and
-                # by t = 60 the run has lost 5.3% of its energy and T has fallen
-                # to 0.949, with γ 3.0% below the root and ω 0.72% below it.
-                #
-                # The first sign of it is not the energy but the bound: the
-                # narrowed Maxwellian peaks above the initial maximum of f, which
-                # PFC's limiter is built on, and PFC refuses the data on the first
-                # step rather than run past its bound. Given 50% of headroom it
-                # runs, and cools: f's maximum ends 2.2% above where it started,
-                # where the Vlasov flow alone would keep it.
-                @test_throws DomainError collisional_landau(1.0; vmax = 4.0, Δt = 0.08)
+                # **On the ±4 the collisionless case runs on, the discrete
+                # Maxwellian holds the energy too.** It matches each line's
+                # moments on the window it is given, so nothing is lost with the
+                # tail beyond |v| = 4: measured 2.1e-7 of the energy over the run,
+                # the order of the ±8 run's, and no bound is crossed. The rate is
+                # 2.0% below the root, which assumes an infinite velocity axis --
+                # that is the window's physics, not the operator's leak.
+                ws4 = collect(-4.0:0.1:4.0)
+                conserving = collisional_landau(1.0; vmax = 4.0, Δt = 0.08, invariants = true)
+                εc = conserving.r.ε[1:end-1]
+                drift4 = (εc[end] - εc[1])/εc[1]
+                root = collisional_root(k, 1.0; Δx = conserving.Δx)
+                γc, _ = damping_rate(conserving.t, conserving.ε_e; tmin = 10.0, tmax = 50.0)
+                println("  ν = 1 on ±4, discrete Maxwellian: energy ", drift4, ", γ ",
+                        round(100*(γc/(-imag(root)) - 1); digits = 2), "% from the root")
+                @test abs(drift4) < 1e-6
+                @test isapprox(γc, -imag(root); rtol = 0.03)
+
+                # **The sampled Maxwellian (`conservative = false`) cools there**,
+                # which is why the operator no longer defaults to it. It takes
+                # the temperature by the trapezoid over the window, which has
+                # lost the tail, and puts back a Maxwellian narrower by exactly
+                # that: 1.2e-3 of the energy per full relaxation, 5.3% by t = 60
+                # at ν = 1. The narrowed Maxwellian peaks above the initial
+                # maximum of f, so PFC refuses the data on the first step; given
+                # 50% of headroom it runs, and cools.
+                sampled = BGK(1.0; conservative = false)
+                @test_throws DomainError collisional_landau(1.0; vmax = 4.0, Δt = 0.08,
+                                                            collisions = sampled)
                 loose(w) = f -> PFCNonUniform(w; fmin = 0.0, fmax = 1.5*maximum(f))
                 narrow = collisional_landau(1.0; vmax = 4.0, Δt = 0.08, invariants = true,
+                                            collisions = sampled,
                                             scheme_x = loose(cell_widths(runs[1.0].x)),
-                                            scheme_v = loose(cell_widths(collect(-4.0:0.1:4.0))))
+                                            scheme_v = loose(cell_widths(ws4)))
                 εn = narrow.r.ε[1:end-1]
                 cooling = (εn[end] - εn[1])/εn[1]
-                root = collisional_root(k, 1.0; Δx = narrow.Δx)
-                γn, _ = damping_rate(narrow.t, narrow.ε_e; tmin = 10.0, tmax = 50.0)
-                println("  ν = 1 on ±4: energy ", cooling, ", γ ",
-                        round(100*(γn/(-imag(root)) - 1); digits = 2), "% from the root")
+                println("  ν = 1 on ±4, sampled Maxwellian: energy ", cooling)
                 @test cooling < -0.01
-                @test abs(ε[end] - ε[1])/ε[1] < 1e-4*abs(cooling)
+                @test abs(drift4) < 1e-4*abs(cooling)
             end
         end
 

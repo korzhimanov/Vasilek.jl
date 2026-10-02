@@ -86,11 +86,16 @@ end
     @test_broken isapprox(fine, coarse; rtol = 0.1)
 end
 
-"Discrete number density, mean velocity and temperature of `f` on grid `v`."
+"""
+Discrete number density, mean velocity and temperature of `f` on grid `v`, by
+the trapezoid the sampled (`conservative = false`) operator itself uses, so that
+its update can be held to the bit.
+"""
 function moments(v, f)
-    n = integrate(v, f)
-    u = integrate(v, v.*f)/n
-    return n, u, integrate(v, (v .- u).^2 .*f)/n
+    trap = Vasilek.Collisions._trapezoid
+    n = trap(v, f)
+    u = trap(v, v.*f)/n
+    return n, u, trap(v, (v .- u).^2 .*f)/n
 end
 
 @testset "BGK conserves its moments" begin
@@ -133,19 +138,23 @@ end
         @test maximum(abs, f .- f₀) < 1e-13
     end
 
-    # The residue that remains is the velocity window, not the operator. A
-    # Maxwellian at T = 2 has σ = 1.41, so ±8 is under six σ and the trapezoid
-    # loses the tail; widening the grid recovers four orders of magnitude
-    # (1.6e-5 → 3.7e-9). Quantified rather than left as a footnote, because it
-    # sets the window every caller of this operator needs.
+    # With the sampled Maxwellian (`conservative = false`) the velocity window
+    # left a residue: at T = 2, σ = 1.41, ±8 is under six σ and the trapezoid
+    # loses the tail, and widening the grid recovered four orders of magnitude
+    # (1.6e-5 → 3.7e-9). The discrete Maxwellian matches the line's moments on
+    # the grid it is given, so a sampled Maxwellian is its own fixed point
+    # whatever the window.
     T₀, u₀ = 2.0, 0.4
-    dev(hi) = let v = collect(-hi:0.05:hi)
+    dev(hi; conservative) = let v = collect(-hi:0.05:hi)
         f₀ = @. 1/sqrt(2π*T₀)*exp(-(v - u₀)^2/(2T₀))
-        maximum(abs, relax(BGK(1e-2), v, 0.1, f₀, 100) .- f₀)
+        maximum(abs, relax(BGK(1e-2; conservative), v, 0.1, f₀, 100) .- f₀)
     end
-    narrow, wide = dev(8.0), dev(10.0)
-    println("  T = 2 truncation: window ±8 gives ", narrow, ", ±10 gives ", wide)
+    narrow, wide = dev(8.0; conservative = false), dev(10.0; conservative = false)
+    println("  T = 2 truncation, sampled: window ±8 gives ", narrow, ", ±10 gives ", wide)
     @test wide < narrow/100
+    tight = dev(5.0; conservative = true)
+    println("  T = 2, discrete Maxwellian, window ±5: ", tight)
+    @test tight < 1e-13
 end
 
 @testset "BGK limits and the exact update" begin
@@ -156,6 +165,9 @@ end
     dest = similar(f₀)
     n, u, T = moments(v, f₀)
     M = @. n/sqrt(2π*T)*exp(-(v - u)^2/(2T))
+    # the identities below are about the update, so they use the sampled
+    # Maxwellian `M` can be written out for; the discrete one is checked after
+    sampled(τ) = BGK(τ; conservative = false)
 
     # Δt ≪ τ: nothing happens. Measured 3.5e-12 at Δt/τ = 1e-10.
     collide!(dest, f₀, BGK(1.0), v, 1e-10, workspace(BGK(1.0), length(v)))
@@ -164,15 +176,25 @@ end
 
     # Δt ≫ τ: the local Maxwellian, bit-for-bit -- `e` underflows to zero and
     # the update collapses to `M` exactly.
-    collide!(dest, f₀, BGK(1e-8), v, 1.0, workspace(BGK(1e-8), length(v)))
+    collide!(dest, f₀, sampled(1e-8), v, 1.0, workspace(BGK(1e-8), length(v)))
     @test dest == M
     @test minimum(dest) ≥ 0.0
 
     # and in between, the stated formula, also bit-for-bit
     τ, Δt = 0.7, 0.3
-    collide!(dest, f₀, BGK(τ), v, Δt, workspace(BGK(τ), length(v)))
+    collide!(dest, f₀, sampled(τ), v, Δt, workspace(BGK(τ), length(v)))
     e = exp(-Δt/τ)
     @test dest == @. f₀*e + (1.0 - e)*M
+
+    # The discrete Maxwellian: Δt ≫ τ lands on a function whose logarithm is a
+    # quadratic in v, with f₀'s cell-width moments to round-off.
+    D = collide!(similar(f₀), f₀, BGK(1e-8), v, 1.0)
+    w = [i == 1 ? v[2]-v[1] : i == length(v) ? v[end]-v[end-1] : (v[i+1]-v[i-1])/2 for i in eachindex(v)]
+    for p in 0:2
+        @test isapprox(sum(w .* D .* v.^p), sum(w .* f₀ .* v.^p); rtol = 1e-13, atol = 1e-15)
+    end
+    c = [ones(length(v)) v v.^2] \ log.(D)
+    @test maximum(abs, [ones(length(v)) v v.^2]*c .- log.(D)) < 1e-9
 end
 
 @testset "BGK through the exported workspace" begin
@@ -233,13 +255,21 @@ end
     # -1.2e-4 at ±6, -3.1e-12 at ±10 and -4.4e-16 at ±14. Refining Δv does not
     # help -- ±10 at Δv = 0.02 gives the same -3.1e-12 as at 0.05 -- which is
     # what identifies the truncation as the cause.
-    function entropy_run(halfwidth, Δv)
+    #
+    # That is the sampled Maxwellian (`conservative = false`), whose moments the
+    # window truncates. The discrete Maxwellian is the minimiser of the entropy
+    # in the cell-width quadrature it conserves, so in that quadrature the
+    # theorem holds to round-off on any window, ±6 included.
+    function entropy_run(halfwidth, Δv; conservative = false)
         v = collect(-halfwidth:Δv:halfwidth)
         f₀ = @. exp(-(v - 1.0)^2) + 0.6*exp(-(v + 1.5)^2/0.5)
-        op = BGK(1e-1)
+        op = BGK(1e-1; conservative)
         ws = workspace(op, length(v))
         src = copy(f₀); dst = similar(src)
-        H(f) = -integrate(v, [x > 0 ? x*log(x) : 0.0 for x in f])
+        w = [i == 1 ? v[2]-v[1] : i == length(v) ? v[end]-v[end-1] : (v[i+1]-v[i-1])/2
+             for i in eachindex(v)]
+        H(f) = conservative ? -sum(w[i]*(f[i] > 0 ? f[i]*log(f[i]) : 0.0) for i in eachindex(f)) :
+                              -integrate(v, [x > 0 ? x*log(x) : 0.0 for x in f])
         previous = H(src); worst = 0.0
         for _ = 1:200
             collide!(dst, src, op, v, 0.1, ws); copyto!(src, dst)
@@ -262,6 +292,13 @@ end
     println("  most negative increment: ±6 ", worst6, ", ±10 ", worst10, ", ±14 ", worst14)
     @test worst6 < worst10 < worst14       # widening the window is what fixes it
     @test isapprox(worst10, coarse; rtol = 0.1)   # refining Δv is not
+
+    for hw in (6.0, 14.0)
+        worst, total = entropy_run(hw, 0.05; conservative = true)
+        println("  discrete Maxwellian, ±", hw, ": most negative increment = ", worst)
+        @test worst > -1e-13
+        @test total > 0.3
+    end
 end
 
 @testset "∂f∂v" begin

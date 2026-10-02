@@ -71,7 +71,7 @@ Krook model's closed form, and the Chapman–Enskog fluid at large `ν`.
 | which is BGK's root and no other operator's | a relaxation restoring only n, or only n and u, lands on its own root and over 1.5× BGK's rate | 0.31%, 0.23% from their own; 3.3×, 2.1× BGK's |
 | and the mode energy conservation adds | a matrix pencil of the field finds a real exponent within 0.2% of `heat_mode_root` at ν = 1 | 0.43383 against 0.43369 |
 | the collisional relation is the right one | the Landau root at ν = 0, Krook's closed form for density alone, and Chapman–Enskog as ν → ∞ with gaps closing as 1/ν² | 2.3e-14, 4.7e-16; gaps ×3.85–4.08 per doubling |
-| and `BGK` needs its window | at ν = 1 the energy holds to 1e-6 on ±8, where on ±4 the run cools | 1.4e-7; −5.3% by t = 60 |
+| and `BGK` holds the energy on any window | at ν = 1 the energy holds to 1e-6 on ±8 and on ±4, where the sampled Maxwellian of 0.1 cools | 1.4e-7, 2.1e-7; −5.3% by t = 60 |
 | trapping stops the damping on the bounce time | ω_B·t₀ between 6.5 and 8.5 at four amplitudes, and t₀ ∝ α^(−1/2) | 7.09–8.00, slope −0.556 |
 | each mode recurs at its own 2π/(kΔv) | within a plasma period, for the seeded mode and the harmonic it generates | 128.6 vs 125.7, 64.3 vs 62.8 |
 | a plasma echo, field off, is the closed form's | pointwise within 0.3% of the peak, the peak within two steps of its own, the sign reversing with the kick | 0.12%, t = 15.28 on both |
@@ -140,10 +140,13 @@ only by conducting heat. A relaxation that restored less would damp harder, and
 the testset runs two such relaxations to show that each lands on its own root.
 Conserved energy also adds a mode that does not oscillate, a temperature
 perturbation decaying by conduction, and a matrix pencil of the field finds it
-to 0.03%. The operator needs a velocity window of ±8 where the collisionless
-runs use ±4: it takes each line's temperature over the window and puts back a
-Maxwellian over the whole line, so a window that cuts the tail cools the plasma
-a little at every relaxation.
+to 0.03%. The operator relaxes each line to its *discrete* Maxwellian, the
+`exp(a + bv + cv²)` whose density, momentum and energy on the grid equal the
+line's, so it conserves all three to round-off on any window. The sampled
+Maxwellian it used before, still there as `BGK(τ; conservative = false)`, took
+the temperature over the window and put back a Maxwellian over the whole line,
+so a window that cut the tail cooled the plasma at every relaxation: 5.3% by
+t = 60 on ±4.
 
 A ninth study compares the advection schemes on the physics rather than on a
 shifted sine, and is advisory rather than asserted:

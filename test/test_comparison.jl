@@ -283,7 +283,9 @@ end
     # faster figures would leave anyone debugging a failure comparing against
     # numbers the suite never prints. Five trials under `--check-bounds=yes`:
     #
-    #   BGK       13.6 27.4 55.0 110 us    ratios 2.00-2.09   exponent 1.003-1.028
+    #   BGK       92.7 186 374 752 us    ratios 2.00-2.01   exponent 1.01
+    #             (the discrete Maxwellian's Newton solve, three iterations at
+    #             every N; the sampled one ran 13.6 27.4 55.0 110 us)
     #   Landau1P  102 401 1600 6385 us     ratios 3.91-4.07   exponent 1.990-2.001
     #
     # Held to a threshold at 1.5, which is some forty measurement errors from

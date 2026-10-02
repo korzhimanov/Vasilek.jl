@@ -328,6 +328,25 @@ This project has not been released; entries below describe work on `master`.
 
 ### Changed
 
+- **`BGK` relaxes to the discrete Maxwellian and conserves to round-off.**
+  - `M` is the `exp(a + bv + cv²)` whose density, momentum and energy, in the
+    cell-width sums the advection schemes conserve, equal the line's
+    (Mieussens 2000). Newton's method finds it from the continuous Maxwellian
+    in three steps.
+  - On a ±4 window the sampled Maxwellian, relaxing a two-beam line fully,
+    lost 0.7% of its density and 6% of its energy, and it cooled a ν = 1 run by
+    5.3% by t = 60. The
+    discrete one holds the energy to 2e-7, and a sampled Maxwellian is its
+    fixed point on any window.
+  - The collisional rates on ±8 are unchanged to the digits quoted.
+  - The old operator remains as `BGK(τ; conservative = false)`.
+  - A step costs about 7 times more (93 µs against 13.6 µs at N = 800), still
+    linear in N.
+  - The H-theorem holds to round-off on ±6 in the cell-width entropy.
+- **`NumericalIntegration` is no longer a dependency.** The sampled operator
+  and `Landau1P` use a trapezoid of their own. It stays a test dependency for
+  the harness.
+
 - **The 1D1V driver ships with the package: `vlasov_poisson`, exported**, in
   the new `Vasilek.VlasovPoisson1D1V` with the helpers it is built from:
   `line_advector`, which takes a displacement for any scheme; `substeps`;
