@@ -277,8 +277,10 @@ end
     # `BGK` doubles when N doubles and `Landau1P` quadruples, so the exponents
     # are 1 and 2 with nothing in between for noise to land on.
     #
-    # **Measured in the mode this actually runs in.** `Pkg.test()` passes
-    # `--check-bounds=yes`, so these kernels are about three times slower here
+    # **Measured in the mode this actually runs in.** CI runs the suite with
+    # `--check-bounds=yes` (julia-runtest's default, and `Pkg.test()`'s own on
+    # Julia 1.10; 1.13's `Pkg.test()` leaves bounds checks at `auto`), so these
+    # kernels are about three times slower here
     # than the same code timed from a plain `julia --project=.`, and quoting the
     # faster figures would leave anyone debugging a failure comparing against
     # numbers the suite never prints. Five trials under `--check-bounds=yes`:

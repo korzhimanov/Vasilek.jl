@@ -4,6 +4,17 @@ name: CompatHelper
 # [compat] bounds. Dependabot covers only the GitHub Actions here; without this
 # nothing watches the Julia dependencies, of which NumericalIntegration's cap
 # on Interpolations is the live example.
+#
+# Two things this file cannot do on its own:
+# - The repository setting "Allow GitHub Actions to create and approve pull
+#   requests" (Settings > Actions > General) must be on, or the run fails when
+#   it tries to open one.
+# - A pull request opened with GITHUB_TOKEN starts no workflows, so CI does not
+#   run on CompatHelper's pull requests until someone pushes to them. To have it
+#   run, add an SSH deploy key with write access and its private key, base64
+#   encoded, as the secret COMPATHELPER_PRIV, and pass it to the step below as
+#   `COMPATHELPER_PRIV: ${{ secrets.COMPATHELPER_PRIV }}` (CompatHelper's
+#   documented route).
 on:
   schedule:
     - cron: '17 4 * * *'
