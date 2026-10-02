@@ -179,7 +179,10 @@ energy, and that nothing asserted until now. `modes = (k₁, k₂, …)` adds
 [`mode_amplitude`](@ref), which is what separates a mode from its harmonics
 where `ε_e` cannot.
 
-**Row `k` of `E_modes`, `ε_e` and `ε` is sampled at `t[k] + Δt/2`, not `t[k]`.**
+**Row `k` of `E_modes`, `ε_e` and `ε` is sampled at `t[k] + Δt/2`, not `t[k]`;
+row `k` of `mass`, `momentum`, `l2`, `entropy`, `fmin` and `fmax` at the end of
+step `k`, `t[k+1]`.** None is sampled at `t[1]`, and the last row of each is
+a copy of the one before.
 The field is solved inside the step, after Strang's first `x` half-step, and
 recorded from there. A rate or a frequency cannot see a constant time offset;
 a *phase* can, and does: removing a Doppler factor `exp(-ikut)` at `t[k]` leaves

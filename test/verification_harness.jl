@@ -457,8 +457,8 @@ Measured across the two, at about four times the wall clock -- halving `Δx` hal
 `Δt` with it, so `Nx` and `Nt` both double (2.5 s against 10 s, timed back to back):
 
     cells/λ₀   pulse speed   wake phase velocity   λ       predicted v_g
-    10         0.8858        0.8925                17.460  0.8993
-    20         0.9261        0.9207                18.010  0.9329
+    10         0.8858        0.8925                17.459  0.8993
+    20         0.9261        0.9207                18.009  0.9329
 
 The wake's *frequency* is insensitive to this -- 19.564 against 19.561 for the
 period -- which is what makes the error easy to miss: every assertion about the
@@ -556,7 +556,10 @@ function wakefield(; Δx = 0.05*2π,
         # The canonical transverse momentum and the current it carries, both in
         # `transverse_step!` so that `test_em_plasma.jl` can assert the
         # dispersion relation of *this* code rather than of a copy of it.
-        transverse_step!(advance_fields!, em, pʸ, pᶻ, view(n, k, :), k*Δt, Δt)
+        # Step k ends at t[k] = (k − 1)Δt, and the source is evaluated at the
+        # end of its step, as `test_fdtd_1d.jl` drives it; `k*Δt` ran the laser
+        # one step ahead of the run's own clock.
+        transverse_step!(advance_fields!, em, pʸ, pᶻ, view(n, k, :), (k - 1)*Δt, Δt)
 
         @. ϕ = 0.5*(pʸ^2 + pᶻ^2)
         ddx!(∂ϕ, ϕ, Δx)
@@ -737,8 +740,19 @@ function zero_crossings(x, y; lo, hi)
     z = Float64[]
     for i in 1:length(y)-1
         (lo ≤ x[i] && x[i+1] ≤ hi) || continue
-        (y[i] == 0 || sign(y[i]) != sign(y[i+1])) || continue
-        push!(z, x[i] - y[i]*(x[i+1] - x[i])/(y[i+1] - y[i]))
+        # An interval starting on an exact zero was counted already, by the
+        # interval that reached it; counting it again put one crossing in twice,
+        # and a run of zeros gave 0/0.
+        y[i] == 0 && continue
+        if y[i+1] == 0
+            # a crossing only if the next nonzero sample has the other sign;
+            # touching zero and turning back is not one
+            j = findnext(!iszero, y, i + 1)
+            (j === nothing || sign(y[j]) == sign(y[i])) && continue
+            push!(z, x[i+1])
+        elseif sign(y[i]) != sign(y[i+1])
+            push!(z, x[i] - y[i]*(x[i+1] - x[i])/(y[i+1] - y[i]))
+        end
     end
     return z
 end

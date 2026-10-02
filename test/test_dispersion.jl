@@ -296,7 +296,10 @@ end
     s = sin(k*Δx)/(k*Δx)
     εg = 1 - s*quad(v -> F′(v)/(v - ωg/k))/k^2
     @test abs(εg) < 1e-12
-    @test bump_on_tail_root(k; Δx = 0.0) == ω
+    # and it is continuous in Δx: a vanishing cell recovers the continuum root
+    # (s − 1 = −(kΔx)²/6 is 1e-17 here), rather than `Δx = 0` being a special
+    # case that only matches by construction
+    @test isapprox(bump_on_tail_root(k; Δx = 1e-8), ω; rtol = 1e-10)
 
     # A weaker field couples the beam less, so the grid's rate is the lower --
     # by 0.114% at 64 cells -- and the gap is the centred difference's, second

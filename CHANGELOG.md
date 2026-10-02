@@ -511,6 +511,34 @@ This project has not been released; entries below describe work on `master`.
 
 ### Fixed
 
+- **Tests that could not fail now test the code.**
+  - The `Landau1P` kernel antisymmetry compared a kernel defined in the test
+    file with itself, which is zero in IEEE arithmetic whatever the operator
+    does. `collide!` is now held to the operator written out from its
+    docstring, on a skewed line, and to parity on a symmetric one.
+  - Scheme values were compared with their `deepcopy`, which for an isbits
+    value is itself. They are now asserted `isbitstype`, and a size used in
+    between leaves an answer alone.
+  - `bump_on_tail_root(k; Δx = 0.0) == ω` was one call made twice. It is now
+    continuity in `Δx`.
+  - "Dissipation and dispersion" asserted properties of this file's closed
+    forms. It now takes `g` from one step of each kernel.
+- **The extended suite's skip is a `@test_skip`, not `@test true`**, so a run
+  that lost `VASILEK_EXTENDED` on the way shows Broken instead of passing.
+- **Fragile checks loosened to what they mean.** The quadratic and cubic
+  `SemiLagrangian` golden values are held to 1e-13 relative, because their last
+  bits belong to Interpolations' prefilter. The allocation gate allows one
+  boxed value of difference between N and 4N.
+- **The harness:**
+  - `zero_crossings` counted a crossing that lands exactly on a sample twice,
+    and a run of zeros gave NaN.
+  - `wakefield` drove the laser one Δt ahead of its own clock.
+  - The reversibility test took its reference normalisation from the result it
+    was checking.
+- **The driver's docstring says when the invariants are sampled**: at the end
+  of each step, half a step after the field.
+- The test files calling `norm` import it, so each runs on its own.
+
 - **The z-polarised FDTD source launched its pulse into the absorbing layer**
   (`FDTD1D.make_advance_fields`). It injected `hy` with the sign of `hz`, but
   `(ez, hy)` mirrors `(ey, −hz)`, so all but 0.8% of a z pulse went left and
