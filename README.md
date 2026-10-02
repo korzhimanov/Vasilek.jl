@@ -25,6 +25,7 @@ their figures beside themselves, and they are written in Literate.jl comment
 form so they can also be rendered:
 
 ```bash
+julia --project=verification -e 'using Pkg; Pkg.instantiate()'   # once, Julia ≥ 1.11
 julia --project=verification verification/landau-damping-1d1v.jl
 julia --project=verification verification/plasma-oscillations-1d1v.jl
 julia --project=verification verification/wakefield.jl
@@ -244,7 +245,7 @@ julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
 Benchmarks live in their own environment:
 
 ```
-julia --project=benchmark -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate()'
+julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'   # once, Julia ≥ 1.11
 julia --project=benchmark benchmark/runbenchmarks.jl
 julia --project=benchmark benchmark/workprecision.jl
 ```

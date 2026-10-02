@@ -1,0 +1,83 @@
+name: Scripts
+
+# The verification studies and the benchmark suite live outside the package and
+# its tests, so nothing ran them: the verification environment once lost a
+# dependency and every study that loads the harness failed for weeks without a
+# signal (see CHANGELOG). This runs every study to completion and loads the
+# benchmark suites. It does not judge the figures or the timings -- the test
+# suite asserts the numbers -- only that the scripts still run.
+#
+# Not on every pull request: Plots and the nine studies take about a quarter of
+# an hour. On the pull requests that touch what they depend on, weekly, and by
+# hand.
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'verification/**'
+      - 'benchmark/**'
+      - 'test/verification_harness.jl'
+      - 'test/dispersion.jl'
+      - 'test/echo.jl'
+      - 'test/scheme_cases.jl'
+      - 'Project.toml'
+      - '.github/workflows/Scripts.yml'
+  push:
+    branches: [master]
+  workflow_dispatch:
+  schedule:
+    - cron: '41 5 * * 1'
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+jobs:
+  verification:
+    name: Verification studies
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GKSwstype: '100'     # GR without a display
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - run: julia --project=verification -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
+      - name: Run every study
+        run: |
+          set -e
+          for script in verification/*.jl; do
+            echo "::group::$script"
+            julia --project=verification "$script"
+            echo "::endgroup::"
+          done
+
+  benchmark:
+    name: Benchmark suites load
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - run: julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'
+      # The suites are defined, not run: timings on a shared runner mean
+      # nothing (see runbenchmarks.jl). workprecision.jl runs as it is; it is
+      # advisory and short.
+      - run: |
+          julia --project=benchmark -e '
+            using BenchmarkTools
+            include("benchmark/MaxwellBenchmarks.jl"); include("benchmark/VlasovBenchmarks.jl")
+            n = length(BenchmarkTools.leaves(MaxwellBenchmarks.SUITE)) + length(BenchmarkTools.leaves(VlasovBenchmarks.SUITE))
+            println(n, " benchmarks defined")
+            n > 0 || exit(1)'
+      - run: julia --project=benchmark benchmark/workprecision.jl

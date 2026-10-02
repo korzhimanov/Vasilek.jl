@@ -9,7 +9,7 @@ const SIZES = (100, 1000, 10000)
 const Δx = 0.01
 const COURANT = 0.8
 
-initial(N) = [1.0 + 0.01*sin(2π*i*Δx) for i = 0:N]
+initial(N) = [1.0 + 0.01*sin(2π*i*Δx) for i = 0:N-1]    # N cells, as the keys say
 
 const SCHEMES = (
     ("LaxWendroff",              LaxWendroff()),

@@ -1983,5 +1983,10 @@ end
             @test isapprox(v_c, v_c_theory; rtol = 0.02)
             @test abs(v - sqrt(1 - n₀)) < abs(v_c - sqrt(1 - n₀))
         end
+
+        # For CI: proof that this branch ran, which a green result alone is not
+        # (a skip is green too). The job checks for the file afterwards.
+        marker = get(ENV, "VASILEK_EXTENDED_MARKER", "")
+        isempty(marker) || touch(marker)
     end
 end

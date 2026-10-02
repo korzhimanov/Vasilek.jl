@@ -328,6 +328,37 @@ This project has not been released; entries below describe work on `master`.
 
 ### Changed
 
+- **CI runs what it says it runs.**
+  - The "Bounds checking" job forced `--check-bounds=yes`, which `Pkg.test`
+    passes to every job already. It is replaced by "@inbounds in effect",
+    `Pkg.test(julia_args = ["--check-bounds=auto"])`, the one configuration
+    users run and no job did.
+  - The extended verification runs on the LTS as well as the current release.
+    The job now fails unless the suite wrote its marker file, because a skip
+    is green too.
+  - Coverage is instrumented only in the Coverage job.
+  - The workflow declares its permissions: `contents: read`, and
+    `actions: write` for the cache.
+- **The scripts are run.** A new `Scripts` workflow runs every
+  `verification/*.jl` study to completion, loads the benchmark suites and runs
+  `workprecision.jl`. It triggers on pull requests touching what they depend
+  on, on master, weekly and by hand. The verification environment once broke
+  for weeks without a signal.
+- **CompatHelper watches the `[compat]` bounds** of the package and of the two
+  script environments; dependabot covered only the Actions.
+- **The script environments install from a clean checkout.**
+  - `[sources]` needs Pkg 1.11, so their `julia` floor is 1.11.
+  - The benchmark environment gained the `[sources]` entry it lacked.
+  - `LinearAlgebra` and `Printf` are declared.
+  - The README gives the `instantiate` step.
+- **Benchmarks.**
+  - The Poisson and Vlasov suites use `N` points, not `N + 1`. The FFT lengths
+    were 101 (prime), 1001 and 10001, which timed FFTW's slow path.
+  - Entries missing from `params.json` are tuned and reported instead of
+    running untuned. Entries with no baseline are listed instead of being
+    skipped silently.
+  - The baselines are regenerated for the new sizes.
+
 - **`BGK` relaxes to the discrete Maxwellian and conserves to round-off.**
   - `M` is the `exp(a + bv + cv²)` whose density, momentum and energy, in the
     cell-width sums the advection schemes conserve, equal the line's
@@ -2178,4 +2209,3 @@ This project has not been released; entries below describe work on `master`.
 - `Landau1P` differences a cell-centred `I` rather than staggered fluxes, so
   mass is not conserved to machine precision. Measured drift over 100 steps is
   2e-10, which the test asserts as a bound.
-- Coverage is collected but discarded: `CODECOV_TOKEN` is not configured.
