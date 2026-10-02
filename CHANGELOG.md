@@ -328,6 +328,37 @@ This project has not been released; entries below describe work on `master`.
 
 ### Changed
 
+- **CI runs what it says it runs.**
+  - The "Bounds checking" job forced `--check-bounds=yes`, which `Pkg.test`
+    passes to every job already. It is replaced by "@inbounds in effect",
+    `Pkg.test(julia_args = ["--check-bounds=auto"])`, the one configuration
+    users run and no job did.
+  - The extended verification runs on the LTS as well as the current release.
+    The job now fails unless the suite wrote its marker file, because a skip
+    is green too.
+  - Coverage is instrumented only in the Coverage job.
+  - The workflow declares its permissions: `contents: read`, and
+    `actions: write` for the cache.
+- **The scripts are run.** A new `Scripts` workflow runs every
+  `verification/*.jl` study to completion, loads the benchmark suites and runs
+  `workprecision.jl`. It triggers on pull requests touching what they depend
+  on, on master, weekly and by hand. The verification environment once broke
+  for weeks without a signal.
+- **CompatHelper watches the `[compat]` bounds** of the package and of the two
+  script environments; dependabot covered only the Actions.
+- **The script environments install from a clean checkout.**
+  - `[sources]` needs Pkg 1.11, so their `julia` floor is 1.11.
+  - The benchmark environment gained the `[sources]` entry it lacked.
+  - `LinearAlgebra` and `Printf` are declared.
+  - The README gives the `instantiate` step.
+- **Benchmarks.**
+  - The Poisson and Vlasov suites use `N` points, not `N + 1`. The FFT lengths
+    were 101 (prime), 1001 and 10001, which timed FFTW's slow path.
+  - Entries missing from `params.json` are tuned and reported instead of
+    running untuned. Entries with no baseline are listed instead of being
+    skipped silently.
+  - The baselines are regenerated for the new sizes.
+
 - **`BGK` relaxes to the discrete Maxwellian and conserves to round-off.**
   - `M` is the `exp(a + bv + cv²)` whose density, momentum and energy, in the
     cell-width sums the advection schemes conserve, equal the line's
@@ -510,6 +541,34 @@ This project has not been released; entries below describe work on `master`.
   sine's frontier is unchanged, and so is every error.
 
 ### Fixed
+
+- **Tests that could not fail now test the code.**
+  - The `Landau1P` kernel antisymmetry compared a kernel defined in the test
+    file with itself, which is zero in IEEE arithmetic whatever the operator
+    does. `collide!` is now held to the operator written out from its
+    docstring, on a skewed line, and to parity on a symmetric one.
+  - Scheme values were compared with their `deepcopy`, which for an isbits
+    value is itself. They are now asserted `isbitstype`, and a size used in
+    between leaves an answer alone.
+  - `bump_on_tail_root(k; Δx = 0.0) == ω` was one call made twice. It is now
+    continuity in `Δx`.
+  - "Dissipation and dispersion" asserted properties of this file's closed
+    forms. It now takes `g` from one step of each kernel.
+- **The extended suite's skip is a `@test_skip`, not `@test true`**, so a run
+  that lost `VASILEK_EXTENDED` on the way shows Broken instead of passing.
+- **Fragile checks loosened to what they mean.** The quadratic and cubic
+  `SemiLagrangian` golden values are held to 1e-13 relative, because their last
+  bits belong to Interpolations' prefilter. The allocation gate allows one
+  boxed value of difference between N and 4N.
+- **The harness:**
+  - `zero_crossings` counted a crossing that lands exactly on a sample twice,
+    and a run of zeros gave NaN.
+  - `wakefield` drove the laser one Δt ahead of its own clock.
+  - The reversibility test took its reference normalisation from the result it
+    was checking.
+- **The driver's docstring says when the invariants are sampled**: at the end
+  of each step, half a step after the field.
+- The test files calling `norm` import it, so each runs on its own.
 
 - **The z-polarised FDTD source launched its pulse into the absorbing layer**
   (`FDTD1D.make_advance_fields`). It injected `hy` with the sign of `hz`, but
@@ -840,12 +899,13 @@ This project has not been released; entries below describe work on `master`.
   theorem keeps; collisions do not keep the upper one, since BGK relaxes a line
   towards a Maxwellian whose peak can sit above the line's. Measured at the old
   bound, each a `DomainError` from inside the step:
-  - a line flat over |v| < 2 under `BGK(0.1)` reached 0.416 against 0.375;
+  - a line flat over |v| < 2 under `BGK(0.1)`, on the 1st step at 0.4165
+    against 0.3846, 8.3% above;
   - the sampled Maxwellian at ν = 1 on ±4 peaked 2.2% above, on the first
     step, which `test_verification.jl` asserted as a `DomainError` and
     `verification/collisional-damping.jl` worked around with 50% of headroom;
   - a `Superbee` v sweep, which the check above passes, under `BGK(1.0)` on the
-    50% Landau case went 3.3e-7 above.
+    50% Landau case, on the 2nd step at 5.4e-8 of the bound above it.
 
   With `collisions` the defaults are now `fmin = 0.0, fmax = Inf`, and a scheme
   given alone is checked against `[0, Inf]`. The lower bound stays: the BGK
@@ -2260,4 +2320,3 @@ This project has not been released; entries below describe work on `master`.
 - `Landau1P` differences a cell-centred `I` rather than staggered fluxes, so
   mass is not conserved to machine precision. Measured drift over 100 steps is
   2e-10, which the test asserts as a bound.
-- Coverage is collected but discarded: `CODECOV_TOKEN` is not configured.

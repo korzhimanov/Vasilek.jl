@@ -1,4 +1,5 @@
 using Vasilek
+using LinearAlgebra: norm
 
 @isdefined(march!) || include(joinpath(@__DIR__, "..", "scheme_cases.jl"))
 
@@ -105,8 +106,14 @@ end
 
     for scheme in (LaxWendroff(), Upwind(), PFC(fmin = 0.0, fmax = 2.0),
                    SemiLagrangian(CubicSpline()))
-        @test march!(big, scheme, 0.4, 2) == march!(big, deepcopy(scheme), 0.4, 2)
-        @test march!(small, scheme, 0.4, 2) == march!(small, deepcopy(scheme), 0.4, 2)
+        # "No data" stated structurally: the value is plain bits, so it cannot
+        # hold an array, a buffer or a captured size. (Comparing it with its
+        # `deepcopy`, as this did, compared it with itself.)
+        @test isbitstype(typeof(scheme))
+        # and using it on another size in between leaves its answer alone
+        first_big = march!(big, scheme, 0.4, 2)
+        march!(small, scheme, 0.4, 2)
+        @test march!(big, scheme, 0.4, 2) == first_big
         @test length(march!(small, scheme, 0.4, 2)) == 50
     end
 end

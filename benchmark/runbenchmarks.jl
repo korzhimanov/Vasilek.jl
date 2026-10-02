@@ -43,8 +43,24 @@ include(joinpath(@__DIR__, "VlasovBenchmarks.jl"))
 using .VlasovBenchmarks
 SUITE["Vlasov"] = VlasovBenchmarks.SUITE
 
+# `haskey` on a BenchmarkGroup does not follow a multi-key path, so presence is
+# tested by indexing.
+has_leaf(group, key) = try group[key]; true catch; false end
+
 if isfile(PARAMS_FILE)
-    loadparams!(SUITE, BenchmarkTools.load(PARAMS_FILE)[1], :evals, :samples)
+    stored = BenchmarkTools.load(PARAMS_FILE)[1]
+    loadparams!(SUITE, stored, :evals, :samples)
+    # `loadparams!` skips entries the file does not have, which then ran at the
+    # default evals = 1 -- how a new entry went untuned. Tune those here and
+    # say so.
+    untuned = [k for (k, _) in BenchmarkTools.leaves(SUITE) if !has_leaf(stored, k)]
+    for k in untuned
+        tune!(SUITE[k])
+    end
+    isempty(untuned) || println("tuned ", length(untuned), " entries missing from ",
+                                PARAMS_FILE, ": ", join(join.(untuned, " / "), ", "),
+                                "\nre-run with --rebaseline to store them")
+    REBASELINE && BenchmarkTools.save(PARAMS_FILE, params(SUITE))
 else
     tune!(SUITE)
     BenchmarkTools.save(PARAMS_FILE, params(SUITE))
@@ -80,8 +96,12 @@ function gate(results, baseline)
     basetimes = Dict(k => BenchmarkTools.time(v) for (k, v) in BenchmarkTools.leaves(baseline))
     offenders = Tuple{String,Float64,Float64}[]
     ignored = 0
+    unbased = String[]
     for (key, trial) in BenchmarkTools.leaves(results)
-        haskey(basetimes, key) || continue
+        if !haskey(basetimes, key)
+            push!(unbased, join(key, " / "))
+            continue
+        end
         before = basetimes[key]
         if before < GATE_FLOOR_NS
             ignored += 1
@@ -92,14 +112,16 @@ function gate(results, baseline)
             push!(offenders, (join(key, " / "), before, now))
         end
     end
-    return offenders, ignored
+    return offenders, ignored, unbased
 end
 
-offenders, ignored = gate(results, baseline)
+offenders, ignored, unbased = gate(results, baseline)
 
-println("\n", ignored, " of ", ignored + length(BenchmarkTools.leaves(results)) - ignored,
+println("\n", ignored, " of ", length(BenchmarkTools.leaves(results)),
         " entries are below the ", round(Int, GATE_FLOOR_NS/1000),
         " us floor: reported above, not gated.")
+isempty(unbased) || println(length(unbased), " entries have no baseline and were not compared: ",
+                            join(unbased, ", "), "\nre-run with --rebaseline to record them.")
 
 if isempty(offenders)
     println("no regression above the floor")

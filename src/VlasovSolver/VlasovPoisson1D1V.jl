@@ -227,7 +227,10 @@ energy, and that nothing asserted until now. `modes = (k₁, k₂, …)` adds
 [`mode_amplitude`](@ref), which is what separates a mode from its harmonics
 where `ε_e` cannot.
 
-**Row `k` of `E_modes`, `ε_e` and `ε` is sampled at `t[k] + Δt/2`, not `t[k]`.**
+**Row `k` of `E_modes`, `ε_e` and `ε` is sampled at `t[k] + Δt/2`, not `t[k]`;
+row `k` of `mass`, `momentum`, `l2`, `entropy`, `fmin` and `fmax` at the end of
+step `k`, `t[k+1]`.** None is sampled at `t[1]`, and the last row of each is
+a copy of the one before.
 The field is solved inside the step, after Strang's first `x` half-step, and
 recorded from there. A rate or a frequency cannot see a constant time offset;
 a *phase* can, and does: removing a Doppler factor `exp(-ikut)` at `t[k]` leaves
@@ -324,9 +327,11 @@ Liouville's theorem is about the collisionless equation: BGK relaxes a line
 towards a Maxwellian whose peak can sit above the line's own, so `maximum(f)`
 is not kept, and a bound there stopped valid runs with a `DomainError` from
 inside the step. Measured at its default bound: a line flat over |v| < 2 under
-`BGK(0.1)` reached 0.416 against 0.375; the sampled Maxwellian at ν = 1 on ±4
-peaked 2.2% above the initial maximum, on the first step; and a `Superbee` v
-sweep under `BGK(1.0)` on the 50% Landau case, 3.3e-7 above. All three run now.
+`BGK(0.1)` was stopped on the 1st step at 0.4165 against 0.3846, 8.3% above;
+the sampled Maxwellian at ν = 1 on ±4 on the 1st, peaking 2.2% above; and a
+`Superbee` v sweep under `BGK(1.0)` on the 50% Landau case on the 2nd, 5.4e-8
+of the bound above it (unbounded, that run climbs to 3.3e-7). All three run
+now.
 The lower bound holds as it is: the update is `src·e + (1 − e)·M` with `M`
 positive, so a positive line stays positive. A bound that never ends a run
 still shapes it, by clipping the reconstruction in the peak cell, so lifting it

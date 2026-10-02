@@ -1,16 +1,23 @@
 [deps]
 FFTW = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 NumericalIntegration = "e7bfaba1-d571-5449-8927-abc22e82249b"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 Vasilek = "c81326fb-3428-4180-b511-858f58317b28"
 
+# Vasilek is not registered, so the environment takes it from the checkout.
+# `[sources]` is read by Pkg from Julia 1.11 on, which is why the floor here is
+# above the package's own 1.10.
 [sources]
 Vasilek = {path = ".."}
 
 [compat]
 FFTW = "1.10"
+LinearAlgebra = "1"
 NumericalIntegration = "0.3"
 Plots = "1"
+Printf = "1"
 SpecialFunctions = "2"
-julia = "1.10"
+julia = "1.11"
