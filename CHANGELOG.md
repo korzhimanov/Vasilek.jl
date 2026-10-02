@@ -762,10 +762,10 @@ This project has not been released; entries below describe work on `master`.
   `LaxWendroff` stopped on the 2nd step, past the maximum by 2.5e-7 of it, and
   the cubic spline on the 22nd, where the defaults alone, with the same
   collisions, run all 1000 steps inside their bounds. The check does not reach
-  the collisions themselves: BGK can raise `f` past `maximum(f)` on its own,
-  3.3e-7 of it above with a `Superbee` `v` sweep that passes the check, and 11%
-  for a line flat in `v` with both defaults, and the default then stops the run
-  as before.
+  the collisions themselves: BGK can raise `f` past `maximum(f)` on its own, and
+  the default then stops the run as before. With a `Superbee` `v` sweep that
+  passes the check, that is on the 2nd step, 5.4e-8 of the bound above it; for a
+  line flat in `v` with both defaults and `BGK(0.1)`, on the 1st, 8.3% above.
   `verification/scheme-comparison.jl` never met it, because it passes the same
   scheme for both directions, and given both the driver checks neither. Such a
   call is now an `ArgumentError` that names the scheme, the default it cannot
