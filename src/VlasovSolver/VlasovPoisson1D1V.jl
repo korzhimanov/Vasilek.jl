@@ -206,7 +206,7 @@ keeps_bounds(s::Union{PFC, PFCNonUniform}, lo, hi) = lo ≤ s.fmin && s.fmax ≤
 function refuse_unbounded(given, name, other, bound)
     keeps_bounds(given, 0.0, bound) && return nothing
     throw(ArgumentError(
-        "$name = $(sprint(show, given)) may take f outside [0, maximum(f)] = [0, $bound], " *
+        "$name = $(sprint(show, given)) may take f outside [0, $bound], " *
         "the bounds of the PFCNonUniform that $other defaults to, which stops the run at " *
         "the first line handed to it outside them. Pass $other as well: the same scheme, " *
         "or a PFCNonUniform with bounds both sweeps keep (fmin = -Inf, fmax = Inf for none)"))
@@ -319,6 +319,21 @@ sub-steps included, and none of them is out of bounds -- the two-stream runs
 carried past their velocity Courant limits into saturation among them, since
 [`line_advector`](@ref) splits every step that would cross a cell.
 
+**With `collisions` the upper bound is lifted, to `Inf`; the lower stays at 0.**
+Liouville's theorem is about the collisionless equation: BGK relaxes a line
+towards a Maxwellian whose peak can sit above the line's own, so `maximum(f)`
+is not kept, and a bound there stopped valid runs with a `DomainError` from
+inside the step. Measured at its default bound: a line flat over |v| < 2 under
+`BGK(0.1)` reached 0.416 against 0.375; the sampled Maxwellian at ν = 1 on ±4
+peaked 2.2% above the initial maximum, on the first step; and a `Superbee` v
+sweep under `BGK(1.0)` on the 50% Landau case, 3.3e-7 above. All three run now.
+The lower bound holds as it is: the update is `src·e + (1 − e)·M` with `M`
+positive, so a positive line stays positive. A bound that never ends a run
+still shapes it, by clipping the reconstruction in the peak cell, so lifting it
+moves the collisional numbers slightly: γ by 3e-5 at most at ν = 0.1 to 3, the
+heat mode from 0.43383 to 0.43377, and the energy drift at ν = 1 from 1.4e-7 to
+8.0e-9 on ±8 and from 2.1e-7 to 8.0e-8 on ±4.
+
 **A scheme given for one direction while the other is left to its default has
 to keep `f` inside those bounds, or the call is refused**, with an
 `ArgumentError`, before the first step. Without that check the default refused
@@ -339,14 +354,9 @@ Given both schemes, the driver checks neither: the same scheme for both, as
 `PFCNonUniform` with bounds both sweeps keep -- `fmin = -Inf, fmax = Inf` for
 none, which is PFC's reconstruction with nothing to limit it.
 
-The check is about the advection alone. `collisions` can take `f` past
-`maximum(f)` by themselves, since BGK relaxes a line towards a Maxwellian whose
-peak may sit above the line's own, and the default's upper bound then stops the
-run mid-way whatever scheme was given, or none. With `Godunov(PiecewiseLinear(),
-Superbee())` in `v`, which passes the check, and `BGK(1.0)` on the 50% case
-above, `f` reaches 3.3e-7 of `maximum(f)` above it; with both defaults and
-`BGK(0.1)`, a line flat over |v| < 2 reaches 0.416 against a bound of 0.375.
-Both are a `DomainError` from inside the step, as before this check.
+With `collisions` the check is against `[0, Inf]`, the defaults' bounds there
+(above): it still refuses a scheme that can take `f` below 0, and passes any
+`PFC` bounded below at 0 or higher.
 
 That refuses calls that ran. At 1% on ±4, where `f` comes no nearer 0 than
 1.3e-4, `LaxWendroff` and the cubic spline stay inside the bounds in either
@@ -400,7 +410,9 @@ function vlasov_poisson(x, v, f₀, t;
     renormalize && (f .*= Nᵢ/sum(f .* (Δv .* Δx')))
     g = f'
 
-    bound = maximum(f)
+    # The defaults' bounds: 0, and the maximum of `f` on entry unless collisions
+    # are in the step, which can raise it; see the docstring.
+    bound = collisions === nothing ? maximum(f) : oftype(float(maximum(f)), Inf)
     pick(s, widths) = s === nothing ? PFCNonUniform(widths; fmin = 0.0, fmax = bound) :
                       s isa AbstractAdvection1D ? s : s(f)
     sx, sv = pick(scheme_x, Δx), pick(scheme_v, Δv)

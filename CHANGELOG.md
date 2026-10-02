@@ -762,10 +762,8 @@ This project has not been released; entries below describe work on `master`.
   `LaxWendroff` stopped on the 2nd step, past the maximum by 2.5e-7 of it, and
   the cubic spline on the 22nd, where the defaults alone, with the same
   collisions, run all 1000 steps inside their bounds. The check does not reach
-  the collisions themselves: BGK can raise `f` past `maximum(f)` on its own,
-  3.3e-7 of it above with a `Superbee` `v` sweep that passes the check, and 11%
-  for a line flat in `v` with both defaults, and the default then stops the run
-  as before.
+  the collisions themselves, which can raise `f` past `maximum(f)` on their own;
+  the next entry lifts the defaults' upper bound when they are present.
   `verification/scheme-comparison.jl` never met it, because it passes the same
   scheme for both directions, and given both the driver checks neither. Such a
   call is now an `ArgumentError` that names the scheme, the default it cannot
@@ -834,6 +832,31 @@ This project has not been released; entries below describe work on `master`.
   runs the suggested partners past the step that stopped the default, and
   checks the classification against a square pulse: the accepted schemes stay
   inside `[0, 1]` and the refused ones leave it by 0.16 to 0.24.
+
+- **With `collisions`, the driver's defaults stopped valid runs at the
+  initial maximum of `f`; their upper bound is now lifted**
+  (`src/VlasovSolver/VlasovPoisson1D1V.jl`, `test/test_driver.jl`). The
+  defaults are a `PFCNonUniform` on `[0, maximum(f)]`, the bounds Liouville's
+  theorem keeps; collisions do not keep the upper one, since BGK relaxes a line
+  towards a Maxwellian whose peak can sit above the line's. Measured at the old
+  bound, each a `DomainError` from inside the step:
+  - a line flat over |v| < 2 under `BGK(0.1)` reached 0.416 against 0.375;
+  - the sampled Maxwellian at ν = 1 on ±4 peaked 2.2% above, on the first
+    step, which `test_verification.jl` asserted as a `DomainError` and
+    `verification/collisional-damping.jl` worked around with 50% of headroom;
+  - a `Superbee` v sweep, which the check above passes, under `BGK(1.0)` on the
+    50% Landau case went 3.3e-7 above.
+
+  With `collisions` the defaults are now `fmin = 0.0, fmax = Inf`, and a scheme
+  given alone is checked against `[0, Inf]`. The lower bound stays: the BGK
+  update `src·e + (1 − e)·M` keeps a positive line positive. A bound that ends
+  no run still clips the reconstruction in the peak cell, so the collisional
+  numbers move slightly: γ by up to 3e-5 (0.13408 → 0.13409 and 0.10737 →
+  0.10738 at ν = 0.1 and 0.3; +0.48% → +0.49% and +0.75% → +0.76% against the
+  root at ν = 0.3 and 1), the heat mode 0.43383 → 0.43377 (0.033% → 0.019% from
+  its root), and the Krook-with-drift operator's ω +0.04% → −0.10% from its
+  own root. Energy holds better: at ν = 1 the drift goes from 1.4e-7 to 8.0e-9
+  on ±8 and from 2.1e-7 to 8.0e-8 on ±4. Collisionless runs are unchanged.
 
 - **`two_stream(0.4)` ran on 95 cells rather than 96.** `two_stream` built its
   grid as `collect(Δx:Δx:L)`, and a floating-point range works its length out

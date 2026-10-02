@@ -151,3 +151,35 @@ using Vasilek.VlasovPoisson1D1V: keeps_bounds
     @test !keeps_bounds(PFC(fmin = -0.1, fmax = 1.0), 0.0, 1.0)
     @test !keeps_bounds(UnvouchedScheme(), 0.0, 1.0)
 end
+
+@testset "with collisions the defaults' upper bound is lifted" begin
+    # BGK relaxes a line towards a Maxwellian whose peak can sit above the
+    # line's, so the maximum of f is not kept, and the defaults' upper bound,
+    # that maximum, stopped valid runs with a DomainError from inside the step.
+    # With `collisions` the defaults are bounded below only.
+    x = collect(range(4π/64; step = 4π/64, length = 64))
+    v = collect(-6.0:0.1:6.0)
+    # A line flat over |v| < 2: under BGK(0.1) it reached 0.416 against 0.375.
+    flat = [abs(u) < 2 ? 0.25*(1 + 0.5cos(0.5y)) : 0.0 for u in v, y in x]
+    r = vlasov_poisson(x, v, flat, collect(0.0:0.05:5.0); collisions = BGK(0.1),
+                       invariants = true)
+    @test maximum(r.fmax[1:end-1]) > 1.1*maximum(flat)
+    @test minimum(r.fmin) ≥ 0
+    @test maximum(abs, r.mass .- r.mass[1])/r.mass[1] < 1e-12
+    # A Superbee v sweep, which partners a default, under BGK(1.0) at 50%: it
+    # went 3.3e-7 of the maximum above it on the way.
+    f₀ = [exp(-u^2/2)/sqrt(2π)*(1 + 0.5cos(0.5y)) for u in v, y in x]
+    r = vlasov_poisson(x, v, f₀, collect(0.0:0.05:50.0);
+                       scheme_v = Godunov(PiecewiseLinear(), Superbee()),
+                       collisions = BGK(1.0), invariants = true)
+    @test minimum(r.fmin) ≥ 0
+    # The lower bound still holds the partner to it: LaxWendroff given alone is
+    # refused with collisions as without, and a PFC bounded wider above is now
+    # taken, since nothing above is bounded.
+    @test_throws ArgumentError vlasov_poisson(x, v, f₀, [0.0, 0.05]; scheme_v = LaxWendroff(),
+                                              collisions = BGK(1.0))
+    @test vlasov_poisson(x, v, f₀, [0.0, 0.05]; scheme_v = PFC(fmin = 0.0, fmax = 1.0),
+                         collisions = BGK(1.0)).f isa Matrix
+    # Without collisions nothing changes: the same PFC is refused.
+    @test_throws ArgumentError vlasov_poisson(x, v, f₀, [0.0, 0.05]; scheme_v = PFC(fmin = 0.0, fmax = 1.0))
+end
