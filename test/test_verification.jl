@@ -102,7 +102,10 @@ end
 @testset "Extended verification" begin
     if get(ENV, "VASILEK_EXTENDED", "0") != "1"
         @info "extended verification skipped; set VASILEK_EXTENDED=1 to run it"
-        @test true
+        # Recorded as skipped, not as a pass, so that a run which meant to
+        # include it and lost the variable on the way shows a Broken count
+        # rather than a green tick for work that never happened.
+        @test_skip "VASILEK_EXTENDED=1" == "set"
     else
         @testset "Landau damping and dispersion" begin
             # Three wavenumbers rather than one. A single k with a single fitted
@@ -606,12 +609,14 @@ end
                                      invariants = true)
                 back = flip(vlasov_poisson(x, v, flip(fwd.f), t;
                                            scheme_x = scheme, scheme_v = scheme).f)
-                # the driver renormalises what it is handed, so the comparison is
-                # against `f₀` at the normalisation the round trip came back with:
-                # f₀'s own to 7e-16, now that the rescaling is the cell-width sum
-                # the flux form keeps (the trapezoid's was 1 + 7.9e-3 at α = 0.5,
-                # and it rescaled again on the way back)
-                ref = f₀ .* (sum(back)/sum(f₀))
+                # The driver renormalises what it is handed to the ions' charge,
+                # so the reference is `f₀` at that normalisation, computed here
+                # from the driver's convention rather than read off `back`: a
+                # ratio taken from the result would hide any mass the round trip
+                # lost or the renormalisation got wrong.
+                wt = cell_widths(v) .* cell_widths(x)'
+                Nᵢ = sum(exp.(-0.5 .* v.^2)./sqrt(2π) .* cell_widths(v))*sum(cell_widths(x))
+                ref = f₀ .* (Nᵢ/sum(f₀ .* wt))
                 return (; err = maximum(abs, back .- ref)/maximum(f₀),
                           fmin = minimum(fwd.fmin[1:end-1]),
                           l2 = (fwd.l2[end-1] - fwd.l2[1])/fwd.l2[1])

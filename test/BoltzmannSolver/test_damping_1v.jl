@@ -1,4 +1,5 @@
 using Vasilek
+using LinearAlgebra: norm
 using Vasilek.Collisions: Landau1P, collide!
 using NumericalIntegration
 
@@ -54,13 +55,27 @@ end
     f₀ = @. exp(-v^2)
     C = Vasilek.Collisions
 
-    # The kernel must be antisymmetric under i <-> j. That is what makes the
-    # operator conservative, it holds whatever the closure is, and it is exactly
-    # the symmetry the old index bug destroyed.
+    # `collide!` against the operator written out from its docstring, on a
+    # skewed line where every index matters: the kernel
+    # K(i, j) = (fᵢ f′ⱼ − fⱼ f′ᵢ)·2Tₜ/|vᵢ − vⱼ|³, I = L·A·∫K dv, and the update
+    # f − Δt·∂I/∂v. The old index bug sat inside `collide!`, so it is
+    # `collide!` that is checked; this used to assert K(i, j) = −K(j, i) on a
+    # K defined in this file, which is zero by IEEE arithmetic whatever the
+    # operator does.
     Tₜ = 1e-3
+    op = Landau1P(1e-2)
+    g₀ = @. exp(-(v - 0.3)^2)*(1 + 0.2v)
     K(i, j) = i == j ? 0.0 :
-        (f₀[i]*C.∂f∂v(f₀, v, j) - f₀[j]*C.∂f∂v(f₀, v, i))*2Tₜ/abs(v[i]-v[j])^3
-    @test maximum(abs(K(i,j) + K(j,i)) for i in eachindex(v), j in eachindex(v)) == 0.0
+        (g₀[i]*C.∂f∂v(g₀, v, j) - g₀[j]*C.∂f∂v(g₀, v, i))*2Tₜ/abs(v[i]-v[j])^3
+    I = [op.L*op.A*C._trapezoid(v, [K(i, j) for j in eachindex(v)]) for i in eachindex(v)]
+    expected = [g₀[i] - Δt*C.∂f∂v(I, v, i) for i in eachindex(v)]
+    got = collide!(similar(g₀), g₀, op, v, Δt)
+    @test maximum(abs, got .- expected) ≤ 1e-14*maximum(abs, g₀)
+
+    # and a symmetric line stays symmetric: I is odd in v, its derivative even
+    h₀ = @. exp(-v^2)*(1 + 0.3v^2)
+    h = collide!(similar(h₀), h₀, op, v, Δt)
+    @test maximum(abs, h .- reverse(h)) ≤ 1e-14*maximum(h)
 
     # Mass is not conserved to machine precision: the update differences a
     # cell-centred I rather than staggered fluxes. Assert the drift actually

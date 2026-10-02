@@ -44,7 +44,10 @@ function assert_constant(name, bytes_at)
     small = bytes_at(ALLOC_N)
     large = bytes_at(4*ALLOC_N)
     println("  ", rpad(name, 24), "N=", ALLOC_N, ": ", small, "   N=", 4*ALLOC_N, ": ", large)
-    @test small == large
+    # Independent of N up to one boxed value (16 bytes, see above): an exact
+    # equality would also fail on escape analysis deciding differently at the
+    # two sizes, which is not the regression this guards against.
+    @test abs(large - small) ≤ 64
     @test small < ALLOC_CEILING
 end
 

@@ -116,8 +116,10 @@ end
 @testset "Dissipation and dispersion" begin
     # The comparison the benchmark suite cannot make: how much amplitude a
     # scheme loses per step, and how far its phase velocity departs from the
-    # exact `exp(-icθ)`. Both fall out of `g` at no cost, and both are exact
-    # rather than measured, so they can be asserted rather than reported.
+    # exact `exp(-icθ)`. Both fall out of `g`, taken here from one step of the
+    # kernel itself -- the mean of `amplification` over the grid, which the
+    # testset above holds to the closed form at 1e-13 -- so the assertions are
+    # about the package's code, not about the formulas written in this file.
     #
     # Measured at c = 0.4, N = 64 (λ = 64Δx down to λ ≈ 2.7Δx):
     #
@@ -128,13 +130,18 @@ end
     #
     # where "phase" is arg(g)/(−cθ), which the exact solution makes 1.
     phase(z, θ, c) = angle(z)/(-c*θ)
-    g_of(g, m, c) = g(2π*m/AMP_N, c)
+    function g_of(scheme, m, c)
+        mean, amplitude = scheme isa PFC ? (1.0, 0.01) : (0.0, 1.0)
+        z = amplification(scheme, AMP_N, m, c; mean, amplitude)
+        return sum(z)/length(z)
+    end
+    pfc = PFC(fmin = 0.0, fmax = 2.0)
 
     for c in AMP_COURANTS
         println("  c = ", c, "   |g| and arg(g)/(−cθ)")
-        for (name, _, g, _, _) in amp_cases()
-            row = join([string(rpad(round(abs(g_of(g, m, c)); digits = 6), 8), "/",
-                               lpad(round(phase(g_of(g, m, c), 2π*m/AMP_N, c); digits = 4), 7))
+        for (name, scheme, _, _, _) in amp_cases()
+            row = join([string(rpad(round(abs(g_of(scheme, m, c)); digits = 6), 8), "/",
+                               lpad(round(phase(g_of(scheme, m, c), 2π*m/AMP_N, c); digits = 4), 7))
                         for m in (1, 4, 16)], "  ")
             println("    ", rpad(name, 22), row, "   (m = 1, 4, 16)")
         end
@@ -147,10 +154,11 @@ end
             # symbols. There used to be a fourth, the unlimited
             # piecewise-linear flux before it carried its (1 − |c|) factor:
             # `1 − ic·sinθ`, which grew on every one of these modes, worst
-            # 1.077 per step at c = 0.4.
-            @test abs(g_of(g_upwind, m, c))       ≤ 1.0 + 1e-14
-            @test abs(g_of(g_lax_wendroff, m, c)) ≤ 1.0 + 1e-14
-            @test abs(g_of(g_pfc, m, c))          ≤ 1.0 + 1e-14
+            # 1.077 per step at c = 0.4. The bound allows the kernels'
+            # measured 4.6e-14 departure from their symbols.
+            @test abs(g_of(Upwind(), m, c))       ≤ 1.0 + 1e-13
+            @test abs(g_of(LaxWendroff(), m, c)) ≤ 1.0 + 1e-13
+            @test abs(g_of(pfc, m, c))          ≤ 1.0 + 1e-13
         end
     end
 
@@ -159,9 +167,9 @@ end
         # LaxWendroff and PFC lose 2e-6 -- three orders of magnitude, and the
         # whole reason a first-order scheme is unusable for a long run.
         for c in AMP_COURANTS
-            @test 1 - abs(g_of(g_upwind, 1, c))       > 5e-4
-            @test 1 - abs(g_of(g_lax_wendroff, 1, c)) < 1e-5
-            @test 1 - abs(g_of(g_pfc, 1, c))          < 1e-5
+            @test 1 - abs(g_of(Upwind(), 1, c))       > 5e-4
+            @test 1 - abs(g_of(LaxWendroff(), 1, c)) < 1e-5
+            @test 1 - abs(g_of(pfc, 1, c))          < 1e-5
         end
 
         # Phase is where PFC separates from LaxWendroff, and it is the opposite
@@ -170,8 +178,8 @@ end
         # 2.4% error against 29%. LaxWendroff keeps the amplitude of a marginal
         # mode and puts it in the wrong place; upwind removes it instead.
         θ16 = 2π*16/AMP_N
-        @test phase(g_of(g_pfc, 16, 0.4), θ16, 0.4) > 0.97
-        @test phase(g_of(g_lax_wendroff, 16, 0.4), θ16, 0.4) < 0.75
+        @test phase(g_of(pfc, 16, 0.4), θ16, 0.4) > 0.97
+        @test phase(g_of(LaxWendroff(), 16, 0.4), θ16, 0.4) < 0.75
     end
 
     @testset "one full traversal, from the symbol alone" begin
@@ -184,13 +192,13 @@ end
         # work-precision table as upwind's L² error, arrived at independently.
         c = 0.4
         steps = AMP_N/c
-        for (name, _, g, _, _) in amp_cases()
-            retained = abs(g_of(g, 1, c))^steps
+        for (name, scheme, _, _, _) in amp_cases()
+            retained = abs(g_of(scheme, 1, c))^steps
             println("  ", rpad(name, 22), "amplitude after one traversal = ",
                     round(retained; digits = 6))
         end
-        @test abs(g_of(g_upwind, 1, c))^steps < 0.85
-        @test abs(g_of(g_lax_wendroff, 1, c))^steps > 0.999
-        @test abs(g_of(g_pfc, 1, c))^steps > 0.999
+        @test abs(g_of(Upwind(), 1, c))^steps < 0.85
+        @test abs(g_of(LaxWendroff(), 1, c))^steps > 0.999
+        @test abs(g_of(pfc, 1, c))^steps > 0.999
     end
 end
