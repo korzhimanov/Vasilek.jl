@@ -343,7 +343,9 @@ This project has not been released; entries below describe work on `master`.
     must be uniform, since the field solve takes its spacing from the first two
     points (a stretched grid ran, 16% off in field energy, without an error),
     and `t` must hold at least two times (one gave a `BoundsError`). Both are
-    an `ArgumentError`. The velocity grid may still be non-uniform.
+    an `ArgumentError`. The velocity grid may still be non-uniform. Uniform
+    is to 1e-10 of the spacing or 8 ulps of the largest coordinate, whichever
+    is more, so a Float32 grid, which the harness ran, still runs.
 - **`verification/landau-damping-1d1v.jl` and `plasma-oscillations-1d1v.jl`
   run the driver.** They carried five copies of the Strang loop and their own
   Poisson solve, and had drifted:

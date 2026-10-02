@@ -28,6 +28,16 @@ first two points, so a stretched x grid gave a wrong field with no error (16% in
 the field energy for spacings within ±8% of the mean). The advection would take
 one; the field solve would need a different method.
 
+Uniform is to rounding: each spacing must match the first to 1e-10 of it, or
+to 8 ulps of the largest coordinate where that is more. The points are rounded
+on the scale of the largest of them, so the spacings of a uniform grid scatter
+by an ulp or two of it whatever built it -- at most 2 for a collected range,
+`LinRange`, `(1:N)*Δx` or `cumsum`, measured to N = 10⁶ in Float64 and in
+Float32. Against the spacing that is N·eps: far below 1e-10 for a Float64 grid
+of ordinary size, but a few parts in 10⁶ for a 64-point Float32 one, and past
+1e-10 for Float64 ones of N ≈ 5×10⁵ or far from the origin. The ulps admit
+those; a grid stretched by a millionth of a cell is refused either way.
+
 This used to be a second implementation, which took its wavenumbers from a
 float range whose length rounds: on the 8π box 61 of the even `Nx` in 8:512
 came out one short and the solve threw on its first call. The verification
@@ -36,8 +46,9 @@ runs now exercise the solver the package ships.
 function make_poisson(x)
     length(x) ≥ 2 || throw(ArgumentError("the x grid needs at least 2 points, got $(length(x))"))
     Δx = x[2] - x[1]
+    tol = max(1e-10*abs(Δx), 8eps(float(maximum(abs, x))))    # rounding; see above
     for j in 2:length(x)-1
-        abs(x[j+1] - x[j] - Δx) ≤ 1e-10*abs(Δx) || throw(ArgumentError(
+        abs(x[j+1] - x[j] - Δx) ≤ tol || throw(ArgumentError(
             "the Poisson solve needs a uniform x grid: spacing $(x[j+1] - x[j]) at node $j, $Δx at node 1"))
     end
     p = PoissonFFT1D(length(x), Δx)
