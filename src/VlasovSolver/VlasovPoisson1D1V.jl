@@ -10,7 +10,9 @@ that no user could run a Landau damping problem without copying it.
 """
 module VlasovPoisson1D1V
 
-using ..Advection: AbstractAdvection1D, PFCNonUniform, advect!
+using ..Advection: AbstractAdvection1D, PFCNonUniform, advect!,
+                   Upwind, Godunov, PiecewiseConstant, PiecewiseLinear, VanLeer, Superbee,
+                   SemiLagrangian, LinearSpline, PFC
 using ..StrangSplitting: make_time_step_2d!
 using ..Collisions: collide!
 using ..PoissonFourier1D: PoissonFFT1D, solve!
@@ -165,6 +167,52 @@ by the harmonic number, and in `ε_e` the two are the same bump.
 mode_amplitude(e, x, k) = 2*sum(e[j]*cis(-k*x[j]) for j in eachindex(x))/length(x)
 
 """
+    keeps_bounds(scheme, lo, hi)
+
+Whether `scheme` keeps data that starts inside `[lo, hi]` inside it, to
+round-off: what [`vlasov_poisson`](@ref) asks of a scheme given for one
+direction while the other is left to its default, a `PFCNonUniform` built on
+`[0, maximum(f)]` that refuses a line outside them.
+
+True for the schemes that keep their data between its own extrema -- `Upwind`,
+`Godunov` with a constant reconstruction or a limiter, the linear
+`SemiLagrangian` -- and for a `PFC` or `PFCNonUniform` whose own bounds lie
+inside `[lo, hi]`. False for `LaxWendroff`, `Godunov(PiecewiseLinear())` without
+a limiter and the quadratic and cubic `SemiLagrangian`, which are linear and
+above first order and so, by Godunov's theorem, overshoot; for a `PFC` bounded
+wider, whose limiter lets the data out to its own bounds; and for a scheme of any
+other type, which the driver cannot vouch for.
+
+Measured over 10080 runs of 20 steps on rough data in `[0, 1]` -- uniform
+random, a quarter of it zeroed, a step down to 1e-9, spikes on a floor of
+1e-300, a Maxwellian -- at twelve Courant numbers across `[-1, 1]`, every scheme
+on the same data. Those it accepts never took the data below 0, and its maximum
+moved by round-off alone: 7.3e-16 of it at worst for `Godunov`, in 7.5% of the
+runs, and 6.7e-16 for `PFC` bounded at the data's own maximum, which is the
+default's case. Those it refuses took the data below 0 in 62% to 64% of the
+runs, by up to 0.33 of its maximum, and above the maximum in 29% to 45%, by up
+to 0.24; a `PFC` bounded at 1.5 times the maximum took it above in 27%, by up
+to 0.115.
+"""
+keeps_bounds(::AbstractAdvection1D, lo, hi) = false
+keeps_bounds(::Upwind, lo, hi) = true
+keeps_bounds(::Godunov{PiecewiseConstant}, lo, hi) = true
+keeps_bounds(::Godunov{PiecewiseLinear, <:Union{VanLeer, Superbee}}, lo, hi) = true
+keeps_bounds(::SemiLagrangian{LinearSpline}, lo, hi) = true
+keeps_bounds(s::Union{PFC, PFCNonUniform}, lo, hi) = lo ≤ s.fmin && s.fmax ≤ hi
+
+# A scheme given for one direction while the other is left to its default has to
+# keep `f` inside the default's bounds; see `vlasov_poisson`.
+function refuse_unbounded(given, name, other, bound)
+    keeps_bounds(given, 0.0, bound) && return nothing
+    throw(ArgumentError(
+        "$name = $(sprint(show, given)) may take f outside [0, maximum(f)] = [0, $bound], " *
+        "the bounds of the PFCNonUniform that $other defaults to, which stops the run at " *
+        "the first line handed to it outside them. Pass $other as well: the same scheme, " *
+        "or a PFCNonUniform with bounds both sweeps keep (fmin = -Inf, fmax = Inf for none)"))
+end
+
+"""
     vlasov_poisson(x, v, f₀, t; scheme_x, scheme_v, invariants = false, modes = (),
                    nᵢ = nothing, renormalize = nᵢ === nothing, collisions = nothing)
 
@@ -271,6 +319,40 @@ sub-steps included, and none of them is out of bounds -- the two-stream runs
 carried past their velocity Courant limits into saturation among them, since
 [`line_advector`](@ref) splits every step that would cross a cell.
 
+**A scheme given for one direction while the other is left to its default has
+to keep `f` inside those bounds, or the call is refused**, with an
+`ArgumentError`, before the first step. Without that check the default refused
+such a call later, mid-run: it stops the run at the first line handed to it
+outside its bounds, and a scheme that does not keep them hands it one soon
+enough. At 50% amplitude on one
+wavelength of `k = 0.5`, 64 × 121 cells over ±6 (the case in `test_driver.jl`),
+`LaxWendroff` in `v` took `f` to −1.9e-9 on the 16th step and the cubic
+`SemiLagrangian` to −7.0e-10 on the 21st. [`keeps_bounds`](@ref) decides. It
+passes the schemes that keep their data between its own extrema -- `Upwind`,
+`Godunov` with a constant reconstruction or a limiter, the linear
+`SemiLagrangian` -- and a `PFC` or `PFCNonUniform` bounded inside
+`[0, maximum(f)]`, as `f -> PFC(fmin = 0.0, fmax = maximum(f))` is. It refuses
+`LaxWendroff`, `Godunov(PiecewiseLinear())` without a limiter, the quadratic and
+cubic `SemiLagrangian`, a `PFC` bounded wider, and a scheme of any other type.
+Given both schemes, the driver checks neither: the same scheme for both, as
+`verification/scheme-comparison.jl` passes them, or for the other direction a
+`PFCNonUniform` with bounds both sweeps keep -- `fmin = -Inf, fmax = Inf` for
+none, which is PFC's reconstruction with nothing to limit it.
+
+That refuses calls that ran. At 1% on ±4, where `f` comes no nearer 0 than
+1.3e-4, `LaxWendroff` and the cubic spline stay inside the bounds in either
+direction, to the end of a run. That was the problem's doing rather than the
+call's -- at 50% the same calls in `v` stop on steps 16 and 21 -- and a check
+made before the run sees only the call. The two ways of letting them all run
+were measured and are worse. A default that does not check its bounds keeps a
+limiter that data outside them turns inside out: with `LaxWendroff` in `v`, `f`
+ends 16% of the peak away from where the same run ends with no bounds at all,
+at a minimum of −0.041 against −0.104 -- corrupted, and looking the better for
+it. A default that drops its bounds runs, but it is not the scheme documented
+here, and it changes what a call that ran measures: `scheme_x = LaxWendroff()`
+at 1% reads γ 0.156% above the root with the default `v` bounded, and 0.289%
+with its bounds dropped.
+
 **`collisions` puts a collision operator in the step**, applied to every velocity
 line for half a step on either side of the kick:
 
@@ -313,6 +395,13 @@ function vlasov_poisson(x, v, f₀, t;
     pick(s, widths) = s === nothing ? PFCNonUniform(widths; fmin = 0.0, fmax = bound) :
                       s isa AbstractAdvection1D ? s : s(f)
     sx, sv = pick(scheme_x, Δx), pick(scheme_v, Δv)
+    # A default stops the run at the first line it is handed outside its bounds;
+    # a scheme given for the other direction that need not keep them is refused
+    # here instead, before the first step. See the docstring.
+    scheme_x === nothing && scheme_v !== nothing &&
+        refuse_unbounded(sv, :scheme_v, :scheme_x, bound)
+    scheme_v === nothing && scheme_x !== nothing &&
+        refuse_unbounded(sx, :scheme_x, :scheme_v, bound)
 
     advect_x! = line_advector(sx, Δx)
     advect_v! = line_advector(sv, Δv)

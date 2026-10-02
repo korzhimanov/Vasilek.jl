@@ -56,3 +56,98 @@ using Vasilek.VlasovPoisson1D1V: line_advector, cell_widths, substeps
     # BoundsError from copying the last entry forward.
     @test_throws ArgumentError vlasov_poisson(x, v, f₀, [0.0])
 end
+
+# A scheme the driver has never heard of. As a partner for a default it is
+# refused whatever it would do, since nothing vouches for its bounds; it never
+# takes a step here, so it needs no `advect!`.
+struct UnvouchedScheme <: AbstractAdvection1D end
+
+using Vasilek.VlasovPoisson1D1V: keeps_bounds
+
+@testset "a scheme given alone has to keep the default's bounds" begin
+    # One wavelength of k = 0.5 at 50% amplitude, 64 × 121 over ±6. With the
+    # other direction left to its default, a PFCNonUniform on [0, maximum(f)],
+    # a non-positive scheme used to stop the run from inside the default with a
+    # DomainError: LaxWendroff in v handed it f = -1.9e-9 on the 16th step, the
+    # cubic SemiLagrangian -7.0e-10 on the 21st. Both calls are now an
+    # ArgumentError before the first step -- in a one-step run too, which the old
+    # failure could not reach -- in either direction, and with collisions.
+    x = collect(range(4π/64; step = 4π/64, length = 64))
+    v = collect(-6.0:0.1:6.0)
+    f₀ = [exp(-u^2/2)/sqrt(2π)*(1 + 0.5cos(0.5y)) for u in v, y in x]
+    t = collect(0.0:0.05:50.0)
+    @test_throws ArgumentError vlasov_poisson(x, v, f₀, t; scheme_v = LaxWendroff())
+    @test_throws ArgumentError vlasov_poisson(x, v, f₀, t; scheme_v = SemiLagrangian(CubicSpline()))
+    for s in (LaxWendroff(), SemiLagrangian(CubicSpline()))
+        @test_throws ArgumentError vlasov_poisson(x, v, f₀, t[1:2]; scheme_v = s)
+        @test_throws ArgumentError vlasov_poisson(x, v, f₀, t[1:2]; scheme_x = s)
+        @test_throws ArgumentError vlasov_poisson(x, v, f₀, t[1:2]; scheme_v = s,
+                                                  collisions = BGK(1.0))
+    end
+    message = try
+        vlasov_poisson(x, v, f₀, t[1:2]; scheme_v = LaxWendroff())
+        ""
+    catch err
+        sprint(showerror, err)
+    end
+    @test occursin("LaxWendroff()", message) && occursin("Pass scheme_x as well", message)
+    # Refused as well: a PFC bounded wider than [0, maximum(f)], whose limiter
+    # lets f out to its own bound, and a scheme of a type the driver does not know.
+    @test_throws ArgumentError vlasov_poisson(x, v, f₀, t[1:2]; scheme_v = PFC(fmin = 0.0, fmax = 1.0))
+    @test_throws ArgumentError vlasov_poisson(x, v, f₀, t[1:2]; scheme_x = UnvouchedScheme())
+
+    # Given both schemes, the driver checks neither. The default given
+    # explicitly runs as it always did, and stops as the refusal says it would;
+    # the partners the message suggests run on, keep the mass, and leave f below
+    # 0 where LaxWendroff takes it.
+    Δx = cell_widths(x)
+    bounded = f -> PFCNonUniform(Δx; fmin = 0.0, fmax = maximum(f))
+    @test_throws DomainError vlasov_poisson(x, v, f₀, t[1:41]; scheme_v = LaxWendroff(),
+                                            scheme_x = bounded)
+    for sx in (LaxWendroff(), PFCNonUniform(Δx; fmin = -Inf, fmax = Inf))
+        r = vlasov_poisson(x, v, f₀, t[1:41]; scheme_v = LaxWendroff(), scheme_x = sx,
+                           invariants = true)
+        @test minimum(r.fmin) < 0
+        @test maximum(abs, r.mass .- r.mass[1])/r.mass[1] < 1e-12
+    end
+    # A scheme that keeps the bounds still partners a default, as before.
+    for s in (Godunov(PiecewiseLinear(), VanLeer()), f -> PFC(fmin = 0.0, fmax = maximum(f)))
+        r = vlasov_poisson(x, v, f₀, t[1:41]; scheme_v = s, invariants = true)
+        @test minimum(r.fmin) ≥ 0
+    end
+
+    # The classification, and the property it rests on. From a square pulse,
+    # twenty steps either way, the schemes it accepts stay inside [0, 1] --
+    # exactly, on this pulse; the bound leaves room for round-off -- and the
+    # ones it refuses leave it by 0.16 (the cubic spline) to 0.24 (LaxWendroff).
+    accepted = (Upwind(), Godunov(PiecewiseConstant()), Godunov(PiecewiseLinear(), VanLeer()),
+                Godunov(PiecewiseLinear(), Superbee()), SemiLagrangian(LinearSpline()),
+                PFC(fmin = 0.0, fmax = 1.0))
+    refused = (LaxWendroff(), Godunov(PiecewiseLinear()), SemiLagrangian(QuadraticSpline()),
+               SemiLagrangian(CubicSpline()))
+    pulse = [16 < i ≤ 40 ? 1.0 : 0.0 for i in 1:64]
+    function excursion(s)
+        worst = 0.0
+        for c in (-0.77, 0.3)
+            src, dst, ws = copy(pulse), similar(pulse), workspace(s, length(pulse))
+            for _ in 1:20
+                advect!(dst, src, s, c, ws)
+                copyto!(src, dst)
+                worst = max(worst, -minimum(src), maximum(src) - 1)
+            end
+        end
+        return worst
+    end
+    for s in accepted
+        @test keeps_bounds(s, 0.0, 1.0)
+        @test excursion(s) ≤ 4eps()
+    end
+    for s in refused
+        @test !keeps_bounds(s, 0.0, 1.0)
+        @test excursion(s) > 0.05
+    end
+    @test keeps_bounds(PFCNonUniform(fill(0.5, 8); fmin = 0.0, fmax = 1.0), 0.0, 1.0)
+    @test !keeps_bounds(PFC(fmin = 0.0, fmax = 1.5), 0.0, 1.0)
+    @test !keeps_bounds(PFC(fmin = -0.1, fmax = 1.0), 0.0, 1.0)
+    @test !keeps_bounds(UnvouchedScheme(), 0.0, 1.0)
+end
