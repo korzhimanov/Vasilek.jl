@@ -1,7 +1,7 @@
 module MaxwellBenchmarks
 
 using BenchmarkTools
-using Vasilek: PoissonFourier1D, FDTD1D
+using Vasilek: PoissonFourier1D, FDTD1D, workspace
 
 const SUITE = BenchmarkGroup()
 SUITE["poisson"] = BenchmarkGroup()
@@ -14,8 +14,8 @@ const Δt = 0.8*Δx
 for N in SIZES
     ρ = [sin(2π*j*Δx) for j = 0:N]
     e = similar(ρ)
-    solve! = PoissonFourier1D.generate_solver(ρ, Δx)
-    SUITE["poisson"]["solve $N"] = @benchmarkable $solve!($e, $ρ)
+    p = PoissonFourier1D.PoissonFFT1D(length(ρ), Δx); ws = workspace(p)
+    SUITE["poisson"]["solve $N"] = @benchmarkable PoissonFourier1D.solve!($e, $ρ, $p, $ws)
 
     mesh = FDTD1D.YeeMesh1D{Float64}(N)
     pulse = (y = (t, x) -> 0.0, z = (t, x) -> 0.0)

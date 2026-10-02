@@ -1,7 +1,8 @@
 # Migrating to 0.2
 
-Schemes are values now, and `advect!` dispatches on them. `generate_solver` is
-gone, with no compatibility shim: the module names it lived under (`Upwind`,
+Schemes are values now, and `advect!` dispatches on them. The advection
+`generate_solver`s are gone, with no compatibility shim (the Poisson one is
+deprecated rather than removed; see below): the module names it lived under (`Upwind`,
 `PFC`, …) are the new type names, so the old and new API cannot coexist in one
 namespace. This was the one point where the plan for this change had to give
 way to the language.
@@ -96,6 +97,20 @@ or use `SemiLagrangian`.
 For the uniform-grid schemes it is the Courant number `vΔt/Δx`. For
 `PFCNonUniform` it is the displacement `vΔt`, a length: a non-uniform grid has
 no single Courant number to quote.
+
+## Poisson
+
+```julia
+# 0.1
+solve! = PoissonFourier1D.generate_solver(ρ₀, Δx)   # still works, deprecated
+solve!(e, ρ)
+
+# 0.2
+using Vasilek.PoissonFourier1D: PoissonFFT1D, solve!
+p = PoissonFFT1D(length(ρ), Δx)          # derivative = :spectral for the exact one
+ws = workspace(p)                        # one per task
+solve!(e, ρ, p, ws)
+```
 
 ## Collisions
 

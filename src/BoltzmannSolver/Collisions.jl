@@ -11,7 +11,7 @@ using NumericalIntegration
 # One `workspace` for the package: a function of its own here was a second
 # generic that the exported name never reached, so `workspace(BGK(τ), n)`
 # was a MethodError.
-import ..Advection: workspace
+import ..workspace
 
 # `Landau1P` is defined here but not exported: it is experimental, see its
 # docstring.

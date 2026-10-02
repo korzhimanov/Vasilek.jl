@@ -1,4 +1,7 @@
+using Vasilek
 using Vasilek.PoissonFourier1D
+using Vasilek.PoissonFourier1D: PoissonFFT1D
+using FFTW
 
 # The 1D spectral Poisson solve.
 #
@@ -12,8 +15,7 @@ using Vasilek.PoissonFourier1D
     Δx = 0.01
     ρ = [sin(2π*i*Δx) for i = 0:999]
     e = similar(ρ)
-    solve! = PoissonFourier1D.generate_solver(ρ, Δx)
-    solve!(e, ρ)
+    PoissonFourier1D.solve!(e, ρ, PoissonFFT1D(length(ρ), Δx))
     @test sum(@. (e - [-cos(2π*i*Δx)/2π for i = 0:999])^2) ≈ 0 atol=1e-3
 end
 
@@ -49,7 +51,7 @@ end
         x = [i*Δx for i = 0:N-1]
         ρ = sin.(k.*x)
         e = similar(ρ)
-        PoissonFourier1D.generate_solver(ρ, Δx)(e, ρ)
+        PoissonFourier1D.solve!(e, ρ, PoissonFFT1D(length(ρ), Δx))
         exact = @. -cos(k*x)/k
         predicted = (sin(k*Δx)/(k*Δx)) .* exact
         dev = maximum(abs, e .- predicted)/maximum(abs, exact)
@@ -66,7 +68,8 @@ end
     N = 256; Δx = 0.02; L = N*Δx
     x = [i*Δx for i = 0:N-1]
     ρ = sin.(2π*x/L) .+ 0.5*cos.(6π*x/L)
-    solve! = PoissonFourier1D.generate_solver(ρ, Δx)
+    p = PoissonFFT1D(N, Δx); ws = workspace(p)
+    solve! = (e, ρ) -> PoissonFourier1D.solve!(e, ρ, p, ws)
     e = similar(ρ); solve!(e, ρ)
 
     # `F[1] = 0` discards the zero mode, so a net charge is ignored rather than
@@ -105,7 +108,7 @@ end
         Δx = L/N
         x = [i*Δx for i = 0:N-1]
         ρ = sin.(k.*x); e = similar(ρ)
-        PoissonFourier1D.generate_solver(ρ, Δx)(e, ρ)
+        PoissonFourier1D.solve!(e, ρ, PoissonFFT1D(length(ρ), Δx))
         push!(errs, maximum(abs, e .- (@. -cos(k*x)/k)))
     end
     for i = 2:length(errs)
@@ -113,5 +116,72 @@ end
         println("  N = ", rpad(2^(6+i), 5), " err = ", rpad(round(errs[i]; sigdigits = 4), 11),
                 " order = ", round(p; digits = 4))
         @test isapprox(p, 2.0; atol = 0.05)
+    end
+end
+
+@testset "Poisson: the spectral derivative is exact" begin
+    # `derivative = :spectral` takes ê = −iρ̂/k, so a resolved mode's field is
+    # the continuum one, with no sinc factor, at odd and even N.
+    for (N, m, Δx) in [(256, 5, 0.02), (255, 5, 0.02), (128, 63, 0.05), (64, 1, 0.1)]
+        L = N*Δx; k = 2π*m/L
+        x = [i*Δx for i = 0:N-1]
+        ρ = sin.(k.*x)
+        e = PoissonFourier1D.solve!(similar(ρ), ρ, PoissonFFT1D(N, Δx; derivative = :spectral))
+        @test maximum(abs, e .- (@. -cos(k*x)/k))/(1/k) < 1e-12
+    end
+    # the Nyquist mode of an even grid gives no field, as with the centred form
+    N = 64; ρ = [(-1.0)^i for i = 0:N-1]
+    @test maximum(abs, PoissonFourier1D.solve!(similar(ρ), ρ, PoissonFFT1D(N, 0.1; derivative = :spectral))) < 1e-14
+    @test_throws ArgumentError PoissonFFT1D(N, 0.1; derivative = :fourth)
+    @test_throws ArgumentError PoissonFFT1D(2, 0.1)
+    @test_throws ArgumentError PoissonFFT1D(N, -0.1)
+end
+
+@testset "Poisson: one value, any vector, one workspace per task" begin
+    N = 128; Δx = 0.05
+    x = [i*Δx for i = 0:N-1]
+    p = PoissonFFT1D(N, Δx)
+    ρ = sin.(2π*x/(N*Δx))
+    ref = PoissonFourier1D.solve!(similar(ρ), ρ, p)
+
+    # a view as input and as output, as a column of a 2D array would be
+    A = zeros(N, 3); A[:, 2] .= ρ
+    E = zeros(N, 3)
+    PoissonFourier1D.solve!(view(E, :, 2), view(A, :, 2), p, workspace(p))
+    @test E[:, 2] == ref
+
+    # the 0.1 closure is a wrapper with the same answer, deprecated
+    old = @test_deprecated PoissonFourier1D.generate_solver(ρ, Δx)
+    @test old(similar(ρ), ρ) == ref
+
+    # many tasks, one solver value, a workspace each: every answer is the
+    # serial one. The 0.1 closure shared its buffers and could not do this.
+    ρs = [sin.(2π*j*x/(N*Δx)) for j in 1:16]
+    serial = [PoissonFourier1D.solve!(similar(x), r, p) for r in ρs]
+    wss = [workspace(p) for _ in 1:Threads.nthreads()*2]
+    results = Vector{Vector{Float64}}(undef, length(ρs))
+    chunks = collect(Iterators.partition(eachindex(ρs), cld(length(ρs), length(wss))))
+    Threads.@sync for (c, idx) in enumerate(chunks)
+        Threads.@spawn for i in idx
+            results[i] = PoissonFourier1D.solve!(similar(x), ρs[i], p, wss[c])
+        end
+    end
+    @test results == serial
+
+    @test_throws DimensionMismatch PoissonFourier1D.solve!(zeros(N-1), ρ, p)
+    @test_throws DimensionMismatch workspace(p, N + 1)
+end
+
+@testset "Poisson: the centred form is the 0.1 solver, bit for bit" begin
+    # Reimplemented here exactly as 0.1 wrote it, so that any change in the
+    # arithmetic of the default path shows up as a changed bit.
+    for (N, Δx) in ((100, 0.01), (101, 0.03), (256, 0.2))
+        ρ = [sin(2π*i/N) + 0.3cos(6π*i/N) for i = 0:N-1]
+        ω = collect(2π*FFTW.rfftfreq(N, 1/Δx)); ω[1] = ω[2]
+        F = FFTW.rfft(ρ); F[1] = 0
+        F .*= -1.0./(ω.^2)
+        φ = FFTW.irfft(F, N)
+        old = [0.5*(φ[mod1(i+1, N)] - φ[mod1(i-1, N)])/Δx for i = 1:N]
+        @test PoissonFourier1D.solve!(similar(ρ), ρ, PoissonFFT1D(N, Δx)) == old
     end
 end

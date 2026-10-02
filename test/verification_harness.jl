@@ -24,25 +24,18 @@ using LinearAlgebra: svd, pinv, eigvals
 
 """
 Spectral Poisson solve on a uniform periodic x grid, returning `e` with
-`∂e/∂x = ρ`: internally `φ'' = ρ` and `e = +dφ/dx` by centred difference.
+`∂e/∂x = ρ`: the package's `PoissonFFT1D` with its centred derivative and a
+workspace of its own.
 
-The wavenumbers come from `rfftfreq`, whose length is `rfft`'s by construction.
-A float range `0:1/L:0.5/Δx` was used here, and its length rounds: on the 8π box
-61 of the even `Nx` in 8:512 came out one short and the solve threw on its
-first call.
+This used to be a second implementation, which took its wavenumbers from a
+float range whose length rounds: on the 8π box 61 of the even `Nx` in 8:512
+came out one short and the solve threw on its first call. The verification
+runs now exercise the solver the package ships.
 """
 function make_poisson(x)
-    Δx = x[2] - x[1]
-    ω = 2π*collect(FFTW.rfftfreq(length(x), 1/Δx))
-    ω[1] = ω[2]
-    return function (e, ρ)
-        F = FFTW.rfft(ρ)
-        φ = FFTW.irfft(F ./ (-ω.^2), length(ρ))
-        e[:] = vcat(0.5*[φ[2] - φ[end]],
-                    0.5*(φ[3:end] - φ[1:end-2]),
-                    0.5*[φ[1] - φ[end-1]]) ./ Δx
-        return e
-    end
+    p = PoissonFourier1D.PoissonFFT1D(length(x), x[2] - x[1])
+    ws = workspace(p)
+    return (e, ρ) -> PoissonFourier1D.solve!(e, ρ, p, ws)
 end
 
 cell_widths(z) = vcat([z[2]-z[1]], 0.5*(z[3:end] - z[1:end-2]), [z[end]-z[end-1]])
@@ -878,7 +871,9 @@ function wakefield(; Δx = 0.05*2π,
     ε_e = zeros(Nt)
     ε = zeros(Nt)
 
-    solve_poisson! = PoissonFourier1D.generate_solver(nᵢ, Δx)
+    poisson = PoissonFourier1D.PoissonFFT1D(length(x), Δx)
+    poisson_ws = workspace(poisson)
+    solve_poisson!(e, ρ) = PoissonFourier1D.solve!(e, ρ, poisson, poisson_ws)
     e = similar(x)
     n[1, :] = nᵢ
     solve_poisson!(e, n[1, :] - nᵢ)

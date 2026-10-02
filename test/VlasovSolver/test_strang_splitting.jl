@@ -113,11 +113,11 @@ end
         @test errs[1] < 5e-3
     end
 
-    @testset "f[2] is stale on return" begin
-        # The third sweep writes f[1] and never transposes back, so on return
-        # f[1] is current and f[2] lags by the final half-step. Every caller in
-        # this repository reads diagnostics off f[2], so the discrepancy is
-        # real and worth pinning rather than discovering later.
+    @testset "both arrays hold the step on return" begin
+        # The third sweep wrote f[1] and never transposed back, so f[2] used to
+        # lag by the final half step (and a test pinned that as expected). Two
+        # independent arrays now agree on return; the harness's shared
+        # `g = f'` is consistent by construction and skips the copies.
         Nx, Nv = 32, 24
         g = [exp(-((i-16)/5)^2 - ((j-12)/4)^2) for i = 1:Nx, j = 1:Nv]
         f = Matrix(g')
@@ -125,10 +125,49 @@ end
         StrangSplitting.make_time_step_2d!(
             (g, f), (_ -> fill(0.3, Nv), _ -> fill(0.2, Nx)),
             (scheme_advector(s, Nx, 1.0), scheme_advector(s, Nv, 1.0)))
-        lag = maximum(abs, f .- Matrix(g'))
-        println("  max|f[2] - f[1]'| after a real step = ", lag,
-                "   (nonzero: f[2] lags by the last half-step)")
-        @test lag > 1e-6
+        @test f == Matrix(g')
+
+        # and the shared layout gives the same step, bit for bit
+        g₂ = [exp(-((i-16)/5)^2 - ((j-12)/4)^2) for i = 1:Nx, j = 1:Nv]
+        f₂ = Matrix(g₂')
+        StrangSplitting.make_time_step_2d!(
+            (f₂', f₂), (_ -> fill(0.3, Nv), _ -> fill(0.2, Nx)),
+            (scheme_advector(s, Nx, 1.0), scheme_advector(s, Nv, 1.0)))
+        @test f₂ == f
+    end
+
+    @testset "strang_step! is the same step on schemes and workspaces" begin
+        # The scheme-value form of the splitting must take exactly the step the
+        # closure form takes with the same schemes, for a uniform scheme and for
+        # PFCNonUniform, whose argument is a displacement.
+        Nx, Nv = 32, 24
+        g₀ = [exp(-((i-16)/5)^2 - ((j-12)/4)^2) for i = 1:Nx, j = 1:Nv]
+        cx = collect(range(-0.6, 0.6, length = Nv))
+        cv(f) = [0.4*sin(2π*i/Nx) + 1e-3*sum(view(f, i, :)) for i in 1:Nx]
+        for (sx, sv) in ((SemiLagrangian(CubicSpline()), SemiLagrangian(CubicSpline())),
+                         (PFC(fmin = 0.0, fmax = 1.0), Godunov(PiecewiseLinear(), VanLeer())),
+                         (PFCNonUniform(fill(1.0, Nx); fmin = 0.0, fmax = 1.0),
+                          PFCNonUniform(fill(1.0, Nv); fmin = 0.0, fmax = 1.0)))
+            g = copy(g₀); f = Matrix(g')
+            for _ in 1:5
+                StrangSplitting.make_time_step_2d!((g, f), (_ -> cx, cv),
+                    (scheme_advector(sx, Nx, 1.0), scheme_advector(sv, Nv, 1.0)))
+            end
+            h = copy(g₀)
+            ws = workspace(sx, sv, h)
+            for _ in 1:5
+                @test StrangSplitting.strang_step!(h, sx, sv, cx, cv, ws) === h
+            end
+            @test h == g
+        end
+    end
+
+    @testset "strang_step! checks its shapes" begin
+        h = rand(8, 6)
+        s = Upwind()
+        ws = workspace(s, s, h)
+        @test_throws DimensionMismatch StrangSplitting.strang_step!(h, s, s, zeros(5), _ -> zeros(8), ws)
+        @test_throws DimensionMismatch StrangSplitting.strang_step!(h, s, s, zeros(6), _ -> zeros(7), ws)
     end
 
     # ------------------------------------------------------------------
