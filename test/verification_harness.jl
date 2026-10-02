@@ -1053,11 +1053,12 @@ Returns `t`, the times the field was sampled at, which are mid-step; `x`, `v`,
 `Δx`; `ε_e` and `E`, the complex amplitude of the `k` mode, at those times; and
 the driver's result `r`.
 
-**The velocity window is ±8, where the collisionless case runs on ±4**, and that
-is the operator's requirement rather than the physics'. `BGK` takes each line's
-temperature by the trapezoid over the window it is given and puts back a
-Maxwellian that fills the whole real line, so a window that cuts the tail cools
-every line it relaxes; see the testset. `Δt` falls with the window to keep the
+**The velocity window is ±8, where the collisionless case runs on ±4.** It was
+the operator's requirement: the sampled Maxwellian, `BGK(τ; conservative =
+false)`, takes each line's temperature over the window and puts back one that
+fills the whole real line, so a window that cuts the tail cools every line it
+relaxes. The default discrete Maxwellian does not, and the testset runs it on
+±4 too; ±8 stays so that the quoted rates do not move. `Δt` falls with the window to keep the
 x-sweep's Courant number where the collisionless case has it, `vmax·Δt/Δx = 0.81`,
 and at that step splitting the collisions from the rest costs nothing that shows:
 halving `Δt` alone moves γ by 0.04% at `ν = 1` and 0.05% at `ν = 3`, and ω by

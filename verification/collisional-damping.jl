@@ -124,23 +124,28 @@ for (q, marker) in ((1.0, :circle), (3.0, :square))
 end
 savefig(branch, joinpath(here, "collisional-damping-plane.png"))
 
-# ---- what the velocity window costs. BGK takes each line's temperature over
-# the window it is given and puts back a Maxwellian on the whole line; on ±4 the
-# tail it cannot see is missing from the temperature, and every relaxation cools
-# the line by it. PFC refuses the result at its default bound -- the narrowed
-# Maxwellian peaks above the initial maximum of f -- so this run has 50% of
-# headroom.
+# ---- what the velocity window costs. The sampled Maxwellian of 0.1,
+# `BGK(τ; conservative = false)`, takes each line's temperature over the window it
+# is given and puts back a Maxwellian on the whole line; on ±4 the tail it cannot
+# see is missing from the temperature, and every relaxation cools the line by it.
+# PFC refuses the result at its default bound -- the narrowed Maxwellian peaks
+# above the initial maximum of f -- so this run has 50% of headroom. The default
+# discrete Maxwellian conserves the energy on ±4 as on ±8.
 loose(w) = f -> PFCNonUniform(w; fmin = 0.0, fmax = 1.5*maximum(f))
+discrete4 = collisional_landau(1.0; vmax = 4.0, Δt = 0.08, invariants = true)
 narrow = collisional_landau(1.0; vmax = 4.0, Δt = 0.08, invariants = true,
+                            collisions = BGK(1.0; conservative = false),
                             scheme_x = loose(cell_widths(runs[1.0].x)),
                             scheme_v = loose(cell_widths(collect(-4.0:0.1:4.0))))
 wide = collisional_landau(1.0; invariants = true)
 drift(r) = (r.r.ε[1:end-1] .- r.r.ε[1]) ./ r.r.ε[1]
 window = plot(xlabel = "t", ylabel = "Δε/ε", legend = :bottomleft, size = (820, 500),
               title = "Total energy at ν = 1, on two velocity windows")
-plot!(window, narrow.t, drift(narrow); label = "v ∈ [−4, 4]", color = :crimson, linewidth = 2)
+plot!(window, narrow.t, drift(narrow); label = "v ∈ [−4, 4], sampled Maxwellian", color = :crimson, linewidth = 2)
+plot!(window, discrete4.t, drift(discrete4); label = "v ∈ [−4, 4], discrete Maxwellian", color = :steelblue, linewidth = 2)
 plot!(window, wide.t, drift(wide); label = "v ∈ [−8, 8]", color = :black, linewidth = 2)
 savefig(window, joinpath(here, "collisional-damping-window.png"))
-println("ν = 1: energy by t = 60 moves ", round(drift(narrow)[end]; sigdigits = 3), " on ±4 and ",
+println("ν = 1: energy by t = 60 moves ", round(drift(narrow)[end]; sigdigits = 3), " on ±4 sampled, ",
+        round(drift(discrete4)[end]; sigdigits = 3), " on ±4 discrete, and ",
         round(drift(wide)[end]; sigdigits = 3), " on ±8")
 println("wrote collisional-damping-{roots,energy,plane,window}.png to ", here)

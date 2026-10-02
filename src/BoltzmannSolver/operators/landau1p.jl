@@ -67,7 +67,7 @@ function collide!(dest, src, op::Landau1P, v, Δt, ws::Landau1PWorkspace)
                 J[j] = (src[i]*∂f∂v(src, v, j) - src[j]*Δfᵢ)*2*op.Tₜ/abs(v[i]-v[j])^3
             end
         end
-        I[i] = op.L*op.A*integrate(v, J)
+        I[i] = op.L*op.A*_trapezoid(v, J)
     end
 
     for i in eachindex(src)
