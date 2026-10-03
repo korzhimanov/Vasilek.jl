@@ -3,25 +3,12 @@
 
 One-dimensional advection schemes, as types.
 
-Each scheme is an immutable value; `advect!` dispatches on it. Scratch memory,
-where a scheme needs any, is an explicit argument obtained from `workspace`.
-
-This replaces the previous `generate_solver` closure factories. The reasons,
-in order of weight:
-
-  * **Reentrancy, and so the 2D2P goal.** A 2D2P step sweeps O(N²) independent
-    lines per direction, which is work you want to hand to `Threads.@threads`.
-    The old design could not: `PFCNonUniform` captured one `f_tmp` shared by
-    every line, and `SemiLagrangian` held its buffer in the closure. Moving the
-    arrays and the scratch into the argument list makes the scheme value
-    immutable and shareable, with only the workspace per task.
-  * The duplication was never a code-generation problem. It was an argument
-    baked into a closure, and it is fixed by passing the argument.
-  * Named types have a method table: docstrings, `methods()`, `precompile`
-    targets, and readable stack traces. Anonymous closures have none of those.
-  * Invalid options fail at construction. The `Symbol`-valued options are
-    singleton types now, so `Godunov(:typo)` is a `MethodError` where it is
-    written rather than a call on `nothing` from inside the hot loop.
+Each scheme is an immutable value and `advect!(dest, src, scheme, c, ws)`
+dispatches on it. Scratch memory, where a scheme needs any, is an explicit
+argument from [`workspace`](@ref), one per task, so a scheme value can be
+shared by every line of a multidimensional sweep and by every thread. Options
+are types (`PiecewiseLinear()`, `VanLeer()`, …), so an invalid one fails where
+it is written. Boundaries are periodic.
 """
 module Advection
 
@@ -61,29 +48,16 @@ struct VanLeer <: AbstractLimiter end
 
 """
 Superbee limiter [Roe, Annu. Rev. Fluid Mech. 18, 337 (1986)]:
-`r -> max(0, min(2r, 1), min(r, 2))`. It is the upper edge of Sweby's
-second-order total-variation-diminishing region: of all limiters that keep
-[`Godunov`](@ref) with [`PiecewiseLinear`](@ref) second order and
-total-variation diminishing up to `|c| = 1`, it is the most compressive.
+`r -> max(0, min(2r, 1), min(r, 2))`, the upper edge of Sweby's second-order
+total-variation-diminishing region and so the most compressive limiter that
+keeps [`Godunov`](@ref) with [`PiecewiseLinear`](@ref) second order and TVD up
+to `|c| = 1`.
 
-That makes it the choice for discontinuities and a poor one for smooth data.
-One traversal at `c = 0.4` and N = 512 leaves these L² errors:
-
-  * square pulse: 1.58e-2, the lowest of any scheme `test_comparison.jl`
-    compares ([`VanLeer`](@ref) leaves 2.77e-2, the cubic
-    [`SemiLagrangian`](@ref) 2.01e-2);
-  * sine: 1.74e-4, twice VanLeer's 8.55e-5.
-
-It is second order in L¹, but only from about N = 128: a fit from N = 32 to
-256 reads 1.65.
-
-Its compression is anti-diffusion. On smooth data it steepens slopes, and the
-L² norm of a perturbation grows, where every other scheme here loses some. In a
-Vlasov–Poisson run that biases a damping rate low. Landau damping at `k = 0.5`,
-refined from `Nx = 32` to 256 at a fixed Courant number, goes −2.58%, −0.21%,
-−0.67%, +0.13% with Superbee, against +7.73%, +1.45%, +0.53%, +0.44% with
-`VanLeer`. So Superbee is for sharp fronts, and `VanLeer` or [`PFC`](@ref) for
-smooth phase-space dynamics.
+Use it for sharp fronts. Its compression is anti-diffusion: on smooth data it
+steepens slopes, so the L² norm of a perturbation can grow, which biases a
+damping rate low in a Vlasov–Poisson run. For smooth phase-space dynamics prefer
+[`VanLeer`](@ref) or [`PFC`](@ref). `test/test_comparison.jl` and
+`verification/scheme-comparison.jl` quantify both.
 """
 struct Superbee <: AbstractLimiter end
 
@@ -161,19 +135,10 @@ which is Sweby's flux-limited Lax–Wendroff [Sweby, SIAM J. Numer. Anal. 21 (5)
 `|c| ≤ 1`. At `|c| = 1` the correction vanishes and the step is an exact
 one-cell shift.
 
-The `(1 − c)` factor is what makes the scheme second order. Without it, as in
-0.1, the flux is the reconstruction's value at the interface and the update is
-forward Euler on a limited slope. That scheme is first order at a fixed Courant
-number and total-variation diminishing only to `|c| ≤ 1/2`, and with
-`NoLimiter` its centred flux amplifies every mode. Measured with `VanLeer`,
-the factor moved three numbers:
-
-  * the L¹ order on `1 + 0.5 sin` at `c = 0.4`, fitted from N = 32 to 256,
-    from 1.00 to 2.09;
-  * at N = 128, a square pulse's total variation after 200 steps at `c = 0.8`,
-    from 4.8e5 times its initial value to 1;
-  * and at N = 128, the error on `1 + 0.5 sin` after 100 steps at `c = 0.9`,
-    from 893 to 1.1e-3.
+The `(1 − c)` factor is what makes the scheme second order; 0.1's
+`:Riemann_linear` lacked it and was first order, and TVD only to `|c| ≤ 1/2`.
+A limiter given with `PiecewiseConstant()` would have no slope to act on and is
+refused.
 """
 struct Godunov{R<:AbstractReconstruction, L<:AbstractLimiter} <: AbstractAdvection1D
     reconstruction::R
@@ -207,19 +172,16 @@ SemiLagrangian() = SemiLagrangian(CubicSpline())
 
 Positive Flux Conservative scheme on a uniform grid.
 
-`fmin` and `fmax` are required and bracket the data. By Liouville's theorem `f`
-stays within the extrema of the *initial* condition along characteristics, so
-the caller supplies the global initial bounds; they cannot be derived per line
-inside a multidimensional sweep. A default here would be silently wrong for any
-data exceeding it, which is a mistake this package has already made once — the
-two former overloads disagreed by a factor of 740 because one defaulted
-`fmax = 1`.
+`fmin` and `fmax` are required and must bracket the data: the limiter is built
+on them, and data outside them is corrupted rather than clipped. By Liouville's
+theorem `f` stays within the extrema of the *initial* condition, so pass the
+global initial bounds; they cannot be derived per line inside a sweep. There is
+deliberately no default.
 
-`checked` guards against exactly that, at the cost of a `minimum`/`maximum` pass
-per call: measured at 7% of the step at N = 10000 on Julia 1.13 and 17% on 1.10,
-whose `minimum` and `maximum` take two and a half times as long. It is a type
-parameter, so `checked = false` compiles the check away entirely for production
-runs where the bounds are known good.
+With `checked = true` every call verifies `fmin ≤ minimum(src)` and
+`maximum(src) ≤ fmax` and throws a `DomainError` otherwise, at the cost of one
+`minimum`/`maximum` pass. `checked` is a type parameter, so `checked = false`
+compiles the check away for runs whose bounds are known good.
 """
 struct PFC{T<:AbstractFloat, Checked} <: AbstractAdvection1D
     fmin::T
@@ -238,23 +200,15 @@ end
 Positive Flux Conservative scheme on a static non-uniform grid, `Δx` being the
 cell widths. Needs a [`workspace`](@ref).
 
-The limiter coefficient is computed per cell triple. A single global value
-would let one refined region tighten the limiter across the whole domain.
+The limiter coefficient is computed per cell triple, so a refined region does
+not tighten the limiter elsewhere. `fmin`, `fmax` and `checked` are
+[`PFC`](@ref)'s, with the same check.
 
-`fmin`, `fmax` and `checked` are [`PFC`](@ref)'s, and so is the check. The bounds
-are built into the limiter -- its `ξ(fmax − f)`, `2(fmax − f)` on a uniform grid,
-turns negative above `fmax` -- so data outside them is not clipped but corrupted.
-Until the check was added here nothing said so: the verification harness ran
-every case at `fmax = 1`, and an equilibrium peaking at 1.79 ended 43.6% of its
-peak away from itself by `t = 50` without an error.
-
-The check is the same pass over the same data as `PFC`'s, and the step around it
-is dearer, so it is a smaller share: measured at 5% of the step at N = 10000 on
-Julia 1.13 and 10% on 1.10, against `PFC`'s 7% and 17%.
-
-`advect!` takes a displacement here, not a Courant number, and it is bounded by
-the *narrowest* cell: `|α| ≤ minimum(Δx)`, computed once here and checked on
-every call. See [`_validate_courant`](@ref) for why the narrowest.
+`advect!` takes a displacement `α = vΔt` here, not a Courant number, since a
+non-uniform grid has none, and it is bounded by the *narrowest* cell:
+`|α| ≤ minimum(Δx)`. Every cell gives up its outgoing flux alone, so a wider
+step is wrong in the narrowest cell however wide its neighbours are.
+`Vasilek.VlasovPoisson1D1V.line_advector` splits a longer step into sub-steps.
 """
 struct PFCNonUniform{T<:AbstractFloat, Checked} <: AbstractAdvection1D
     Δx::Vector{T}
@@ -345,39 +299,19 @@ advect!(dest, src, scheme::AbstractAdvection1D, c) =
 """
     _validate(dest, src, scheme, c, ws)
 
-Argument check run at the top of every `advect!` method.
+Argument check run at the top of every `advect!` method. Each of these used to
+give a plausible wrong answer instead of an error:
 
-Four ways of calling `advect!` wrongly used to produce a plausible wrong
-answer rather than an error, and this package has twice paid for exactly that
-class of failure -- the two `PFC` overloads that disagreed by a factor of 740,
-and the `LaxWendroff` methods that sized their loops from a captured array.
+  * `dest` sharing memory with `src` (`Base.mightalias`, so a view counts):
+    the stencils read neighbours of `src` that `dest` has already overwritten;
+  * unequal lengths, fewer than three cells, or non-one-based indexing;
+  * a workspace not exactly the one `workspace(scheme, length(src))` returns
+    (the spline prefilter runs over the whole buffer, so a longer one is as
+    wrong as a shorter one);
+  * a step the scheme cannot take; see [`_validate_courant`](@ref).
 
-  * **`dest` aliasing `src`**, the same array or a view sharing its memory
-    (`Base.mightalias`; `===` alone let `view(src, :)` through). Every scheme except `SemiLagrangian` and
-    `PFCNonUniform` reads neighbours of `src` that it has already overwritten
-    in `dest`, so aliasing silently corrupts the result -- measured 0.013 for
-    `Upwind` and 0.21 for `PFC`. The two that survive do so by accident of
-    holding a scratch copy, which is not a contract worth relying on, so
-    aliasing is rejected uniformly.
-  * **Unequal lengths.** `length(dest) < length(src)` truncated silently in the
-    finite-difference schemes, wrapping periodically at the *shorter* length;
-    the other direction threw `BoundsError`. Half-loud is worse than either.
-  * **A workspace of the wrong size.** Undersized already threw. Oversized did
-    not: `interpolate!` prefilters the whole buffer, so a `SemiLagrangian`
-    handed a workspace built for a longer line returned garbage -- measured
-    max|Δ| ≈ 0.4 -- with no complaint.
-  * **A Courant number above one**, for every scheme that has a limit. One step
-    past it still looks right -- `LaxWendroff` at `c = 1.2` is 5.2e-6 from the
-    exact shift, against 1.7e-6 at 0.9 -- and a hundred are 9.1e10 from it. See
-    [`_validate_courant`](@ref).
-
-The checks are four comparisons outside the loop and cost no allocation; the
-error paths are `@noinline` so their message construction stays out of the hot
-code. Timed the way `PFC`'s `checked` pass is, the fourth is lost in the noise:
-at N = 10000 the schemes ran between 0.3% and 7.3% *faster* with it than without,
-against a 2.2% shift in a scheme whose code it does not touch, and the same
-method put `checked` at 8.0%. As a call on its own it takes under 3 ns, 0.16% of
-the cheapest step at that size, `Upwind`'s 1.9 µs.
+The checks are comparisons outside the loop and allocate nothing; the error
+paths are `@noinline`.
 """
 @inline function _validate(dest, src, scheme::AbstractAdvection1D, c, ws)
     Base.require_one_based_indexing(dest, src)
@@ -451,30 +385,15 @@ its narrowest cell. `c = ±1` exactly is accepted; so is any finite `c` by
 `SemiLagrangian`, since characteristic tracing has no Courant limit. `NaN` and
 `±Inf` are refused by every scheme.
 
-`Upwind`, `LaxWendroff`, `Godunov` and `PFC` are explicit, and none of them
-survives a characteristic crossing more than one cell per step. Measured over
-every mode of an N = 128 grid, the worst growth per step at `c = 1.2` is 1.40
-for `Upwind` and `Godunov(PiecewiseConstant())`, 1.88 for `LaxWendroff` and
-1.18 for `PFC` with its limiter out of reach; at `c = 1` those four are an
-exact one-cell shift. What grows is round-off at the grid scale, which is what
-makes the answer plausible rather than obviously wrong: one step of
-`LaxWendroff` at 1.2 is 5.2e-6 from the exact shift of `1 + 0.5 sin`, and a
-hundred are 9.1e10 from it. `PFC` loses first the property it exists for: one
-step at 1.2 takes data with an exact zero to -2.9e-5. That is how this check
-came to exist -- a free-streaming run with its fastest rows at `c = 1.22`
-returned silently from every such call, and the first sign was `PFC`'s own
-`checked` assertion, 218 steps in. With `checked = false`, or with
-`LaxWendroff` or `Upwind`, there would have been none.
+`Upwind`, `LaxWendroff`, `Godunov` and `PFC` are explicit, and none survives a
+characteristic crossing more than one cell per step: past `|c| = 1` round-off
+at the grid scale grows every step, slowly enough for the first steps to look
+right, and `PFC` loses positivity first. At `|c| = 1` each is an exact one-cell
+shift.
 
 The bounded method is the default, so a new scheme is checked unless it opts
-out, as `SemiLagrangian` does. A scheme that forgets to opt out is refused
-loudly; one that forgot to opt in would be wrong quietly.
-
-`PFCNonUniform` is held to its narrowest cell, not a typical one. Every cell is
-the donor for one of its interfaces and gives up its flux alone, so a
-displacement wider than any one cell is wrong in that cell however wide its
-neighbours are: on a 1:2 refined grid, 1.1 of the narrow width -- 0.55 of the
-wide one -- takes data with an exact zero to -7.6e-6 in one step.
+out, as `SemiLagrangian` does: one that forgets to opt out is refused loudly,
+where one that forgot to opt in would be wrong quietly.
 """
 _validate_courant(scheme::AbstractAdvection1D, c) =
     abs(c) ≤ 1 ? nothing : _err_courant(scheme, c)

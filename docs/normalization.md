@@ -37,11 +37,16 @@ equilibrium's, `E/E₀ = −1.000` from the first sample, and the run leaves the
 state it was meant to keep by 16% of the peak. Taken literally, with the `+E`
 above, that sign makes electrons attract one another.
 
-and the total energy the verification runs report is
+and the total energy is `∬ f v²/2 dv dx + ∫ E²/2 dx`. What the driver and the
+verification runs report, as `ε` and `ε_e`, is **twice** that, the cell-width
+sums
 
 ```
-ε = ∬ f v²/2 dv dx + ∫ E²/2 dx
+ε = Σ f v² Δv Δx + Σ E² Δx,     ε_e = Σ E² Δx
 ```
+
+which changes no ratio, drift or rate quoted anywhere, but does double every
+absolute energy on a plot.
 
 For the electromagnetic case (`wakefield.jl`) time and length are normalized to
 the laser frequency and `c/ω₀` instead, and the field to `m c ω₀ / e`, so that
@@ -86,8 +91,8 @@ verification harness does for the field-driven velocity sweep.
 
 `make_advance_fields` adds its current argument **straight into the field**:
 
-```julia
-f.ey[i] += jy[i]
+```
+f.ey[i] += jy[i]        # an excerpt of FDTD1D, not an example
 ```
 
 so the caller owes it the time step. The argument is `-J Δt`, not `J`. Getting
