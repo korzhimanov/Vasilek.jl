@@ -1670,6 +1670,93 @@ migration guide, `docs/migration-0.2.md`, is the short version.
   have let it through. With the bound, `line_advector` splits such a step into
   sub-steps that fit, and those stay inside.
 
+- **A non-positive scheme given for one direction, with the other left to its
+  default, stopped the run mid-way with a `DomainError`; it is now refused
+  before the first step** (`src/VlasovSolver/VlasovPoisson1D1V.jl`,
+  `test/test_driver.jl`). The default is a `PFCNonUniform` on `[0, maximum(f)]`,
+  and since it checks its data (above) it stops the run at the first line handed
+  to it outside those bounds. A scheme that does not keep them hands it one
+  sooner or later. At 50% amplitude on one wavelength of `k = 0.5`, 64 × 121
+  cells over ±6 with Δt = 0.05, `LaxWendroff` in `v` handed it `f = −1.9e-9` on
+  the 16th step and the cubic `SemiLagrangian` −7.0e-10 on the 21st. In `x` the
+  two stopped on steps 63 and 182, and the quadratic spline on the 4th, past the
+  maximum. Collisions do not save them. With `BGK(1.0)` in the step,
+  `LaxWendroff` stopped on the 2nd step, past the maximum by 2.5e-7 of it, and
+  the cubic spline on the 22nd, where the defaults alone, with the same
+  collisions, run all 1000 steps inside their bounds. The check does not reach
+  the collisions themselves: BGK can raise `f` past `maximum(f)` on its own, and
+  the default then stops the run as before. With a `Superbee` `v` sweep that
+  passes the check, that is on the 2nd step, 5.4e-8 of the bound above it; for a
+  line flat in `v` with both defaults and `BGK(0.1)`, on the 1st, 8.3% above.
+  `verification/scheme-comparison.jl` never met it, because it passes the same
+  scheme for both directions, and given both the driver checks neither. Such a
+  call is now an `ArgumentError` that names the scheme, the default it cannot
+  partner and the way out, which is to pass both schemes.
+
+  `keeps_bounds(scheme, lo, hi)` decides, by type. It passes the schemes that
+  keep their data between its own extrema -- `Upwind`, `Godunov` with a constant
+  reconstruction or a limiter, the linear `SemiLagrangian` -- and a `PFC` or
+  `PFCNonUniform` bounded inside `[0, maximum(f)]`, as
+  `f -> PFC(fmin = 0.0, fmax = maximum(f))` is. It refuses `LaxWendroff`,
+  `Godunov(PiecewiseLinear())` without a limiter, the quadratic and cubic
+  `SemiLagrangian`, a `PFC` bounded wider, and any type it does not know. The line
+  it draws was measured over 10080 runs of 20 steps on rough data in `[0, 1]` --
+  random, a quarter of it zeroed, a step down to 1e-9, spikes on a floor of
+  1e-300, a Maxwellian -- with every scheme on the same data at twelve Courant
+  numbers across `[−1, 1]`:
+
+  | scheme | below 0 | above the initial maximum |
+  |---|---|---|
+  | `Upwind` | never | never |
+  | `Godunov`, constant, `VanLeer` or `Superbee` | never | 7.5% of runs, by 7.3e-16 of it at worst |
+  | linear `SemiLagrangian` | never | 0.1%, by 1.6e-16 |
+  | `PFC` or `PFCNonUniform` on `[0, max]` | never | 5.0%, by 6.7e-16 |
+  | `PFC` on `[0, 1.5 max]` | never | 27%, by 0.115 |
+  | `LaxWendroff`, `Godunov(PiecewiseLinear())` | 64%, by 0.33 | 29% and 31%, by 0.21 |
+  | quadratic and cubic `SemiLagrangian` | 63% and 62%, by 0.26 | 44% and 45%, by 0.24 |
+
+  The round-off at the maximum is not the mixing's: `PFC` does the same to its
+  own `fmax`, so the default meets it whatever partners it, and no run in either
+  suite does.
+
+  Two other ways of letting these calls run were measured and rejected.
+
+  * **Leaving the default's bounds unchecked** keeps a limiter that data outside
+    its bounds turns inside out. Below `fmin`, `ξ(f − fmin)` goes negative and
+    reverses the slope it was to limit. On the case above with `LaxWendroff` in
+    `v`, `f` ends 16% of the peak away from the same run with no bounds at all
+    (11% with the cubic spline). Its mass still holds to 2.8e-16 and its minimum
+    is −0.041 against −0.104: corrupted, and looking the better for it.
+  * **Dropping the default's bounds**, `fmin = -Inf, fmax = Inf`, leaves PFC's
+    reconstruction with nothing to limit it, which takes anything and runs. But
+    it is not the default the docstring documents, and its effect would be
+    booked to the scheme the caller passed. It also changes what calls that ran
+    measure. On the 1% Landau case of `verification/scheme-comparison.jl`,
+    `scheme_x = LaxWendroff()` reads γ 0.156% above the root with the default `v`
+    bounded and 0.289% with its bounds dropped. `scheme_v = LaxWendroff()` there
+    does not move at all, to the bit, since at 1% the x limiter never engages.
+
+  The price of refusing is that calls that ran are refused. On that 1% case,
+  where `f` comes no nearer 0 than 1.3e-4, `LaxWendroff`, the unlimited `Godunov`
+  and the cubic spline stay inside the bounds in either direction and ran to the
+  end. That was the problem's doing rather than the call's: at 50% the same
+  calls stop. A check made before the run sees only the call. Each comes back by
+  passing the other scheme too. It can be the same one, or a `PFCNonUniform` with
+  no bounds, as the message suggests. It can also be the default itself,
+  `f -> PFCNonUniform(cell_widths(x); fmin = 0.0, fmax = maximum(f))`: given, it
+  is not checked, and it runs exactly as before, to the end at 1% and to the
+  16th step at 50%. Nothing that runs computes anything it did not compute
+  before. 30 runs of 375 and 400 steps on the two cases are the same to the bit:
+  the defaults, with and without `BGK`, `LaxWendroff` in both directions, and
+  every accepted scheme given alone in either.
+
+  `test/test_driver.jl` refuses both of the calls above, in a one-step run as
+  well, which the old failure could not reach. It does so in either direction
+  and with collisions, and for a wider `PFC` and a scheme type of its own. It
+  runs the suggested partners past the step that stopped the default, and
+  checks the classification against a square pulse: the accepted schemes stay
+  inside `[0, 1]` and the refused ones leave it by 0.16 to 0.24.
+
 - **`two_stream(0.4)` ran on 95 cells rather than 96.** `two_stream` built its
   grid as `collect(Δx:Δx:L)`, and a floating-point range works its length out
   from its endpoints: at `a = 0.4`, `Δx + 95Δx` rounds past `L` and the range

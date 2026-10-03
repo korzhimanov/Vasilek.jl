@@ -200,3 +200,60 @@ energy, so the field solved before the kick is still the field after the first
 half-collision, and the kinetic energy is still moved by the kick alone -- the
 centring above holds as it stands.
 
+**A scheme given for one direction while the other is left to its default has
+to keep `f` inside those bounds, or the call is refused**, with an
+`ArgumentError`, before the first step. Without that check the default refused
+such a call later, mid-run: it stops the run at the first line handed to it
+outside its bounds, and a scheme that does not keep them hands it one soon
+enough. At 50% amplitude on one wavelength of `k = 0.5`, 64 × 121 cells over ±6
+(the case in `test_driver.jl`), `LaxWendroff` in `v` took `f` to −1.9e-9 on the
+16th step and the cubic `SemiLagrangian` to −7.0e-10 on the 21st.
+[`keeps_bounds`](@ref) decides. It passes the schemes that keep their data
+between its own extrema -- `Upwind`, `Godunov` with a constant reconstruction or
+a limiter, the linear `SemiLagrangian` -- and a `PFC` or `PFCNonUniform` bounded
+inside `[0, maximum(f)]`, as `f -> PFC(fmin = 0.0, fmax = maximum(f))` is. It
+refuses `LaxWendroff`, `Godunov(PiecewiseLinear())` without a limiter, the
+quadratic and cubic `SemiLagrangian`, a `PFC` bounded wider, and a scheme of any
+other type. Given both schemes, the driver checks neither: the same scheme for
+both, as `verification/scheme-comparison.jl` passes them, or for the other
+direction a `PFCNonUniform` with bounds both sweeps keep -- `fmin = -Inf,
+fmax = Inf` for none, which is PFC's reconstruction with nothing to limit it.
+
+The check is about the advection alone. `collisions` can take `f` past
+`maximum(f)` by themselves, since BGK relaxes a line towards a Maxwellian whose
+peak may sit above the line's own, and the default's upper bound then stops the
+run mid-way whatever scheme was given, or none. With `Godunov(PiecewiseLinear(),
+Superbee())` in `v`, which passes the check, and `BGK(1.0)` on the 50% case
+above, the default stops the run on the 2nd step, `f` at 5.4e-8 of `maximum(f)`
+above it (a run that nothing stopped would climb to 3.3e-7). With both defaults
+and `BGK(0.1)`, a line flat over |v| < 2 is stopped on the 1st step at 0.4165
+against a bound of 0.3846, 8.3% above. Both are a `DomainError` from inside the
+step, as before this check.
+
+That refuses calls that ran. At 1% on ±4, where `f` comes no nearer 0 than
+1.3e-4, `LaxWendroff` and the cubic spline stay inside the bounds in either
+direction, to the end of a run. That was the problem's doing rather than the
+call's -- at 50% the same calls in `v` stop on steps 16 and 21 -- and a check
+made before the run sees only the call. The two ways of letting them all run
+were measured and are worse. A default that does not check its bounds keeps a
+limiter that data outside them turns inside out: with `LaxWendroff` in `v`, `f`
+ends 16% of the peak away from where the same run ends with no bounds at all,
+at a minimum of −0.041 against −0.104 -- corrupted, and looking the better for
+it. A default that drops its bounds runs, but it is not the scheme documented
+here, and it changes what a call that ran measures: `scheme_x = LaxWendroff()`
+at 1% reads γ 0.156% above the root with the default `v` bounded, and 0.289%
+with its bounds dropped.
+
+### `keeps_bounds`
+
+Measured over 10080 runs of 20 steps on rough data in `[0, 1]` -- uniform
+random, a quarter of it zeroed, a step down to 1e-9, spikes on a floor of
+1e-300, a Maxwellian -- at twelve Courant numbers across `[-1, 1]`, every scheme
+on the same data. Those it accepts never took the data below 0, and its maximum
+moved by round-off alone: 7.3e-16 of it at worst for `Godunov`, in 7.5% of the
+runs, and 6.7e-16 for `PFC` bounded at the data's own maximum, which is the
+default's case. Those it refuses took the data below 0 in 62% to 64% of the
+runs, by up to 0.33 of its maximum, and above the maximum in 29% to 45%, by up
+to 0.24; a `PFC` bounded at 1.5 times the maximum took it above in 27%, by up
+to 0.115.
+

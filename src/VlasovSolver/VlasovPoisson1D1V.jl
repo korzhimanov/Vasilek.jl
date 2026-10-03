@@ -10,7 +10,9 @@ that no user could run a Landau damping problem without copying it.
 """
 module VlasovPoisson1D1V
 
-using ..Advection: AbstractAdvection1D, PFCNonUniform, advect!
+using ..Advection: AbstractAdvection1D, PFCNonUniform, advect!,
+                   Upwind, Godunov, PiecewiseConstant, PiecewiseLinear, VanLeer, Superbee,
+                   SemiLagrangian, LinearSpline, PFC
 using ..StrangSplitting: make_time_step_2d!
 using ..Collisions: collide!
 using ..PoissonFourier1D: PoissonFFT1D, solve!
@@ -124,6 +126,42 @@ by the harmonic number, and in `ε_e` the two are the same bump.
 mode_amplitude(e, x, k) = 2*sum(e[j]*cis(-k*x[j]) for j in eachindex(x))/length(x)
 
 """
+    keeps_bounds(scheme, lo, hi)
+
+Whether `scheme` keeps data that starts inside `[lo, hi]` inside it, to
+round-off: what [`vlasov_poisson`](@ref) asks of a scheme given for one
+direction while the other is left to its default, a `PFCNonUniform` built on
+`[0, maximum(f)]` that refuses a line outside them.
+
+True for the schemes that keep their data between its own extrema -- `Upwind`,
+`Godunov` with a constant reconstruction or a limiter, the linear
+`SemiLagrangian` -- and for a `PFC` or `PFCNonUniform` whose own bounds lie
+inside `[lo, hi]`. False for `LaxWendroff`, `Godunov(PiecewiseLinear())` without
+a limiter and the quadratic and cubic `SemiLagrangian`, which are linear and
+above first order and so, by Godunov's theorem, overshoot; for a `PFC` bounded
+wider, whose limiter lets the data out to its own bounds; and for a scheme of any
+other type, which the driver cannot vouch for. The measurements behind it are in
+`docs/driver-notes.md`.
+"""
+keeps_bounds(::AbstractAdvection1D, lo, hi) = false
+keeps_bounds(::Upwind, lo, hi) = true
+keeps_bounds(::Godunov{PiecewiseConstant}, lo, hi) = true
+keeps_bounds(::Godunov{PiecewiseLinear, <:Union{VanLeer, Superbee}}, lo, hi) = true
+keeps_bounds(::SemiLagrangian{LinearSpline}, lo, hi) = true
+keeps_bounds(s::Union{PFC, PFCNonUniform}, lo, hi) = lo ≤ s.fmin && s.fmax ≤ hi
+
+# A scheme given for one direction while the other is left to its default has to
+# keep `f` inside the default's bounds; see `vlasov_poisson`.
+function refuse_unbounded(given, name, other, bound)
+    keeps_bounds(given, 0.0, bound) && return nothing
+    throw(ArgumentError(
+        "$name = $(sprint(show, given)) may take f outside [0, maximum(f)] = [0, $bound], " *
+        "the bounds of the PFCNonUniform that $other defaults to, which stops the run at " *
+        "the first line handed to it outside them. Pass $other as well: the same scheme, " *
+        "or a PFCNonUniform with bounds both sweeps keep (fmin = -Inf, fmax = Inf for none)"))
+end
+
+"""
     vlasov_poisson(x, v, f₀, t; scheme_x, scheme_v, invariants = false, modes = (),
                    nᵢ = nothing, renormalize = nᵢ === nothing, collisions = nothing)
 
@@ -161,6 +199,14 @@ step `k`, `t[k+1]`.** None is sampled at `t[1]`, and the last row of each is
 a copy of the one before. The kinetic energy in `ε` is centred on the kick, so
 `ε` and `ε_e` describe the same instant.
 
+A scheme given for only one of `scheme_x`, `scheme_v` has to keep `f` inside the
+default's bounds `[0, maximum(f)]`, as [`keeps_bounds`](@ref) decides, or the
+call throws an `ArgumentError` before the first step. Pass both schemes, or a
+`PFCNonUniform` with bounds both sweeps keep (`fmin = -Inf, fmax = Inf` for
+none), for the other direction. The check is about advection alone:
+`collisions` can take `f` past `maximum(f)` by themselves, and the default's
+upper bound then stops the run with a `DomainError`.
+
 Why each of these choices was made, with the measurements behind them, is in
 `docs/driver-notes.md`.
 """
@@ -194,6 +240,13 @@ function vlasov_poisson(x, v, f₀, t;
     pick(s, widths) = s === nothing ? PFCNonUniform(widths; fmin = 0.0, fmax = bound) :
                       s isa AbstractAdvection1D ? s : s(f)
     sx, sv = pick(scheme_x, Δx), pick(scheme_v, Δv)
+    # A default stops the run at the first line it is handed outside its bounds;
+    # a scheme given for the other direction that need not keep them is refused
+    # here instead, before the first step. See the docstring.
+    scheme_x === nothing && scheme_v !== nothing &&
+        refuse_unbounded(sv, :scheme_v, :scheme_x, bound)
+    scheme_v === nothing && scheme_x !== nothing &&
+        refuse_unbounded(sx, :scheme_x, :scheme_v, bound)
 
     advect_x! = line_advector(sx, Δx)
     advect_v! = line_advector(sv, Δv)
