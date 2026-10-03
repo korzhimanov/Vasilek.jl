@@ -1079,13 +1079,13 @@ end
                 #
                 #   ν     γ                            ω
                 #   0     0.15471 vs 0.15448, +0.15%   1.41372 vs 1.41321, +0.036%
-                #   0.1   0.13408 vs 0.13359, +0.37%   1.40022 vs 1.39952, +0.051%
-                #   0.3   0.10737 vs 0.10686, +0.48%   1.38162 vs 1.38051, +0.081%
-                #   1     0.06599 vs 0.06550, +0.75%   1.34977 vs 1.34935, +0.031%
+                #   0.1   0.13409 vs 0.13359, +0.37%   1.40022 vs 1.39952, +0.051%
+                #   0.3   0.10738 vs 0.10686, +0.49%   1.38162 vs 1.38051, +0.081%
+                #   1     0.06599 vs 0.06550, +0.76%   1.34977 vs 1.34935, +0.031%
                 #
                 # The rate reads above the root at every ν, as numerical
                 # dissipation can only make it, and by a residue that is the x
-                # sweep's: at ν = 1 halving Δx and Δt takes it from 0.75% to
+                # sweep's: at ν = 1 halving Δx and Δt takes it from 0.76% to
                 # 0.03%, while halving Δv moves γ by 0.01%.
                 cases = ((0.0, (6.0, 30.0), (8.0, 28.0)),
                          (0.1, (6.0, 35.0), (10.0, 40.0)),
@@ -1130,10 +1130,10 @@ end
                 # pencil of E_k(t) over t ∈ [4, 30] returns the wave pair and a
                 # real exponent, and the real one is the heat mode's rate.
                 #
-                # Measured at ν = 1: g = 0.43383 against the grid's root 0.43369,
-                # 0.033%, with an imaginary part of 5e-13; and the same to five
-                # digits over [6, 30], at every 5th sample, or at order 5. The
-                # pencil's wave, 1.34928 − 0.06603i, agrees with the maxima and
+                # Measured at ν = 1: g = 0.43377 against the grid's root 0.43369,
+                # 0.019%, with an imaginary part of 9e-14; and the same to 1e-5
+                # over [6, 30], at every 5th sample, or at order 5. The
+                # pencil's wave, 1.34927 − 0.06604i, agrees with the maxima and
                 # nulls above to 0.06% in γ and 0.04% in ω, which is what says
                 # the estimator is reading the run rather than inventing a mode.
                 r = runs[1.0]
@@ -1166,7 +1166,7 @@ end
                 #
                 #   restores   ν     γ vs its own root   vs BGK's   ω vs its own   vs BGK's
                 #   (:n,)      0.3   +0.31%              +235%      +0.30%         −2.2%
-                #   (:n, :u)   1     +0.23%              +110%      +0.04%         −10.3%
+                #   (:n, :u)   1     +0.23%              +110%      −0.10%         −10.5%
                 #
                 # So the dispersion relation is checked for all three operators
                 # rather than one, and a BGK that lost its temperature or its drift
@@ -1196,11 +1196,12 @@ end
                 # over the ν = 1 run, as this suite runs it:
                 #
                 #   mass       7.4e-14 relative
-                #   momentum   1.5e-15 absolute, on mass 25.1
-                #   energy     1.4e-7 relative -- the order of the collisionless
-                #              run's 7.3e-8, the v-sweep's, and 16 times less at
-                #              Δv = 0.05
-                #   entropy    +3.3e-5, monotone increasing -- eleven times the
+                #   momentum   2.2e-15 absolute, on mass 25.1
+                #   energy     8.0e-9 relative -- 1.4e-7 while the defaults'
+                #              upper bound was the initial maximum of f, which
+                #              clipped the reconstruction at the peak; see
+                #              `vlasov_poisson`
+                #   entropy    +3.1e-5, monotone increasing -- eleven times the
                 #              2.9e-6 of numerical dissipation the collisionless
                 #              run makes, since the collisions thermalise the
                 #              whole perturbation
@@ -1218,11 +1219,11 @@ end
                 # **On the ±4 the collisionless case runs on, the discrete
                 # Maxwellian holds the energy too.** It matches each line's
                 # moments on the window it is given, so nothing is lost with the
-                # tail beyond |v| = 4: measured 2.1e-7 of the energy over the run,
-                # the order of the ±8 run's, and no bound is crossed. The rate is
+                # tail beyond |v| = 4: measured 8.0e-8 of the energy over the run,
+                # where the window's coarser physics leaves it above the ±8
+                # run's. The rate is
                 # 2.0% below the root, which assumes an infinite velocity axis --
                 # that is the window's physics, not the operator's leak.
-                ws4 = collect(-4.0:0.1:4.0)
                 conserving = collisional_landau(1.0; vmax = 4.0, Δt = 0.08, invariants = true)
                 εc = conserving.r.ε[1:end-1]
                 drift4 = (εc[end] - εc[1])/εc[1]
@@ -1238,13 +1239,14 @@ end
                 # the temperature by the trapezoid over the window, which has
                 # lost the tail, and puts back a Maxwellian narrower by exactly
                 # that: 1.2e-3 of the energy per full relaxation, 5.3% by t = 60
-                # at ν = 1. The narrowed Maxwellian peaks above the initial
-                # maximum of f. The driver's defaults carry no upper bound with
-                # collisions, so the run goes on, and cools; it used to stop with
-                # a DomainError on the first step, from the default's bound.
+                # at ν = 1. The narrowed Maxwellian peaks 2.2% above the initial
+                # maximum of f, which the defaults refused on the first step while
+                # their upper bound was that maximum; with collisions it is lifted
+                # (see `vlasov_poisson`), and the run goes ahead, and cools.
                 sampled = BGK(1.0; conservative = false)
                 narrow = collisional_landau(1.0; vmax = 4.0, Δt = 0.08, invariants = true,
                                             collisions = sampled)
+                @test maximum(narrow.r.fmax[1:end-1]) > 1.01*(1 + 1e-3)/sqrt(2π)    # f₀'s maximum
                 εn = narrow.r.ε[1:end-1]
                 cooling = (εn[end] - εn[1])/εn[1]
                 println("  ν = 1 on ±4, sampled Maxwellian: energy ", cooling)
