@@ -155,7 +155,7 @@ keeps_bounds(s::Union{PFC, PFCNonUniform}, lo, hi) = lo ≤ s.fmin && s.fmax ≤
 function refuse_unbounded(given, name, other, bound)
     keeps_bounds(given, 0.0, bound) && return nothing
     throw(ArgumentError(
-        "$name = $(sprint(show, given)) may take f outside [0, maximum(f)] = [0, $bound], " *
+        "$name = $(sprint(show, given)) may take f outside [0, $bound], " *
         "the bounds of the PFCNonUniform that $other defaults to, which stops the run at " *
         "the first line handed to it outside them. Pass $other as well: the same scheme, " *
         "or a PFCNonUniform with bounds both sweeps keep (fmin = -Inf, fmax = Inf for none)"))
@@ -173,7 +173,7 @@ Strang-split electrostatic Vlasov–Poisson for electrons over fixed ions, from
   * `t`: at least two times; steps may differ.
   * `scheme_x`, `scheme_v`: advection schemes, or functions of the starting `f`
     that return one. Both default to `PFCNonUniform` on their grid, bounded by
-    `[0, maximum(f)]`; their steps wider than a cell are split by
+    `[0, maximum(f)]` (below only with `collisions`); their steps wider than a cell are split by
     [`line_advector`](@ref).
   * `nᵢ`: the ion density over `x`; by default the Maxwellian's `Σ M Δv`,
     uniform. Without `nᵢ`, `f` is rescaled to the ions' charge on entry
@@ -200,12 +200,12 @@ a copy of the one before. The kinetic energy in `ε` is centred on the kick, so
 `ε` and `ε_e` describe the same instant.
 
 A scheme given for only one of `scheme_x`, `scheme_v` has to keep `f` inside the
-default's bounds `[0, maximum(f)]`, as [`keeps_bounds`](@ref) decides, or the
+default's bounds, `[0, maximum(f)]` (`[0, Inf)` with `collisions`), as
+[`keeps_bounds`](@ref) decides, or the
 call throws an `ArgumentError` before the first step. Pass both schemes, or a
 `PFCNonUniform` with bounds both sweeps keep (`fmin = -Inf, fmax = Inf` for
-none), for the other direction. The check is about advection alone:
-`collisions` can take `f` past `maximum(f)` by themselves, and the default's
-upper bound then stops the run with a `DomainError`.
+none), for the other direction. With `collisions` the defaults have no upper
+bound, since a collision step can raise a line's peak above `maximum(f)`.
 
 Why each of these choices was made, with the measurements behind them, is in
 `docs/driver-notes.md`.
@@ -236,7 +236,10 @@ function vlasov_poisson(x, v, f₀, t;
     renormalize && (f .*= Nᵢ/sum(f .* (Δv .* Δx')))
     g = f'
 
-    bound = maximum(f)
+    # Collisions relax a line towards a Maxwellian whose peak can sit above the
+    # line's own, so the upper bound is not the run's to keep: the defaults then
+    # bound `f` below only.
+    bound = collisions === nothing ? maximum(f) : Inf
     pick(s, widths) = s === nothing ? PFCNonUniform(widths; fmin = 0.0, fmax = bound) :
                       s isa AbstractAdvection1D ? s : s(f)
     sx, sv = pick(scheme_x, Δx), pick(scheme_v, Δv)
@@ -251,7 +254,7 @@ function vlasov_poisson(x, v, f₀, t;
     advect_x! = line_advector(sx, Δx)
     advect_v! = line_advector(sv, Δv)
     if collisions !== nothing
-        cws = workspace(collisions, length(v))
+        cws = workspace(collisions, length(v), eltype(f))
         cbuf = similar(v)
     end
 
