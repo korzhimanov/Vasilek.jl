@@ -208,9 +208,10 @@ ws = workspace(scheme, length(src))     # once, per task; the size must match
 advect!(dest, src, scheme, courant, ws)
 ```
 
-A scheme value holds no data, so one can be shared across every line of a
+A scheme value holds no buffers, so one can be shared across every line of a
 multidimensional sweep and across tasks; the workspace is what belongs to the
-task. `dest` and `src` must be distinct, and `|courant| ≤ 1` for every scheme
+task. (`PFCNonUniform` holds its grid's cell widths, so it fits lines of that
+grid only.) `dest` and `src` must be distinct, and `|courant| ≤ 1` for every scheme
 but `SemiLagrangian`, which has no Courant limit: `advect!` refuses a step past
 it rather than return an answer that looks right and is unstable. Upgrading from
 0.1: see [docs/migration-0.2.md](docs/migration-0.2.md).

@@ -23,8 +23,10 @@ include(joinpath(@__DIR__, "..", "test", "verification_harness.jl"))
 using Printf
 
 const K = 0.5
-const γ_ANALYTIC = 0.15336
-const ω_ANALYTIC = 1.41566
+# The Landau root, computed by `test/dispersion.jl` (loaded with the harness)
+# rather than typed in.
+const γ_ANALYTIC = -imag(landau_root(K))
+const ω_ANALYTIC = real(landau_root(K))
 
 "The k = 0.5 Landau configuration the extended test asserts, at its own grid."
 function landau_grid()
@@ -125,7 +127,7 @@ end
 
 function main()
     println("Landau damping at k = ", K, ", by advection scheme")
-    println("grid: 64 x 81, Δt = 0.08, t ≤ 70, Courant 0.81 on the fastest row")
+    println("grid: 64 x 81, Δt = 0.08, t ≤ 70, x-sweep Courant 0.41 on the fastest row (0.81 per full step)")
     println("analytic: γ = ", γ_ANALYTIC, ", ω = ", ω_ANALYTIC, "\n")
 
     # Each row warms itself; see `run_one`. There is no single warm-up that

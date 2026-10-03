@@ -152,6 +152,27 @@ using Vasilek.VlasovPoisson1D1V: keeps_bounds
     @test !keeps_bounds(UnvouchedScheme(), 0.0, 1.0)
 end
 
+@testset "collisions in the driver" begin
+    x = collect(range(4π/32; step = 4π/32, length = 32))
+    v = collect(-6.0:0.15:6.0)
+    t = collect(0.0:0.05:0.5)
+
+    # The collision workspace takes the data's element type, not the
+    # operator's: a Float32 τ must not store the Maxwellian in Float32 under
+    # Float64 data, which cost mass conservation ~1e-7.
+    f₀ = [exp(-u^2/2)/sqrt(2π)*(1 + 0.1cos(0.5y)) for u in v, y in x]
+    r = vlasov_poisson(x, v, f₀, t; collisions = BGK(0.5f0), invariants = true)
+    @test maximum(abs, r.mass .- r.mass[1])/r.mass[1] < 1e-12
+
+    # A conservative BGK step can raise a line's peak above maximum(f): a flat
+    # line over |v| < 2 relaxes towards a taller Maxwellian. The defaults used
+    # to bound f above by the initial maximum and stop with a DomainError.
+    hat = [abs(u) < 2 ? 0.25 * (1 + 0.01cos(0.5y)) : 0.0 for u in v, y in x]
+    r = vlasov_poisson(x, v, hat, t; collisions = BGK(0.1), invariants = true)
+    @test maximum(r.fmax) > maximum(hat)
+    @test minimum(r.fmin) ≥ 0
+end
+
 @testset "with collisions the defaults' upper bound is lifted" begin
     # BGK relaxes a line towards a Maxwellian whose peak can sit above the
     # line's, so the maximum of f is not kept, and the defaults' upper bound,

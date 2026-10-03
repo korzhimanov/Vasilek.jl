@@ -18,8 +18,11 @@ advect!(c)
 advect!(f, f₀, Upwind(), c)
 ```
 
-The scheme holds no arrays. One value can be applied to any data, of any size,
-from any number of tasks at once — which is the point: a 2D2P step sweeps
+The scheme holds no arrays, `PFCNonUniform` aside: it carries its grid's cell
+widths and limiter coefficients, so it fits lines of that grid only, though it
+is still read-only and shareable between tasks. Every other value can be
+applied to any data, of any size, from any number of tasks at once — which is
+the point: a 2D2P step sweeps
 O(N²) independent lines per direction, and the old closures captured a single
 shared scratch buffer, so they could not be threaded over them.
 
@@ -82,8 +85,9 @@ buffer, so a `SemiLagrangian` handed a workspace built for a longer line used
 to return garbage silently. Allocate one per line length, not one big one for
 all of them.
 
-`advect!` also requires `dest !== src` and at least three cells. Both used to
-be quietly wrong rather than an error.
+`advect!` also requires that `dest` and `src` share no memory (a view of `src`
+counts) and at least three cells. Both used to be quietly wrong rather than an
+error.
 
 So is a step past a scheme's Courant limit, and it is refused now too: `|c| > 1`
 for every scheme but `SemiLagrangian`, and for `PFCNonUniform` a displacement
@@ -125,11 +129,23 @@ ws = workspace(op, length(f))
 collide!(f, f₀, op, v, Δt, ws)
 ```
 
+`BGK(τ)` now relaxes to the *discrete* Maxwellian, which conserves density,
+momentum and energy to round-off on the grid it is given; 0.1's sampled
+Maxwellian, which a narrow velocity window cooled, is `BGK(τ; conservative =
+false)`.
+
 `Landau1P` follows the same shape but is **not exported** and remains
 experimental — its closure is inconsistent and the collision integral does not
 converge under grid refinement. See its docstring.
 
 ## Numerics
 
-Nothing moved. Every scheme is bit-for-bit identical to 0.1, verified in both
-directions, and the golden values recorded before this change still match.
+The refactor itself moved nothing: every scheme came out bit-for-bit identical
+to 0.1. Several fixes made since do move numbers, on purpose:
+
+  * `Godunov(PiecewiseLinear(), …)`, the `:Riemann_linear` rows above, carries
+    the `(1 − |c|)` factor and is a different, second-order scheme;
+  * `BGK` relaxes to the discrete Maxwellian by default;
+  * the z-polarised source of `FDTD1D` launches its pulse the other way.
+
+The CHANGELOG lists each with what it changes.

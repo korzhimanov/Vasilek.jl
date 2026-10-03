@@ -9,6 +9,7 @@
 
 # Julia environments
 /Manifest.toml
+Manifest-v*.toml
 /benchmark/Manifest.toml
 /verification/Manifest.toml
 /docs/Manifest.toml
