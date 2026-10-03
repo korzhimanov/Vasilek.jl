@@ -219,7 +219,11 @@ both, as `verification/scheme-comparison.jl` passes them, or for the other
 direction a `PFCNonUniform` with bounds both sweeps keep -- `fmin = -Inf,
 fmax = Inf` for none, which is PFC's reconstruction with nothing to limit it.
 
-The check is about the advection alone. `collisions` can take `f` past
+*Superseded for the upper bound:* with `collisions` the defaults no longer carry
+`maximum(f)` as an upper bound, so the `DomainError`s described next no longer
+occur from the defaults; they are kept as the reason for dropping it.
+
+The check was about the advection alone. `collisions` can take `f` past
 `maximum(f)` by themselves, since BGK relaxes a line towards a Maxwellian whose
 peak may sit above the line's own, and the default's upper bound then stops the
 run mid-way whatever scheme was given, or none. With `Godunov(PiecewiseLinear(),

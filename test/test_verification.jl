@@ -1239,16 +1239,12 @@ end
                 # lost the tail, and puts back a Maxwellian narrower by exactly
                 # that: 1.2e-3 of the energy per full relaxation, 5.3% by t = 60
                 # at ν = 1. The narrowed Maxwellian peaks above the initial
-                # maximum of f, so PFC refuses the data on the first step; given
-                # 50% of headroom it runs, and cools.
+                # maximum of f. The driver's defaults carry no upper bound with
+                # collisions, so the run goes on, and cools; it used to stop with
+                # a DomainError on the first step, from the default's bound.
                 sampled = BGK(1.0; conservative = false)
-                @test_throws DomainError collisional_landau(1.0; vmax = 4.0, Δt = 0.08,
-                                                            collisions = sampled)
-                loose(w) = f -> PFCNonUniform(w; fmin = 0.0, fmax = 1.5*maximum(f))
                 narrow = collisional_landau(1.0; vmax = 4.0, Δt = 0.08, invariants = true,
-                                            collisions = sampled,
-                                            scheme_x = loose(cell_widths(runs[1.0].x)),
-                                            scheme_v = loose(cell_widths(ws4)))
+                                            collisions = sampled)
                 εn = narrow.r.ε[1:end-1]
                 cooling = (εn[end] - εn[1])/εn[1]
                 println("  ν = 1 on ±4, sampled Maxwellian: energy ", cooling)
