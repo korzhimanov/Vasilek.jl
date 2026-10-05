@@ -42,6 +42,42 @@ migration guide, `docs/migration-0.2.md`, is the short version.
 
 ### Added
 
+- **A documentation site** (`docs/make.jl`, `docs/Project.toml`,
+  `docs/src/api.md`, `docs/verification.md`, `.github/workflows/Docs.yml`),
+  built with Documenter.jl and published from `gh-pages` at
+  https://korzhimanov.github.io/Vasilek.jl/dev/. The verification studies
+  wrote their figures beside themselves and `Scripts.yml` threw them away; the
+  claims table lived in the README, and the docstrings, written for Documenter
+  with `@ref` links, had never been rendered.
+
+  * **The studies, rendered.** Literate.jl runs each script chunk by chunk and
+    puts its printed numbers and its figures on a page under the prose its
+    comments already were. The scripts still run as they did. What rendering
+    needed of them: a `# # Title`, display math in ```` ```math ```` (Julia's
+    Markdown reads `$$` across lines as text), the harness included through
+    `pkgdir(Vasilek)` (under Literate `@__DIR__` is the page's directory), `##`
+    for comments inside a loop or a function (an indented `# ` line is
+    Markdown to Literate and cut the loop in two), and a `;` after each
+    `savefig`, whose returned path would otherwise replace the chunk's printed
+    output on the page.
+  * **What a build checks.** `checkdocs = :all` fails the build on a docstring
+    missing from the API page, and every `@ref` must resolve. That found an
+    exported `collide!` with no docstring, now written; a link from the
+    `Collisions` docstring to `Advection`, a module it cannot see, now
+    `Vasilek.Advection`; and a reference in `docs/driver-notes.md` to the
+    harness's `bgk_equilibrium`, which no docstring documents.
+  * **Two kinds of build.** Running the studies takes the quarter of an hour
+    `Scripts.yml` takes, so it is opt-in through `VASILEK_DOCS_EXECUTE=1`, as
+    the extended suite is through `VASILEK_EXTENDED`. Pull requests build the
+    pages without running them, in minutes; master, tags and the weekly run
+    build them executed and deploy. A build that did not run the studies is
+    never deployed.
+  * **The README's verification table moved** to `docs/verification.md`, with
+    the notes on the studies; the README keeps the commands and a link. The
+    README, the CHANGELOG and `docs/*.md` stay where they are, since they are
+    linked by path from docstrings and tests, and are copied into the site at
+    build time with their links rewritten.
+
 - **Collisional Landau damping: the `BGK` operator in a run, against its own
   dispersion relation** (`test/test_verification.jl`; `collisional_landau`,
   `mode_exponents`, `PartialBGK` and a `collisions` keyword for `vlasov_poisson`
@@ -1445,7 +1481,7 @@ migration guide, `docs/migration-0.2.md`, is the short version.
   line colder than the grid resolves (`T < Δv²`): a single-node spike off a
   dyadic node has `T` near 1e-34 rather than 0, and relaxed into a 1e14 spike.
 - **`PML` coefficients**: `r₂` is taken through `expm1`, so it no longer cancels
-  for small `σΔt` (σ_max = 1e-9 gave 0.4974 for 0.5) and is `Δt/Δx` rather than
+  for small `σΔt` (σ\_max = 1e-9 gave 0.4974 for 0.5) and is `Δt/Δx` rather than
   NaN at `σ_max = 0`. Negative `N` or `σ_max` are refused.
 - **`make_advance_fields` refuses inconsistent arguments**: `cfl` must equal
   `Δt/Δx` (the interior used one, the layer the other), and the mesh must hold

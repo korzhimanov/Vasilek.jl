@@ -2,7 +2,7 @@
     Collisions
 
 Collision operators, as types, matching the convention used by
-[`Advection`](@ref): the operator is an immutable value and `collide!` writes
+[`Vasilek.Advection`](@ref): the operator is an immutable value and `collide!` writes
 into an explicit destination.
 """
 module Collisions
@@ -36,6 +36,17 @@ workspace(::AbstractCollisionOperator, ::Integer, ::Type = Float64) = nothing
 # The scratch follows the data, as the four-argument `advect!`'s does: one built
 # from the operator's type would compute a Float64 line's Maxwellian in Float32
 # under `BGK(0.5f0)`.
+"""
+    collide!(dest, src, op, v, Δt[, ws])
+
+Advance the velocity line `src`, sampled on the grid `v`, through one step `Δt`
+of the collision operator `op`, write the result into `dest` and return it.
+`dest`, `src` and `v` must be of one length.
+
+`ws` is the scratch [`workspace`](@ref)`(op, length(src), T)` returns. The
+five-argument form allocates one of `src`'s element type on every call; pass one
+explicitly in any loop that runs more than once.
+"""
 collide!(dest, src, op::AbstractCollisionOperator, v, Δt) =
     collide!(dest, src, op, v, Δt, workspace(op, length(dest), float(eltype(src))))
 

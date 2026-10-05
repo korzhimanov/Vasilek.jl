@@ -1,8 +1,8 @@
-# Laser wakefield excitation in a 1D1V plasma slab.
+# # Laser wakefield excitation in a 1D1V plasma slab
 #
 #     julia --project=verification verification/wakefield.jl
 #
-# Writes wakefield-*.png beside this script.
+# Writes wakefield-*.png beside this script. #src
 #
 # The physics lives in `wakefield` in `test/verification_harness.jl`, so that
 # this script and the test asserting its claims run the same code rather than
@@ -17,32 +17,37 @@
 # theory below is the one the test asserts -- see `linear_wake`.
 
 using Plots
+using Vasilek
 
-include(joinpath(@__DIR__, "..", "test", "verification_harness.jl"))
+include(joinpath(pkgdir(Vasilek), "test", "verification_harness.jl"))
 
 r = wakefield()
 
-here = @__DIR__
+here = @__DIR__;
 
 # The laser field over space and time. This used to be `heatmap(x, t, em.ey)`,
 # passing the final snapshot -- a length-Nx vector -- where a Nt×Nx matrix was
 # wanted. It never raised, because a script never renders the plot.
 savefig(heatmap(r.x/2π, r.t/2π, r.ey; xlabel = "x/2π", ylabel = "t/2π",
                 title = "eʸ (laser)"),
-        joinpath(here, "wakefield-laser.png"))
+        joinpath(here, "wakefield-laser.png"));
+#md # ![The laser field over space and time](wakefield-laser.png)
 
 savefig(heatmap(r.x/2π, r.t/2π, r.ex; xlabel = "x/2π", ylabel = "t/2π",
                 title = "eˣ (wake)"),
-        joinpath(here, "wakefield-wake.png"))
+        joinpath(here, "wakefield-wake.png"));
+#md # ![The longitudinal field, the wake, over space and time](wakefield-wake.png)
 
 savefig(heatmap(r.x/2π, r.t/2π, r.n; xlabel = "x/2π", ylabel = "t/2π",
                 title = "nₑ"),
-        joinpath(here, "wakefield-density.png"))
+        joinpath(here, "wakefield-density.png"));
+#md # ![Electron density over space and time](wakefield-density.png)
 
 # Energy diagnostics were accumulated but never shown.
 energy = plot(r.t/2π, (r.ε .- r.ε[1])./r.ε[1]; label = "Δε/ε", xlabel = "t/2π")
 plot!(energy, r.t/2π, r.ε_e./r.ε[1]; label = "electrostatic / ε₀")
-savefig(energy, joinpath(here, "wakefield-energy.png"))
+savefig(energy, joinpath(here, "wakefield-energy.png"));
+#md # ![Drift of the total energy, and the electrostatic energy](wakefield-energy.png)
 
 # The wake at the final time against the wake linear theory puts behind the same
 # drive. This is the picture the test makes assertions about: the two agree to
@@ -52,7 +57,8 @@ theory = plot(r.x/2π, r.ex[end, :]; label = "eˣ", xlabel = "x/2π",
               title = "wake at t = $(round(r.t[end]/2π; digits = 1))·2π")
 plot!(theory, r.x/2π, ref; label = "linear theory", linestyle = :dash)
 plot!(theory, r.x/2π, r.Φ[end, :]; label = "Φ (laser)", linestyle = :dot)
-savefig(theory, joinpath(here, "wakefield-theory.png"))
+savefig(theory, joinpath(here, "wakefield-theory.png"));
+#md # ![The wake at the final time against linear theory, and the laser's potential](wakefield-theory.png)
 
 v, _ = pulse_velocity(r.t, r.x, r.Φ; lo = 5.0, hi = 55.0)
 λ, _ = wave_period(r.x, r.ex[end, :]; lo = 8.0, hi = 55.0)
@@ -70,4 +76,4 @@ println("wake wavelength = ", λ, "  against ",
         " from the measured driver, ",
         wake_wavelength(v_theory, r.plasma_density, r.plasma_temperature),
         " from the predicted one")
-println("wrote wakefield-{laser,wake,density,energy,theory}.png to ", here)
+println("wrote wakefield-{laser,wake,density,energy,theory}.png to ", here) #src

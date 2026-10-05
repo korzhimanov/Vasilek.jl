@@ -151,7 +151,7 @@ end points by half. That is exact for proportional profiles only, and
 `≈ 1 + α/(Nx − 1)`, 7.9e-3 at α = 0.5 on 64 cells, and `ωₚ²` with it, where the
 sums give 1 to round-off. It also rescaled again on every restart, where the
 flux form has kept `Σ f ΔvΔx` and the sums find nothing to do. On the matched
-pair of [`bgk_equilibrium`](@ref) it was 1 − 1.9e-3 and doubled the
+pair of `bgk_equilibrium` it was 1 − 1.9e-3 and doubled the
 equilibrium's drift; it is now 1 to 3.8e-15 there as well.
 
 `scheme_x` and `scheme_v` default to `PFCNonUniform` on the two grids, which is
