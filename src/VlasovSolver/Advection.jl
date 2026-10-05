@@ -188,15 +188,18 @@ struct PFC{T<:AbstractFloat, Checked} <: AbstractAdvection1D
     fmax::T
     # `Checked` is the `checked` flag, and `advect!` branches on it: anything
     # but a Bool used to construct, and then failed inside the first step.
+    # The bracket is checked here, which every PFC is built through, rather
+    # than in the keyword form only: `PFC{Float64, false}(2.0, 0.0)` built.
     function PFC{T,Checked}(fmin, fmax) where {T<:AbstractFloat, Checked}
         Checked isa Bool || _err_checked(PFC, Checked)
-        return new{T,Checked}(fmin, fmax)
+        lo, hi = T(fmin), T(fmax)
+        _check_bracket(lo, hi)
+        return new{T,Checked}(lo, hi)
     end
 end
 
 function PFC(; fmin, fmax, checked::Bool = true)
     lo, hi = promote(float(fmin), float(fmax))
-    _check_bracket(lo, hi)
     return PFC{typeof(lo), checked}(lo, hi)
 end
 
@@ -222,10 +225,19 @@ struct PFCNonUniform{T<:AbstractFloat, Checked} <: AbstractAdvection1D
     Δxmin::T
     fmin::T
     fmax::T
-    # As for `PFC`: `Checked` is the `checked` flag, a Bool.
+    # As for `PFC`: `Checked` is the `checked` flag, a Bool, and the invariants
+    # are checked here, which every PFCNonUniform is built through. A `Δxmin`
+    # wider than the narrowest cell let `advect!` take a step that crossed it.
     function PFCNonUniform{T,Checked}(Δx, ξ, Δxmin, fmin, fmax) where {T<:AbstractFloat, Checked}
         Checked isa Bool || _err_checked(PFCNonUniform, Checked)
-        return new{T,Checked}(Δx, ξ, Δxmin, fmin, fmax)
+        _check_widths(Δx)
+        length(ξ) == length(Δx) || throw(DimensionMismatch(
+            "PFCNonUniform needs a ξ per cell, got $(length(ξ)) for $(length(Δx)) cells"))
+        T(Δxmin) == minimum(Δx) || throw(ArgumentError(
+            "PFCNonUniform: Δxmin = $Δxmin is not minimum(Δx) = $(minimum(Δx))"))
+        lo, hi = T(fmin), T(fmax)
+        _check_bracket(lo, hi)
+        return new{T,Checked}(Δx, ξ, Δxmin, lo, hi)
     end
 end
 
@@ -245,9 +257,7 @@ Base.@constprop :aggressive function PFCNonUniform(Δx_::AbstractVector{T}; fmin
                                                    checked::Bool = true) where {T<:AbstractFloat}
     Δx = collect(Δx_)
     n = length(Δx)
-    n ≥ 3 || throw(ArgumentError("PFCNonUniform needs at least 3 cells, got $n"))
-    all(d -> isfinite(d) && d > 0, Δx) || throw(ArgumentError(
-        "PFCNonUniform needs finite, positive cell widths; got extrema $(extrema(Δx))"))
+    _check_widths(Δx)
     ξ = similar(Δx)
     for i in eachindex(Δx)
         d₋ = Δx[i == 1 ? n : i-1]
@@ -255,8 +265,18 @@ Base.@constprop :aggressive function PFCNonUniform(Δx_::AbstractVector{T}; fmin
         ξ[i] = slope_limit(min(d₋, Δx[i], d₊)/max(d₋, Δx[i], d₊))
     end
     fmn, fmx = promote(float(fmin), float(fmax))
-    _check_bracket(fmn, fmx)
-    return PFCNonUniform{T, checked}(Δx, ξ, minimum(Δx), T(fmn), T(fmx))
+    # Outward, so that a narrower `T` keeps the data the bounds admit: a Float32
+    # grid's `fmax = maximum(f)` of Float64 data rounded below it as often as not,
+    # and the first checked step refused the data's own peak.
+    return PFCNonUniform{T, checked}(Δx, ξ, minimum(Δx), T(fmn, RoundDown), T(fmx, RoundUp))
+end
+
+function _check_widths(Δx)
+    n = length(Δx)
+    n ≥ 3 || throw(ArgumentError("PFCNonUniform needs at least 3 cells, got $n"))
+    all(d -> isfinite(d) && d > 0, Δx) || throw(ArgumentError(
+        "PFCNonUniform needs finite, positive cell widths; got extrema $(extrema(Δx))"))
+    return nothing
 end
 
 @noinline _check_bracket(lo, hi) = lo ≤ hi || throw(ArgumentError(
@@ -371,7 +391,8 @@ A scheme takes `nothing` unless it has a method here for its own workspace, so
 a scheme that needs none refuses whatever else it is given: `Upwind` took
 another scheme's workspace without a word, which is how a sweep that mixes up
 its workspaces goes unnoticed until a scheme that reads one gets the wrong one.
-A new scheme with a workspace adds its method, or is refused loudly.
+A new scheme with a workspace adds its method, and one to `_scratch_aliases`,
+or is refused loudly.
 """
 _validate_workspace(::AbstractAdvection1D, ::Nothing, ::Integer) = nothing
 _validate_workspace(scheme::AbstractAdvection1D, ws, ::Integer) = _err_foreign_workspace(scheme, ws)
@@ -386,8 +407,10 @@ function _validate_workspace(p::PFCNonUniform, ws::PFCWorkspace, n::Integer)
 end
 
 # Whether the buffer a workspace writes shares memory with `dest` or `src`, for
-# `_validate`. A workspace type of another scheme's own is that scheme's to check.
-_scratch_aliases(ws, dest, src) = false
+# `_validate`. A scheme with a workspace adds its method here as well as to
+# `_validate_workspace`: a workspace type without one is a MethodError, rather
+# than taken as sharing nothing.
+_scratch_aliases(::Nothing, dest, src) = false
 _scratch_aliases(ws::SplineWorkspace, dest, src) =
     Base.mightalias(ws.buffer, dest) || Base.mightalias(ws.buffer, src)
 _scratch_aliases(ws::PFCWorkspace, dest, src) =

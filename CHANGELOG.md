@@ -1078,7 +1078,10 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
   `test/runtests.jl` lists every file, and refuses a name it does not have.
 - **`vlasov_poisson` is held to its step bit for bit** (`test/test_driver.jl`):
   the step written out from `advect!`, `collide!`, `PoissonFFT1D` and the cell
-  widths, defaults and given schemes, with and without `BGK`.
+  widths, defaults and given schemes, schemes given as functions of `f`, with
+  and without `BGK`. Its `f₀` carries 1.3 times the ions' charge: on a neutral
+  one the rescaling was 1 to 3 ulps, and ions taken from `f₀`'s own density
+  matched the step bit for bit on the uniform grid.
 - The centred Poisson difference and `slope_limit` lose their Float64
   literals: `(…)/(2Δx)` for `0.5*(…)/Δx`, the same bits in Float64.
 - `Scripts.yml` runs on a push to master only for the paths its pull requests
@@ -1086,7 +1089,8 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 - `runbenchmarks.jl` prints the baseline's Julia and BenchmarkTools versions
   beside this run's: the baseline is the development machine's, on 1.12.7.
 - The complexity-class test samples for longer (`budget = 0.2, minreps = 10`),
-  and the tests' cell-width formulas are `Collisions._width`.
+  and the tests' cell-width formulas are `Collisions._width`, which a test
+  holds equal to `cell_widths`.
 
 - **Documentation says what the code does.**
   - Docstrings state contracts. The measurements and history that filled them
@@ -1422,16 +1426,38 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 ### Fixed
 
-- **`cell_widths` keeps a Float32 grid Float32**; a `0.5` made Float64 of it,
-  and the driver ran a Float32 problem's widths and default schemes in Float64.
+- **`cell_widths` keeps a Float32 grid Float32**; a `0.5` made Float64 of it.
+- **`vlasov_poisson` runs grids and data of other types**: its widths follow
+  the data, `promote_type` of `f₀`'s float type and the grids', and its default
+  schemes work in Float64 at least, as `line_advector` now does the line. Built
+  in a Float32 grid's type, the defaults stopped runs. Under Float64 `f` the
+  Float32 `fmax = maximum(f)` cut into the peak, or the Float32 accumulator
+  rounded the peak past the other default's exact bound: 45 of 54 realistic
+  profiles on a Float32 x grid ended in a `DomainError`, and those that ran had
+  `f` rounded to Float32 every sub-step, the mass drifting 3.3e-8. All in
+  Float32, a two-stream's flux sum at its peak landed an ulp above `fmax` in
+  208 of 540 runs. A Rational v grid was a `MethodError`, a Float16 one a
+  `DomainError`. Float64 runs are bit for bit as they were.
+- **`PFCNonUniform` rounds its bounds outward** to its element type, and
+  `keeps_bounds` compares in it: a Float32 partner built on `maximum(f)` of
+  Float64 data was refused as unbounded or stopped on its first step, as the
+  rounding went.
 - **`PFC{T, Checked}` and `PFCNonUniform{T, Checked}` refuse a `Checked` that
   is not a Bool**: `PFC{Float64, 3}` constructed, then failed its first step
-  with a `TypeError`.
+  with a `TypeError`. **They also check what the keyword constructors check**,
+  every scheme being built through them: `PFC{Float64, false}(2.0, 0.0)`
+  built, and a `PFCNonUniform` given a `Δxmin` of 1.0 over cells of 0.05 took
+  20-cell steps, from data in [0.5, 1.5] to [-1.02, 3.02], without an error.
+- **`collide!` refuses a `src` sharing its workspace**: `BGK` writes its
+  Maxwellian and moments there first, and returned the Maxwellian alone, 0.08
+  from the step, or through `moment` 0.64 off. Its docstring asks for the
+  workspace in `float(eltype(src))`, which it had given as the operator's type.
 - **A scheme that takes no workspace refuses one**: `Upwind` accepted another
   scheme's and ignored it.
 - **`advect!` refuses a workspace whose buffer shares memory with `dest` or
   `src`**: a spline buffer as `dest` came back 0.014 off, and `PFCNonUniform`'s
-  accumulator as `src` 0.21.
+  accumulator as `src` 0.21. A workspace type with no `_scratch_aliases`
+  method of its own is a `MethodError`, not taken as sharing nothing.
 
 - **Tests that could not fail now test the code.**
   - The `Landau1P` kernel antisymmetry compared a kernel defined in the test

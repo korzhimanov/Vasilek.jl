@@ -33,9 +33,6 @@ Scratch for `op` at `n` velocity points, of the operator's element type unless
 """
 workspace(::AbstractCollisionOperator, ::Integer, ::Type = Float64) = nothing
 
-# The scratch follows the data, as the four-argument `advect!`'s does: one built
-# from the operator's type would compute a Float64 line's Maxwellian in Float32
-# under `BGK(0.5f0)`.
 """
     collide!(dest, src, op, v, Δt[, ws])
 
@@ -43,10 +40,13 @@ Advance the velocity line `src`, sampled at the nodes `v`, by a time `Δt` under
 the collision operator `op`, and write the result into `dest`, which is
 returned. `dest`, `src` and `v` have the same length.
 
-`ws` is scratch from [`workspace`](@ref)`(op, length(v))`, one per task. Without
-it a workspace of `src`'s element type is allocated for the call; pass one in
-any loop.
+`ws` is scratch from [`workspace`](@ref)`(op, length(v), float(eltype(src)))`,
+one per task, and must not share memory with `src`. Without it a workspace of
+that type is allocated for the call; pass one in any loop.
 """
+# The scratch follows the data, as the four-argument `advect!`'s does: one built
+# from the operator's type would compute a Float64 line's Maxwellian in Float32
+# under `BGK(0.5f0)`.
 collide!(dest, src, op::AbstractCollisionOperator, v, Δt) =
     collide!(dest, src, op, v, Δt, workspace(op, length(dest), float(eltype(src))))
 

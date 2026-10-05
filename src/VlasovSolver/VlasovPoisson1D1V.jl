@@ -73,10 +73,15 @@ schemes get `α/Δz`, and are refused on a non-uniform grid rather than given on
 of its spacings. A displacement wider than the narrowest cell is split into the
 fewest equal sub-steps that fit ([`substeps`](@ref)) for `PFCNonUniform`; a
 uniform scheme's `advect!` refuses it.
+
+The line is worked in Float64, its buffer and the scheme's scratch alike, and
+rounded into the column once per step, whatever the scheme's own element type.
 """
 function line_advector(scheme::PFCNonUniform, Δz)
     n = length(Δz)
-    ws = workspace(scheme, n)
+    # Not the scheme's type: a Float32 scheme's accumulator rounded a Float64
+    # line to Float32 on every sub-step.
+    ws = workspace(scheme, n, Float64)
     buf = Vector{Float64}(undef, n)
     h = minimum(Δz)
     return function (col, α)
@@ -107,7 +112,7 @@ function line_advector(scheme, Δz)
     all(d -> isapprox(d, h; rtol = 1e-12), Δz) || error(
         "$(nameof(typeof(scheme))) takes a Courant number, which a non-uniform grid " *
         "does not have (spacings range over $(extrema(Δz))); use PFCNonUniform here")
-    ws = workspace(scheme, n)
+    ws = workspace(scheme, n, Float64)
     buf = Vector{Float64}(undef, n)
     return (col, α) -> (advect!(buf, col, scheme, α/h, ws); copyto!(col, buf))
 end
@@ -149,7 +154,12 @@ keeps_bounds(::Upwind, lo, hi) = true
 keeps_bounds(::Godunov{PiecewiseConstant}, lo, hi) = true
 keeps_bounds(::Godunov{PiecewiseLinear, <:Union{VanLeer, Superbee}}, lo, hi) = true
 keeps_bounds(::SemiLagrangian{LinearSpline}, lo, hi) = true
-keeps_bounds(s::Union{PFC, PFCNonUniform}, lo, hi) = lo ≤ s.fmin && s.fmax ≤ hi
+# In the scheme's own precision, `[lo, hi]` rounded outward as its constructor
+# rounds its bounds: a Float32 scheme built on `maximum(f)` keeps it.
+function keeps_bounds(s::Union{PFC, PFCNonUniform}, lo, hi)
+    T = typeof(s.fmax)
+    return T(lo, RoundDown) ≤ s.fmin && s.fmax ≤ T(hi, RoundUp)
+end
 
 # A scheme given for one direction while the other is left to its default has to
 # keep `f` inside the default's bounds; see `vlasov_poisson`.
@@ -174,9 +184,9 @@ Strang-split electrostatic Vlasov–Poisson for electrons over fixed ions, from
   * `x`: a periodic grid, uniform (checked). `v`: any grid, uniform or not.
   * `t`: at least two times; steps may differ.
   * `scheme_x`, `scheme_v`: advection schemes, or functions of the starting `f`
-    that return one. Both default to `PFCNonUniform` on their grid, bounded by
-    `[0, maximum(f)]` (below only with `collisions`); their steps wider than a cell are split by
-    [`line_advector`](@ref).
+    that return one. Both default to `PFCNonUniform` on their grid, in Float64
+    at least, bounded by `[0, maximum(f)]` (below only with `collisions`);
+    their steps wider than a cell are split by [`line_advector`](@ref).
   * `nᵢ`: the ion density over `x`; by default the Maxwellian's `Σ M Δv`,
     uniform. The ions are used as given, and never rescaled.
   * `renormalize`: rescale `f` on entry by a single factor, so that its charge
@@ -224,8 +234,12 @@ function vlasov_poisson(x, v, f₀, t;
     # from the one before: a single time has no step to take one in.
     length(t) ≥ 2 || throw(ArgumentError(
         "t needs at least 2 times, the start and one step, got $(length(t))"))
-    Δx = cell_widths(x)
-    Δv = cell_widths(v)
+    # The widths follow the data, as the collision scratch does: a Float32 or a
+    # Rational grid under Float64 `f` takes neither its sums nor its default
+    # schemes out of Float64.
+    Δx₀, Δv₀ = cell_widths(x), cell_widths(v)
+    W = promote_type(float(eltype(f₀)), eltype(Δx₀), eltype(Δv₀))
+    Δx, Δv = convert(Vector{W}, Δx₀), convert(Vector{W}, Δv₀)
 
     if nᵢ === nothing
         # By the same sum over `v` as the electron density the field is solved
@@ -246,7 +260,12 @@ function vlasov_poisson(x, v, f₀, t;
     # line's own, so the upper bound is not the run's to keep: the defaults then
     # bound `f` below only.
     bound = collisions === nothing ? maximum(f) : Inf
-    pick(s, widths) = s === nothing ? PFCNonUniform(widths; fmin = 0.0, fmax = bound) :
+    # The defaults are Float64 at least, as `line_advector` works the line: a
+    # Float32 one rounds each flux sum, and at a line's peak the sum can land an
+    # ulp above `fmax`, which the next checked call refuses.
+    default(widths) = PFCNonUniform(convert(Vector{promote_type(Float64, eltype(widths))}, widths);
+                                    fmin = 0.0, fmax = bound)
+    pick(s, widths) = s === nothing ? default(widths) :
                       s isa AbstractAdvection1D ? s : s(f)
     sx, sv = pick(scheme_x, Δx), pick(scheme_v, Δv)
     # A default stops the run at the first line it is handed outside its bounds;

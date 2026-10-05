@@ -82,6 +82,13 @@ rescaled `f` by the trapezoid, 0.79% up at that amplitude.
 The uniform-grid method does not split. Nothing here asks a uniform scheme for
 more than `c = 0.50`, and `advect!` says so if something ever does.
 
+**The line is worked in Float64**, its buffer and the scheme's scratch alike,
+and rounded into the column once per step. The scratch used to take the
+scheme's element type, and a Float32 `PFCNonUniform` rounded a Float64 line to
+Float32 on every sub-step: on Float32 grids under Float64 `f`, every value of `f`
+was a Float32 one after the first step, and the mass drifted 3.3e-8 over 100
+steps of a Landau run where the Float64 one holds 4e-16.
+
 ## `vlasov_poisson`
 
     vlasov_poisson(x, v, f₀, t; scheme_x, scheme_v, invariants = false, modes = (),
@@ -264,7 +271,28 @@ here, and it changes what a call that ran measures: `scheme_x = LaxWendroff()`
 at 1% reads γ 0.156% above the root with the default `v` bounded, and 0.289%
 with its bounds dropped.
 
+**The widths follow the data, and the defaults work in Float64 at least.** The
+cell widths take `promote_type` of `f₀`'s float type and the two grids', so a
+Float32 or Rational grid under Float64 `f` sums in Float64, and the defaults
+are built in at least Float64 whatever the widths. Both were once the grid's
+own, and each stopped runs. A Float32 x grid under Float64 `f` built a Float32
+default whose `fmax = maximum(f)` rounded below the peak half the time, a
+`DomainError` on the first step; the other half its Float32 accumulator
+rounded the peak up past the v default's exact bound. 45 of 54 realistic
+profiles stopped. With everything in Float32, a two-stream's flux sum at a
+moving peak landed an ulp above the default's `fmax` in 208 of 540 runs,
+mostly on the first step: `(hi + in) - out` with `in = out` is not `hi` in
+Float32. A Rational v grid gave Rational widths, which no `PFCNonUniform`
+takes. A Float32 problem still has Float32 widths and Float32 `f`; its defaults
+compute in Float64 and round into the line once, as they did before the widths
+kept the grid's type.
+
 ### `keeps_bounds`
+
+A `PFC` or `PFCNonUniform` is compared in its own element type, `[lo, hi]`
+rounded outward as its constructor rounds the bounds it is given: a partner
+built on a Float32 grid with `fmax = maximum(f)` of Float64 data has its `fmax`
+one Float32 rounding above the default's, and was refused as unbounded.
 
 Measured over 10080 runs of 20 steps on rough data in `[0, 1]` -- uniform
 random, a quarter of it zeroed, a step down to 1e-9, spikes on a floor of

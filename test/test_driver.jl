@@ -44,10 +44,10 @@ using Vasilek.VlasovPoisson1D1V: line_advector, cell_widths, substeps
     # rather than of the spacing. A Float32 grid resolves its spacing to a few
     # parts in 10⁶, which 1e-10 of the spacing alone refuses although the
     # harness's driver ran it; it runs, and matches the Float64 run to Float32
-    # precision (measured 7.8e-7 of the peak in `f`, 7.4e-6 in `ε_e`, with its
-    # cell widths in Float32 as well; 5.6e-7 and 1.8e-6 while a `0.5` made them
-    # Float64). A grid far from the origin is taken too, and a stretch of a
-    # millionth of a cell is still refused.
+    # precision (measured 6.9e-7 of the peak in `f`, 8.3e-6 in `ε_e`, with its
+    # cell widths in Float32 and its default schemes in Float64; 5.6e-7 and
+    # 1.8e-6 while a `0.5` made the widths Float64 too). A grid far from the
+    # origin is taken too, and a stretch of a millionth of a cell is still refused.
     r₃₂ = vlasov_poisson(Float32.(x), Float32.(v), Float32.(f₀), Float32.(t))
     @test maximum(abs, r₃₂.f .- r.f) < 1e-5*maximum(r.f)
     @test maximum(abs, r₃₂.ε_e .- r.ε_e) < 1e-4*maximum(r.ε_e)
@@ -56,6 +56,62 @@ using Vasilek.VlasovPoisson1D1V: line_advector, cell_widths, substeps
     # A single time has no step to record a history in: refused, rather than a
     # BoundsError from copying the last entry forward.
     @test_throws ArgumentError vlasov_poisson(x, v, f₀, [0.0])
+end
+
+# The widths follow the data, and the default schemes and the scratch work in
+# Float64 at least, as the line buffer does. Each case below stopped the run, or
+# rounded it, while a Float32 grid's widths built the defaults in Float32.
+@testset "vlasov_poisson takes grids and data of other types" begin
+    k = 0.5
+    Nx = 32
+    x = collect(range(2π/k/Nx; step = 2π/k/Nx, length = Nx))
+    x32 = Float32.(x)
+    v = collect(-4.0:0.2:4.0)
+    landau(a, v = v) = [exp(-u^2/2)/sqrt(2π)*(1 + a*cos(k*y)) for u in v, y in x]
+    t = collect(0.0:0.1:2.0)
+    drift(r) = maximum(abs, r.mass .- r.mass[1])/r.mass[1]
+
+    # A Float32 x grid under Float64 f. The default's Float32 `fmax` rounded
+    # below the peak at a = 0.01, a DomainError on the first step; at a = 0.05
+    # it rounded above, and the Float32 accumulator rounded the line up past the
+    # v default's exact bound instead. f stays Float64, unrounded.
+    for a in (0.01, 0.05)
+        r = vlasov_poisson(x32, v, landau(a), t; invariants = true)
+        @test eltype(r.f) === Float64
+        @test r.f != Float64.(Float32.(r.f))
+        @test drift(r) < 1e-12
+        @test maximum(abs, r.f .- vlasov_poisson(x, v, landau(a), t).f) < 1e-6*maximum(r.f)
+    end
+    r = vlasov_poisson(x, Float32.(v), landau(0.05, Float32.(v)), t; invariants = true)
+    @test drift(r) < 1e-12
+
+    # A partner built as the defaults are, on the Float32 grid: refused as
+    # outside [0, maximum(f)] when its Float32 `fmax` rounded up, a DomainError
+    # on its first step when it rounded down.
+    partner = f -> PFCNonUniform(cell_widths(x32); fmin = 0.0, fmax = maximum(f))
+    for a in (0.01, 0.05)
+        r = vlasov_poisson(x32, v, landau(a), t; scheme_x = partner, invariants = true)
+        @test drift(r) < 1e-12
+    end
+
+    # All Float32, a two-stream whose peaks move: a Float32 default rounded each
+    # flux sum, and at a peak the sum landed an ulp above its `fmax` in 8 of 30
+    # such runs, mostly on the first step. This one stopped there.
+    L = 2π/0.4
+    x₂ = collect(range(L/64; step = L/64, length = 64))
+    v₂ = collect(range(-8.0, 8.0; length = 65))
+    f₂ = [(exp(-(u - 2.4)^2/2) + exp(-(u + 2.4)^2/2))/(2sqrt(2π))*(1 + 1e-6cos(0.4y))
+          for u in v₂, y in x₂]
+    r = vlasov_poisson(Float32.(x₂), Float32.(v₂), Float32.(f₂), Float32.(0:0.1:2))
+    @test eltype(r.f) === Float32
+    @test all(isfinite, r.f)
+
+    # A Rational v grid gave Rational widths, which no PFCNonUniform takes; it
+    # runs as its nodes in Float64 do. A Float16 one built a Float16 default
+    # whose `fmax` cut into the peak.
+    vq = collect(-4//1:1//5:4//1)
+    @test vlasov_poisson(x, vq, landau(0.05), t).f ≈ vlasov_poisson(x, Float64.(vq), landau(0.05), t).f rtol = 1e-14
+    @test all(isfinite, vlasov_poisson(x, Float16.(v), landau(0.05), t).f)
 end
 
 # The gate the driver's rewrites are held to. The step is written out below from
@@ -72,7 +128,8 @@ end
     # A line advanced by the displacement α as the driver advances it: a
     # PFCNonUniform in the fewest equal sub-steps no wider than its narrowest
     # cell, any other scheme in one step at the Courant number α/Δz[1]. Returns
-    # the number of steps taken.
+    # the number of steps taken. The count is written out rather than taken from
+    # `substeps`, so that a change to it shows here instead of moving both sides.
     function line!(line, α, scheme, Δz, buf, ws)
         if scheme isa PFCNonUniform
             h = minimum(Δz)
@@ -98,8 +155,11 @@ end
         f = copy(f₀)
         f .*= sum(nᵢ .* Δx)/sum(f .* (Δv .* Δx'))
         bound = collisions === nothing ? maximum(f) : Inf
-        sx = something(scheme_x, PFCNonUniform(Δx; fmin = 0.0, fmax = bound))
-        sv = something(scheme_v, PFCNonUniform(Δv; fmin = 0.0, fmax = bound))
+        # a scheme given as a function is built from the rescaled f
+        sx = scheme_x isa Function ? scheme_x(f) :
+             something(scheme_x, PFCNonUniform(Δx; fmin = 0.0, fmax = bound))
+        sv = scheme_v isa Function ? scheme_v(f) :
+             something(scheme_v, PFCNonUniform(Δv; fmin = 0.0, fmax = bound))
         wsx, wsv = workspace(sx, Nx), workspace(sv, Nv)
         bx, bv, cbuf = similar(x), similar(v), similar(v)
         cws = collisions === nothing ? nothing : workspace(collisions, Nv, eltype(f))
@@ -138,7 +198,11 @@ end
     uniform = collect(range(-6.0, 6.0; length = Nv))
     σ = range(-1, 1; length = Nv)
     stretched = @. 6sinh(2σ)/sinh(2)    # cells 3.8 times narrower at v = 0 than at ±6
-    f₀(v) = [exp(-u^2/2)/sqrt(2π)*(1 + 0.5cos(k*y)) for u in v, y in x]
+    # 1.3 times the default ions' charge, so that the rescaling is a factor
+    # 1/1.3 and a slip in it is a 30% error. A neutral f₀ rescaled by 1 to 3
+    # ulps: ions taken from f₀'s own density matched it bit for bit on the
+    # uniform grid, and a bound taken before the rescaling was a DomainError.
+    f₀(v) = [1.3exp(-u^2/2)/sqrt(2π)*(1 + 0.5cos(k*y)) for u in v, y in x]
 
     # The defaults, a PFCNonUniform on each grid. Uneven steps, up to 0.25: wide
     # enough for the x sweep to split its steps above |v| = π, and on the
@@ -151,6 +215,18 @@ end
         @test r.ε_e == ref_ε_e
         @test most_x > 1
         v === stretched && @test most_v > 1
+    end
+
+    # The defaults given as functions of the starting f, which the driver calls
+    # with f rescaled: called with f₀ instead, their bound is 1.3 times too high.
+    for v in (uniform, stretched)
+        Δx, Δv = cell_widths(x), cell_widths(v)
+        schemes = (scheme_x = f -> PFCNonUniform(Δx; fmin = 0.0, fmax = maximum(f)),
+                   scheme_v = f -> PFCNonUniform(Δv; fmin = 0.0, fmax = maximum(f)))
+        ref, ref_ε_e = written_out(v, f₀(v), t; schemes...)
+        r = vlasov_poisson(x, v, f₀(v), t; schemes...)
+        @test r.f == ref
+        @test r.ε_e == ref_ε_e
     end
 
     # Uniform-grid schemes given for both directions: a Courant number, one step

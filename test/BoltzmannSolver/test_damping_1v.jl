@@ -230,6 +230,17 @@ end
     f₁ = @. exp(-(v - 0.3)^2/1.4)*(1 + 0.3*sin(2v))
     @test collide!(similar(f₁), f₁, BGK(0.5f0), v, 0.1) ==
           collide!(similar(f₁), f₁, BGK(0.5f0), v, 0.1, Vasilek.workspace(BGK(0.5f0), length(v), Float64))
+    # A src sharing the workspace is refused. The Maxwellian, and the sampled
+    # operator's moments, are written there before src is done with: the line
+    # came back as the Maxwellian alone, 0.08 from the step, and through
+    # `moment` 0.64 off.
+    for op in (BGK(0.1), BGK(0.1; conservative = false))
+        ws = Vasilek.workspace(op, length(v), Float64)
+        for buf in (ws.maxwellian, ws.moment)
+            copyto!(buf, f₁)
+            @test_throws ArgumentError collide!(similar(f₁), buf, op, v, 0.05, ws)
+        end
+    end
     # Landau1P is experimental and exported from nowhere
     @test !(:Landau1P in names(Vasilek)) && !(:Landau1P in names(Vasilek.Collisions))
 end

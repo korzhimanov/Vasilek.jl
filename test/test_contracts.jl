@@ -235,6 +235,9 @@ end
         copyto!(ws.accumulator, f)
         @test_throws ArgumentError advect!(ws.accumulator, f, s, 0.02, ws)
         @test_throws ArgumentError advect!(similar(f), ws.accumulator, s, 0.02, ws)
+        # A workspace type with no method of its own is an error, where it was
+        # taken as sharing nothing: a new scheme's workspace cannot skip the check.
+        @test_throws MethodError Vasilek.Advection._scratch_aliases((buffer = f,), f, similar(f))
     end
 
     @testset "the minimum problem size is uniform" begin
@@ -417,11 +420,31 @@ end
     s32 = PFCNonUniform(fill(0.05f0, N); fmin = 0.0f0, fmax = 2.0f0)
     @test workspace(s32, N).accumulator isa Vector{Float32}
 
+    # Bounds narrower than they were given round outward, so a Float32 grid
+    # keeps the Float64 data they admit: `fmax = maximum(f)` rounded below the
+    # peak as often as not, and the first checked step refused the data's own.
+    peak = 0.4029317030250849
+    @test Float32(peak) < peak
+    s = PFCNonUniform(fill(0.05f0, N); fmin = -peak, fmax = peak)
+    @test s isa PFCNonUniform{Float32, true}
+    @test s.fmin ≤ -peak && s.fmax ≥ peak
+    line = [peak*sin(2π*(i-1)/N) for i in 1:N]
+    line[N÷4 + 1] = peak
+    @test all(isfinite, advect!(similar(line), line, s, 0.02f0))
+
     # The driver's cell widths keep a Float32 grid's type, where a `0.5` in
     # them used to make Float64 of it.
     widths = Vasilek.VlasovPoisson1D1V.cell_widths(Float32[0, 1, 3, 4])
     @test eltype(widths) === Float32
     @test widths == Float32[1, 1.5, 1.5, 1]
+    # and they are the widths `BGK` weighs its moments by, a second copy of the
+    # formula; the two had drifted once, `0.5*` in one and `/2` in the other
+    σ = range(-1, 1; length = 41)
+    for z in (@.(6sinh(2σ)/sinh(2)), Float32.(@.(6sinh(2σ)/sinh(2))), cumsum(1 .+ sin.(1:20).^2))
+        w = Vasilek.VlasovPoisson1D1V.cell_widths(z)
+        @test w == [Vasilek.Collisions._width(z, i) for i in eachindex(z)]
+        @test eltype(w) === eltype(z)
+    end
 end
 
 @testset "constructors refuse what the schemes cannot use" begin
@@ -431,6 +454,18 @@ end
     @test_throws ArgumentError PFCNonUniform([0.1, -0.1, 0.1, 0.1]; fmin = 0.0, fmax = 1.0)
     @test_throws ArgumentError PFCNonUniform([0.1, NaN, 0.1, 0.1]; fmin = 0.0, fmax = 1.0)
     @test_throws ArgumentError PFCNonUniform([0.1, 0.1]; fmin = 0.0, fmax = 1.0)
+    # and so do the positional forms every scheme is built through, which
+    # checked the flag alone: `PFC{Float64, false}(2.0, 0.0)` built, and a
+    # PFCNonUniform told its narrowest cell was 1.0, over cells of 0.05, took a
+    # 20-cell step from data in [0.5, 1.5] to [-1.02, 3.02] without an error
+    Δx = fill(0.05, 40)
+    @test_throws ArgumentError PFC{Float64, false}(2.0, 0.0)
+    @test_throws ArgumentError PFCNonUniform{Float64, true}(Δx, fill(2.0, 40), 1.0, 0.0, 2.0)
+    @test_throws ArgumentError PFCNonUniform{Float64, true}(Δx, fill(2.0, 40), 0.05, 2.0, 0.0)
+    @test_throws ArgumentError PFCNonUniform{Float64, true}([0.1, 0.1], [2.0, 2.0], 0.1, 0.0, 1.0)
+    @test_throws ArgumentError PFCNonUniform{Float64, true}(-Δx, fill(2.0, 40), -0.05, 0.0, 1.0)
+    @test_throws DimensionMismatch PFCNonUniform{Float64, true}(Δx, fill(2.0, 39), 0.05, 0.0, 2.0)
+    @test PFCNonUniform{Float64, true}(Δx, fill(2.0, 40), 0.05, 0.0, 2.0).Δxmin == 0.05
     # a piecewise-constant reconstruction has no slope to limit
     @test_throws ArgumentError Godunov(PiecewiseConstant(), VanLeer())
     @test_throws ArgumentError Godunov(PiecewiseConstant(), Superbee())
