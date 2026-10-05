@@ -8,8 +8,8 @@ name: Scripts
 # suite asserts the numbers -- only that the scripts still run.
 #
 # Not on every pull request: Plots and the nine studies take about a quarter of
-# an hour. On the pull requests that touch what they depend on, weekly, and by
-# hand.
+# an hour. On the pull requests and the pushes to master that touch what they
+# depend on, weekly, and by hand. The two lists of paths are the same list.
 on:
   pull_request:
     paths:
@@ -24,6 +24,16 @@ on:
       - '.github/workflows/Scripts.yml'
   push:
     branches: [master]
+    paths:
+      - 'src/**'
+      - 'verification/**'
+      - 'benchmark/**'
+      - 'test/verification_harness.jl'
+      - 'test/dispersion.jl'
+      - 'test/echo.jl'
+      - 'test/scheme_cases.jl'
+      - 'Project.toml'
+      - '.github/workflows/Scripts.yml'
   workflow_dispatch:
   schedule:
     - cron: '41 5 * * 1'

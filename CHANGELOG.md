@@ -9,14 +9,14 @@ This project has not been released; entries below describe work on `master`.
 
 Each section below gathers what the separate pull requests appended to it,
 newest first. Entries keep the measurements that justified them; the
-migration guide, `docs/migration-0.2.md`, is the short version.
+migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 ### Breaking
 
 - **Advection schemes are types, and `generate_solver` is gone.** `advect!`
   dispatches on an immutable scheme value; scratch memory, where a scheme
   needs any, comes from `workspace` and is passed explicitly. See
-  [docs/migration-0.2.md](docs/migration-0.2.md).
+  [docs/src/migration-0.2.md](docs/src/migration-0.2.md).
 
   No compatibility shim, contrary to the original plan: the module names
   `generate_solver` lived under are the new type names, so the two APIs
@@ -1030,7 +1030,7 @@ migration guide, `docs/migration-0.2.md`, is the short version.
   are now assertions: Landau damping at k = 0.5 within 5% of the tabulated
   0.1533 (measured 0.1498), and energy drift below 0.5% on the uniform grid
   and 6% on the non-uniform one at t = 3000 (measured 0.38% and 4.75%).
-- [docs/normalization.md](docs/normalization.md): the unit conventions, the
+- [docs/src/normalization.md](docs/src/normalization.md): the unit conventions, the
   wavenumber convention that the Poisson bug came from, the FDTD current
   convention that the wakefield instability came from, and why the PFC bounds
   have no default.
@@ -1070,6 +1070,23 @@ migration guide, `docs/migration-0.2.md`, is the short version.
   bit-identical output — the invariant `PFC` had been violating.
 
 ### Changed
+
+- **The docs build with Documenter.** `docs/*.md` moved to `docs/src/`, with
+  `docs/make.jl`, an index and a page of every docstring by module; a CI job
+  builds them, without deploying. `collide!` has a docstring.
+- **`Pkg.test(test_args = ["golden", "contracts"])` runs those files only**;
+  `test/runtests.jl` lists every file, and refuses a name it does not have.
+- **`vlasov_poisson` is held to its step bit for bit** (`test/test_driver.jl`):
+  the step written out from `advect!`, `collide!`, `PoissonFFT1D` and the cell
+  widths, defaults and given schemes, with and without `BGK`.
+- The centred Poisson difference and `slope_limit` lose their Float64
+  literals: `(…)/(2Δx)` for `0.5*(…)/Δx`, the same bits in Float64.
+- `Scripts.yml` runs on a push to master only for the paths its pull requests
+  watch; it ran on every merge, documentation included.
+- `runbenchmarks.jl` prints the baseline's Julia and BenchmarkTools versions
+  beside this run's: the baseline is the development machine's, on 1.12.7.
+- The complexity-class test samples for longer (`budget = 0.2, minreps = 10`),
+  and the tests' cell-width formulas are `Collisions._width`.
 
 - **Documentation says what the code does.**
   - Docstrings state contracts. The measurements and history that filled them
@@ -1316,7 +1333,7 @@ migration guide, `docs/migration-0.2.md`, is the short version.
 
   Callers should seed the interior: writing into an end node does not launch a
   wave, it changes the boundary condition to `E = const`. The convention is now
-  in [docs/normalization.md](docs/normalization.md) and in the `YeeMesh1D` and
+  in [docs/src/normalization.md](docs/src/normalization.md) and in the `YeeMesh1D` and
   `make_advance_fields` docstrings, and the tests assert the observable
   consequence rather than the loop bounds — a pulse reaching either wall returns
   inverted, with a measured reflection coefficient of −0.9998.
@@ -1404,6 +1421,17 @@ migration guide, `docs/migration-0.2.md`, is the short version.
   reason the test environment needed Plots and GR.
 
 ### Fixed
+
+- **`cell_widths` keeps a Float32 grid Float32**; a `0.5` made Float64 of it,
+  and the driver ran a Float32 problem's widths and default schemes in Float64.
+- **`PFC{T, Checked}` and `PFCNonUniform{T, Checked}` refuse a `Checked` that
+  is not a Bool**: `PFC{Float64, 3}` constructed, then failed its first step
+  with a `TypeError`.
+- **A scheme that takes no workspace refuses one**: `Upwind` accepted another
+  scheme's and ignored it.
+- **`advect!` refuses a workspace whose buffer shares memory with `dest` or
+  `src`**: a spline buffer as `dest` came back 0.014 off, and `PFCNonUniform`'s
+  accumulator as `src` 0.21.
 
 - **Tests that could not fail now test the code.**
   - The `Landau1P` kernel antisymmetry compared a kernel defined in the test

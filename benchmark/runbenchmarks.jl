@@ -81,7 +81,28 @@ if REBASELINE || !isfile(RESULTS_FILE)
     exit(0)
 end
 
+"""
+    baseline_versions(file)
+
+The `Julia` and `BenchmarkTools` versions `BenchmarkTools.save` wrote at the head
+of `file`, which `BenchmarkTools.load` reads past. Matched rather than parsed:
+the environment has no JSON package of its own.
+"""
+function baseline_versions(file)
+    text = read(file, String)
+    version(key) = (m = match(Regex("\"$key\":\"([^\"]*)\""), text)) === nothing ? "unknown" : m[1]
+    return version("Julia"), version("BenchmarkTools")
+end
+
+# The stored baseline was measured on the development machine, under Julia
+# 1.12.7 and BenchmarkTools 1.8.0, and `results.json` says so in its header. On
+# any other machine or Julia the comparison below measures that difference as
+# much as any change in the code, so the header is printed beside this run's.
 baseline = BenchmarkTools.load(RESULTS_FILE)[1]
+let (julia, tools) = baseline_versions(RESULTS_FILE)
+    println("\nbaseline ", RESULTS_FILE, ": Julia ", julia, ", BenchmarkTools ", tools,
+            "; this run: Julia ", VERSION, ", BenchmarkTools ", pkgversion(BenchmarkTools))
+end
 println("\n", judge(results, baseline; time_tolerance = TIME_TOLERANCE))
 
 """
