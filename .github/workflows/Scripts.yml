@@ -9,10 +9,11 @@ name: Scripts
 #
 # Not on every pull request: Plots and the nine studies take about a quarter of
 # an hour. On the pull requests and the pushes to master that touch what they
-# depend on, weekly, and by hand. The two lists of paths are the same list.
+# depend on, weekly, and by hand. The pushes take the pull requests' paths by
+# the YAML alias, so the two cannot drift apart.
 on:
   pull_request:
-    paths:
+    paths: &paths
       - 'src/**'
       - 'verification/**'
       - 'benchmark/**'
@@ -24,16 +25,7 @@ on:
       - '.github/workflows/Scripts.yml'
   push:
     branches: [master]
-    paths:
-      - 'src/**'
-      - 'verification/**'
-      - 'benchmark/**'
-      - 'test/verification_harness.jl'
-      - 'test/dispersion.jl'
-      - 'test/echo.jl'
-      - 'test/scheme_cases.jl'
-      - 'Project.toml'
-      - '.github/workflows/Scripts.yml'
+    paths: *paths
   workflow_dispatch:
   schedule:
     - cron: '41 5 * * 1'

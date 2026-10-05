@@ -252,8 +252,8 @@ julia --project=benchmark benchmark/workprecision.jl
 ```
 
 `runbenchmarks.jl` times each kernel against a stored baseline, measured on the
-development machine under Julia 1.12.7, so a run anywhere else compares
-machines as much as code.
+development machine, so a run anywhere else compares machines as much as code;
+it prints the baseline's Julia and BenchmarkTools versions beside its own.
 `workprecision.jl` pairs error with the cost of reaching it and prints the
 efficiency frontier per problem class — the schemes no other scheme beats on
 both axes. Both are advisory and exit 0; the accuracy half of the comparison is

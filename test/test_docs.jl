@@ -33,3 +33,15 @@ e  = similar(ρ)
         println("  ", basename(file), ": ", length(blocks), " julia blocks")
     end
 end
+
+# The manual's front page is the README's introduction, the list of what is
+# implemented included, kept by hand in two places: an edit to one is carried
+# to the other, or this fails.
+@testset "The manual opens as the README does" begin
+    root = joinpath(@__DIR__, "..")
+    function intro(file)
+        text = replace(read(file, String), r"^\[!\[.*\n"m => "")    # the README's badges
+        return replace(strip(first(split(text, "\n## "))), r"\n{3,}" => "\n\n")
+    end
+    @test intro(joinpath(root, "README.md")) == intro(joinpath(root, "docs", "src", "index.md"))
+end

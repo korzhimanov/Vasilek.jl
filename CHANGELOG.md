@@ -1085,12 +1085,14 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 - The centred Poisson difference and `slope_limit` lose their Float64
   literals: `(…)/(2Δx)` for `0.5*(…)/Δx`, the same bits in Float64.
 - `Scripts.yml` runs on a push to master only for the paths its pull requests
-  watch; it ran on every merge, documentation included.
+  watch, by a YAML alias of their list; it ran on every merge, documentation
+  included.
 - `runbenchmarks.jl` prints the baseline's Julia and BenchmarkTools versions
   beside this run's: the baseline is the development machine's, on 1.12.7.
 - The complexity-class test samples for longer (`budget = 0.2, minreps = 10`),
   and the tests' cell-width formulas are `Collisions._width`, which a test
-  holds equal to `cell_widths`.
+  holds equal to `cell_widths`. Another holds the manual's front page to the
+  README's introduction.
 
 - **Documentation says what the code does.**
   - Docstrings state contracts. The measurements and history that filled them
