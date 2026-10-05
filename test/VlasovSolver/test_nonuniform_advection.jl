@@ -34,6 +34,24 @@ using Vasilek
     @test minimum(src) ≥ -eps()
     @test maximum(src) ≤ 1.0 + eps()
 
+    # ---- a constant line stays constant, to the bit ------------------------
+    # Every face of a constant line carries the same flux, α·f, and each cell
+    # takes the difference of its two, which is zero. It used to add the inflow
+    # and subtract the outflow in turn, and from a line at fmax the two
+    # roundings left a cell an ulp above it, which the next checked call
+    # refuses, in 691 of the 2406 cases below. The uniform grid is among them,
+    # beside the refined one and the widths of a collected range, `rounded`,
+    # which differ in their last bits.
+    rounded = Vasilek.VlasovPoisson1D1V.cell_widths(collect(range(0.4; step = 4π/32, length = 32)))
+    for Δx in (uniform, refined, rounded), c in (0.7, 1/sqrt(2π))
+        line = fill(c, length(Δx))
+        scheme = PFCNonUniform(Δx; fmin = 0.0, fmax = c)
+        ws = workspace(scheme, length(Δx))
+        h = minimum(Δx)
+        @test all(α -> advect!(similar(line), line, scheme, α, ws) == line,
+                  range(-h, h; length = 401))
+    end
+
     # ---- agreement with the uniform-grid solver ----------------------------
     # On a uniform grid the non-uniform scheme must reproduce PFC: both reduce
     # to the same formulas with ξ = 2 and Δx cancelling.
