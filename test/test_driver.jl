@@ -44,9 +44,10 @@ using Vasilek.VlasovPoisson1D1V: line_advector, cell_widths, substeps
     # rather than of the spacing. A Float32 grid resolves its spacing to a few
     # parts in 10⁶, which 1e-10 of the spacing alone refuses although the
     # harness's driver ran it; it runs, and matches the Float64 run to Float32
-    # precision (measured 5.6e-7 of the peak in `f`, 1.8e-6 in `ε_e`). A grid
-    # far from the origin is taken too, and a stretch of a millionth of a cell
-    # is still refused.
+    # precision (measured 7.8e-7 of the peak in `f`, 7.4e-6 in `ε_e`, with its
+    # cell widths in Float32 as well; 5.6e-7 and 1.8e-6 while a `0.5` made them
+    # Float64). A grid far from the origin is taken too, and a stretch of a
+    # millionth of a cell is still refused.
     r₃₂ = vlasov_poisson(Float32.(x), Float32.(v), Float32.(f₀), Float32.(t))
     @test maximum(abs, r₃₂.f .- r.f) < 1e-5*maximum(r.f)
     @test maximum(abs, r₃₂.ε_e .- r.ε_e) < 1e-4*maximum(r.ε_e)
@@ -55,6 +56,115 @@ using Vasilek.VlasovPoisson1D1V: line_advector, cell_widths, substeps
     # A single time has no step to record a history in: refused, rather than a
     # BoundsError from copying the last entry forward.
     @test_throws ArgumentError vlasov_poisson(x, v, f₀, [0.0])
+end
+
+# The gate the driver's rewrites are held to. The step is written out below from
+# the package's parts -- `advect!`, `collide!`, the centred `PoissonFFT1D`, the
+# cell widths -- with the driver's default ions, its rescaling of `f` and its
+# default schemes, and `vlasov_poisson` has to reproduce `f` and `ε_e` to the
+# bit. No bits are stored: both sides run in this process, so this asserts
+# nothing about the platform, only that the driver takes the step written here.
+@testset "vlasov_poisson is the step written out, bit for bit" begin
+    Nx, Nv, k = 32, 41, 0.5
+    x = collect(range(2π/k/Nx; step = 2π/k/Nx, length = Nx))
+    P = Vasilek.PoissonFourier1D
+
+    # A line advanced by the displacement α as the driver advances it: a
+    # PFCNonUniform in the fewest equal sub-steps no wider than its narrowest
+    # cell, any other scheme in one step at the Courant number α/Δz[1]. Returns
+    # the number of steps taken.
+    function line!(line, α, scheme, Δz, buf, ws)
+        if scheme isa PFCNonUniform
+            h = minimum(Δz)
+            m = max(1, ceil(Int, abs(α)/h))
+            abs(α/m) > h && (m += 1)
+            for _ in 1:m
+                advect!(buf, line, scheme, α/m, ws)
+                copyto!(line, buf)
+            end
+            return m
+        end
+        advect!(buf, line, scheme, α/Δz[1], ws)
+        copyto!(line, buf)
+        return 1
+    end
+
+    # X(Δt/2) · C(Δt/2) K(Δt) C(Δt/2) · X(Δt/2) on `f[v, x]`, rescaled first to
+    # the charge of the default ions, `Σ M Δv`; `ε_e` sampled as the driver
+    # samples it. Also returns the most sub-steps a line took in x and in v.
+    function written_out(v, f₀, t; scheme_x = nothing, scheme_v = nothing, collisions = nothing)
+        Δx, Δv = cell_widths(x), cell_widths(v)
+        nᵢ = fill(sum(@. exp(-0.5*v^2)/sqrt(2π)*Δv), Nx)
+        f = copy(f₀)
+        f .*= sum(nᵢ .* Δx)/sum(f .* (Δv .* Δx'))
+        bound = collisions === nothing ? maximum(f) : Inf
+        sx = something(scheme_x, PFCNonUniform(Δx; fmin = 0.0, fmax = bound))
+        sv = something(scheme_v, PFCNonUniform(Δv; fmin = 0.0, fmax = bound))
+        wsx, wsv = workspace(sx, Nx), workspace(sv, Nv)
+        bx, bv, cbuf = similar(x), similar(v), similar(v)
+        cws = collisions === nothing ? nothing : workspace(collisions, Nv, eltype(f))
+        p = P.PoissonFFT1D(Nx, x[2] - x[1])
+        pws = workspace(p)
+        e = similar(x)
+        ε_e = similar(t)
+        most_x = most_v = 0
+        for n in 1:length(t)-1
+            Δt = t[n+1] - t[n]
+            for j in 1:Nv
+                most_x = max(most_x, line!(view(f, j, :), v[j]*Δt/2, sx, Δx, bx, wsx))
+            end
+            P.solve!(e, vec(sum(f .* Δv, dims = 1)) - nᵢ, p, pws)
+            for i in 1:Nx
+                col = view(f, :, i)
+                if collisions !== nothing
+                    collide!(cbuf, col, collisions, v, Δt/2, cws)
+                    copyto!(col, cbuf)
+                end
+                most_v = max(most_v, line!(col, e[i]*Δt, sv, Δv, bv, wsv))
+                if collisions !== nothing
+                    collide!(cbuf, col, collisions, v, Δt/2, cws)
+                    copyto!(col, cbuf)
+                end
+            end
+            for j in 1:Nv
+                most_x = max(most_x, line!(view(f, j, :), v[j]*Δt/2, sx, Δx, bx, wsx))
+            end
+            ε_e[n] = sum(e[j]^2*Δx[j] for j in eachindex(e))
+        end
+        ε_e[end] = ε_e[end-1]
+        return f, ε_e, most_x, most_v
+    end
+
+    uniform = collect(range(-6.0, 6.0; length = Nv))
+    σ = range(-1, 1; length = Nv)
+    stretched = @. 6sinh(2σ)/sinh(2)    # cells 3.8 times narrower at v = 0 than at ±6
+    f₀(v) = [exp(-u^2/2)/sqrt(2π)*(1 + 0.5cos(k*y)) for u in v, y in x]
+
+    # The defaults, a PFCNonUniform on each grid. Uneven steps, up to 0.25: wide
+    # enough for the x sweep to split its steps above |v| = π, and on the
+    # stretched grid for the kick to split where the field peaks.
+    t = [0.0, 0.25, 0.4, 0.65, 0.8, 1.05]
+    for v in (uniform, stretched), collisions in (nothing, BGK(0.5))
+        ref, ref_ε_e, most_x, most_v = written_out(v, f₀(v), t; collisions)
+        r = vlasov_poisson(x, v, f₀(v), t; collisions)
+        @test r.f == ref
+        @test r.ε_e == ref_ε_e
+        @test most_x > 1
+        v === stretched && @test most_v > 1
+    end
+
+    # Uniform-grid schemes given for both directions: a Courant number, one step
+    # a line, and a scheme with a workspace. Steps of at most 0.1 keep |c| ≤ 1
+    # in x.
+    t = [0.0, 0.1, 0.15, 0.25, 0.3, 0.4]
+    schemes = (scheme_x = Godunov(PiecewiseLinear(), VanLeer()),
+               scheme_v = SemiLagrangian(CubicSpline()))
+    for collisions in (nothing, BGK(0.5))
+        ref, ref_ε_e = written_out(uniform, f₀(uniform), t; schemes..., collisions)
+        r = vlasov_poisson(x, uniform, f₀(uniform), t; schemes..., collisions)
+        @test r.f == ref
+        @test r.ε_e == ref_ε_e
+    end
 end
 
 # A scheme the driver has never heard of. As a partner for a default it is

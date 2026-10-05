@@ -54,6 +54,10 @@ using Vasilek
         # pairing rather than narrowing to it. Pinned because it is the
         # surprising way round.
         @test PFC(fmin = 0, fmax = 2.0f0)                    isa PFC{Float64, true}
+        # and the flag is a Bool: `PFC{Float64, 3}` used to construct, and
+        # then stop its first step with a TypeError from `if Checked`
+        @test_throws ArgumentError PFC{Float64, 3}(0.0, 2.0)
+        @test PFC{Float64, true}(0.0, 2.0) === PFC(fmin = 0.0, fmax = 2.0)
     end
 end
 
@@ -124,6 +128,8 @@ end
         # below inferred as `PFCNonUniform{Float64}` -- concrete before the flag
         # existed, abstract after -- until `@constprop :aggressive`.
         @test (@inferred PFCNonUniform(Δx; fmin = 0.0, fmax = 2.0)) isa PFCNonUniform{Float64, true}
+        # and the flag is a Bool here too
+        @test_throws ArgumentError PFCNonUniform{Float64, 3}(Δx, fill(2.0, N), 0.05, 0.0, 2.0)
     end
 end
 
@@ -195,6 +201,40 @@ end
         # and a scheme whose grid does not match the data
         wrong = PFCNonUniform(fill(0.05, 32); fmin = 0.0, fmax = 2.0)
         @test_throws DimensionMismatch advect!(dst, f, wrong, 0.02, workspace(wrong, 32))
+    end
+
+    @testset "so is a workspace for a scheme that takes none" begin
+        # Upwind and the rest took any workspace at all and ignored it, so a
+        # sweep that handed one scheme another's workspace went unnoticed until
+        # a scheme that reads its workspace was handed the wrong one.
+        foreign = (workspace(SemiLagrangian(CubicSpline()), N),
+                   workspace(PFCNonUniform(fill(0.05, N); fmin = 0.0, fmax = 2.0), N))
+        for (name, scheme) in uniform_schemes(fmin = 0.0, fmax = 2.0), ws in foreign
+            startswith(name, "SemiLagrangian") && continue
+            @test_throws ArgumentError advect!(similar(f), f, scheme, 0.4, ws)
+        end
+    end
+
+    @testset "and a workspace sharing memory with dest or src" begin
+        # Measured before the check: a dest sharing a spline buffer came back
+        # 0.013 (linear) and 0.014 (cubic) off; a src sharing the cubic one was
+        # overwritten with its coefficients, 8.0e-4 from what was passed; and a
+        # src sharing PFCNonUniform's accumulator came back 0.21 off, 0.81 on a
+        # 1:2 grid. A dest sharing the accumulator happened to come out right,
+        # and is refused with the rest: the workspace is the scheme's own.
+        for spline in (LinearSpline(), CubicSpline())
+            s = SemiLagrangian(spline)
+            ws = workspace(s, N)
+            buf = view(ws.buffer, 1:N)
+            copyto!(buf, f)
+            @test_throws ArgumentError advect!(buf, f, s, 0.4, ws)
+            @test_throws ArgumentError advect!(similar(f), buf, s, 0.4, ws)
+        end
+        s = PFCNonUniform(fill(0.05, N); fmin = 0.0, fmax = 2.0)
+        ws = workspace(s, N)
+        copyto!(ws.accumulator, f)
+        @test_throws ArgumentError advect!(ws.accumulator, f, s, 0.02, ws)
+        @test_throws ArgumentError advect!(similar(f), ws.accumulator, s, 0.02, ws)
     end
 
     @testset "the minimum problem size is uniform" begin
@@ -376,6 +416,12 @@ end
     @test workspace(SemiLagrangian(CubicSpline()), N).buffer isa Vector{Float64}
     s32 = PFCNonUniform(fill(0.05f0, N); fmin = 0.0f0, fmax = 2.0f0)
     @test workspace(s32, N).accumulator isa Vector{Float32}
+
+    # The driver's cell widths keep a Float32 grid's type, where a `0.5` in
+    # them used to make Float64 of it.
+    widths = Vasilek.VlasovPoisson1D1V.cell_widths(Float32[0, 1, 3, 4])
+    @test eltype(widths) === Float32
+    @test widths == Float32[1, 1.5, 1.5, 1]
 end
 
 @testset "constructors refuse what the schemes cannot use" begin

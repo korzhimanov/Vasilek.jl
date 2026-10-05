@@ -72,7 +72,7 @@ magnetic one, so `x_min` is the coordinate the source is measured from.
 
 `j` is a named tuple `(y, z)` of arrays indexed like `f.ey`, and is added
 **straight into the field**, so the caller owes it the time step: the argument
-is `-J Δt`, not `J`. See `docs/normalization.md`.
+is `-J Δt`, not `J`. See `docs/src/normalization.md`.
 
 Only the interior nodes `2:N` are driven. The two end nodes are PEC boundaries
 (see [`YeeMesh1D`](@ref)), so `j.y[1]`, `j.z[1]` and the last entry of each are

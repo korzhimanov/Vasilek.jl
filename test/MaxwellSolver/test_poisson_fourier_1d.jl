@@ -8,7 +8,7 @@ using FFTW
 # This suite used to be a single mode compared against the continuum answer at
 # `atol = 1e-3`, which is loose enough to hide the very bug the module has a
 # history of: a field wrong by a factor of `Δx²` from a wavenumber convention
-# mismatch. `docs/normalization.md` already states the exact discrete identity
+# mismatch. `docs/src/normalization.md` already states the exact discrete identity
 # the scheme satisfies and claims the test asserts it to machine precision --
 # until now it did not.
 @testset "Test 1D Poisson solvers" begin

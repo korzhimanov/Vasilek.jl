@@ -204,7 +204,7 @@ end
     # The discrete Maxwellian: Δt ≫ τ lands on a function whose logarithm is a
     # quadratic in v, with f₀'s cell-width moments to round-off.
     D = collide!(similar(f₀), f₀, BGK(1e-8), v, 1.0)
-    w = [i == 1 ? v[2]-v[1] : i == length(v) ? v[end]-v[end-1] : (v[i+1]-v[i-1])/2 for i in eachindex(v)]
+    w = [Vasilek.Collisions._width(v, i) for i in eachindex(v)]
     for p in 0:2
         @test isapprox(sum(w .* D .* v.^p), sum(w .* f₀ .* v.^p); rtol = 1e-13, atol = 1e-15)
     end
@@ -289,8 +289,7 @@ end
         op = BGK(1e-1; conservative)
         ws = workspace(op, length(v))
         src = copy(f₀); dst = similar(src)
-        w = [i == 1 ? v[2]-v[1] : i == length(v) ? v[end]-v[end-1] : (v[i+1]-v[i-1])/2
-             for i in eachindex(v)]
+        w = [Vasilek.Collisions._width(v, i) for i in eachindex(v)]
         H(f) = conservative ? -sum(w[i]*(f[i] > 0 ? f[i]*log(f[i]) : 0.0) for i in eachindex(f)) :
                               -integrate(v, [x > 0 ? x*log(x) : 0.0 for x in f])
         previous = H(src); worst = 0.0

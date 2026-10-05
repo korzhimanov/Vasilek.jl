@@ -124,7 +124,7 @@ of handing the run a state that is not an equilibrium.
 
 Returns the grids, `f₀`, the ions `nᵢ` and the final `f`, the field's `k` mode
 history `E` (mid-step, see `vlasov_poisson`) against `E₀`, the equilibrium's
-own: `iψk` times `sin(kΔx)/(kΔx)`, the centred difference `docs/normalization.md`
+own: `iψk` times `sin(kΔx)/(kΔx)`, the centred difference `docs/src/normalization.md`
 documents. Also the separatrix `v_sep(x) = √(2ψ(1 + cos kx))` and the `l2` and
 `entropy` histories.
 
@@ -1114,8 +1114,7 @@ function Vasilek.Collisions.collide!(dest, src, op::PartialBGK{C}, v, Δt, ::Not
     n = zero(eltype(src))
     p = zero(eltype(src))
     for i in eachindex(v)
-        h = i == firstindex(v) ? v[i+1] - v[i] :
-            i == lastindex(v)  ? v[i] - v[i-1] : (v[i+1] - v[i-1])/2
+        h = Vasilek.Collisions._width(v, i)
         n += src[i]*h
         p += src[i]*v[i]*h
     end

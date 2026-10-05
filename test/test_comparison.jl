@@ -327,10 +327,13 @@ end
         end
     end
 
+    # Four times the default budget and twice the samples: the minimum over
+    # more samples is harder for a loaded runner to inflate, and the smallest
+    # sizes, which a single interruption can inflate the most, get the most.
     p_bgk, t_bgk = scaling_exponent(collision_work(BGK(1e-2)),
-                                    (800, 1600, 3200, 6400))
+                                    (800, 1600, 3200, 6400); budget = 0.2, minreps = 10)
     p_landau, t_landau = scaling_exponent(collision_work(Landau1P(1e-2)),
-                                          (100, 200, 400, 800))
+                                          (100, 200, 400, 800); budget = 0.2, minreps = 10)
 
     println("  BGK       N = 800..6400  ",
             join([string(round(t*1e6; digits = 1), "us") for t in t_bgk], " "),

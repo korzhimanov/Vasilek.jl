@@ -49,9 +49,10 @@ end
 
 The width each node of the grid `z` stands for: the spacing at the two ends,
 and half the distance between its neighbours inside. These are the weights of
-the sums `Σ f ΔvΔx` that the flux-form schemes conserve.
+the sums `Σ f ΔvΔx` that the flux-form schemes conserve. A floating-point grid
+gets widths of its own element type.
 """
-cell_widths(z) = vcat([z[2]-z[1]], 0.5*(z[3:end] - z[1:end-2]), [z[end]-z[end-1]])
+cell_widths(z) = vcat([z[2]-z[1]], (z[3:end] - z[1:end-2])/2, [z[end]-z[end-1]])
 
 
 """
@@ -141,7 +142,7 @@ a limiter and the quadratic and cubic `SemiLagrangian`, which are linear and
 above first order and so, by Godunov's theorem, overshoot; for a `PFC` bounded
 wider, whose limiter lets the data out to its own bounds; and for a scheme of any
 other type, which the driver cannot vouch for. The measurements behind it are in
-`docs/driver-notes.md`.
+`docs/src/driver-notes.md`.
 """
 keeps_bounds(::AbstractAdvection1D, lo, hi) = false
 keeps_bounds(::Upwind, lo, hi) = true
@@ -167,7 +168,8 @@ end
 
 Strang-split electrostatic Vlasov–Poisson for electrons over fixed ions, from
 `f₀` (indexed `f[v, x]`) through the times `t`; Vlasov–Poisson–BGK when
-`collisions` is a collision operator. Units are those of `docs/normalization.md`.
+`collisions` is a collision operator. Units are those of
+`docs/src/normalization.md`.
 
   * `x`: a periodic grid, uniform (checked). `v`: any grid, uniform or not.
   * `t`: at least two times; steps may differ.
@@ -176,8 +178,12 @@ Strang-split electrostatic Vlasov–Poisson for electrons over fixed ions, from
     `[0, maximum(f)]` (below only with `collisions`); their steps wider than a cell are split by
     [`line_advector`](@ref).
   * `nᵢ`: the ion density over `x`; by default the Maxwellian's `Σ M Δv`,
-    uniform. Without `nᵢ`, `f` is rescaled to the ions' charge on entry
-    (`renormalize`).
+    uniform. The ions are used as given, and never rescaled.
+  * `renormalize`: rescale `f` on entry by a single factor, so that its charge
+    `Σ f ΔvΔx` equals the ions' `Σ nᵢ Δx`. On by default without `nᵢ` and off
+    with it. With a given `nᵢ`, `renormalize = true` matches the totals only:
+    the box becomes neutral as a whole, and `f` keeps its shape over `x`
+    rather than being fitted to the ions' profile.
   * `collisions`: applied to every velocity line for half a step either side of
     the kick, `X(Δt/2)·C(Δt/2) K(Δt) C(Δt/2)·X(Δt/2)`, so the step stays second
     order.
@@ -208,7 +214,7 @@ none), for the other direction. With `collisions` the defaults have no upper
 bound, since a collision step can raise a line's peak above `maximum(f)`.
 
 Why each of these choices was made, with the measurements behind them, is in
-`docs/driver-notes.md`.
+`docs/src/driver-notes.md`.
 """
 function vlasov_poisson(x, v, f₀, t;
                         scheme_x = nothing, scheme_v = nothing, invariants = false,
