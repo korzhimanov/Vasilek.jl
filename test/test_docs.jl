@@ -1,6 +1,6 @@
 using Vasilek
 
-# The code in docs/*.md, executed, as `test_readme.jl` does for the README. The
+# The code in docs/src/*.md, executed, as `test_readme.jl` does for the README. The
 # migration guide's collision example called `workspace(BGK(τ), n)` through a
 # name that did not reach the collision operators, and nothing ran it.
 #
@@ -21,7 +21,7 @@ e  = similar(ρ)
 """
 
 @testset "The docs' examples run" begin
-    for file in filter(endswith(".md"), readdir(joinpath(@__DIR__, "..", "docs"); join = true))
+    for file in filter(endswith(".md"), readdir(joinpath(@__DIR__, "..", "docs", "src"); join = true))
         text = read(file, String)
         blocks = [m.captures[1] for m in eachmatch(r"```julia\r?\n(.*?)```"s, text)]
         for code in blocks

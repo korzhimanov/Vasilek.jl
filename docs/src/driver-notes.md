@@ -1,5 +1,9 @@
 # Notes on the 1D1V driver
 
+```@meta
+CurrentModule = Vasilek.VlasovPoisson1D1V
+```
+
 The reasoning behind `Vasilek.VlasovPoisson1D1V`, moved here from its
 docstrings so that those can say what the functions do. The numbers below are
 as they were measured when each choice was made; the test suite asserts the
@@ -59,8 +63,9 @@ Wrap `scheme` as an in-place `(column, α)` advector, where `α` is always a
 number, which only exists on a uniform grid, so the wrapper divides by the
 spacing for those and **refuses** a non-uniform grid rather than picking one of
 its spacings and being quietly wrong by the ratio between them. That asymmetry
-is a documented wart of the advection API (see `docs/normalization.md`); this is
-the one place the verification runs have to absorb it.
+is a documented wart of the advection API (see
+[normalization.md](normalization.md)); this is the one place the verification
+runs have to absorb it.
 
 **A displacement wider than the narrowest cell is split** into the fewest equal
 sub-steps that fit ([`substeps`](@ref)). `advect!` refuses it whole, and a
@@ -151,8 +156,8 @@ end points by half. That is exact for proportional profiles only, and
 `≈ 1 + α/(Nx − 1)`, 7.9e-3 at α = 0.5 on 64 cells, and `ωₚ²` with it, where the
 sums give 1 to round-off. It also rescaled again on every restart, where the
 flux form has kept `Σ f ΔvΔx` and the sums find nothing to do. On the matched
-pair of [`bgk_equilibrium`](@ref) it was 1 − 1.9e-3 and doubled the
-equilibrium's drift; it is now 1 to 3.8e-15 there as well.
+pair of the verification harness's `bgk_equilibrium` it was 1 − 1.9e-3 and
+doubled the equilibrium's drift; it is now 1 to 3.8e-15 there as well.
 
 `scheme_x` and `scheme_v` default to `PFCNonUniform` on the two grids, which is
 what the verification notebooks use and what every previous caller got. They are
