@@ -1461,6 +1461,24 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 ### Fixed
 
+- **The default schemes keep a line that sits at their upper bound.**
+  `vlasov_poisson` stopped a waterbag that is uniform in x with a `DomainError`
+  on its first step: on the Landau x grid of `test/test_driver.jl`, one cell came
+  out one ulp above `fmax = maximum(f)`. A constant `f` with `nᵢ` given stopped
+  the same way.
+  - The cause: `PFCNonUniform` added a cell's inflow, then subtracted its
+    outflow, `(f + Φin/Δx) − Φout/Δx`. On a constant line the two fluxes are
+    equal to the bit, but the two roundings still left a cell an ulp above `f`.
+    That happened in 691 of the 2406 cases (line, bound and displacement) now
+    in `test_nonuniform_advection.jl`, uniform grids included.
+  - A cell now takes `f + (Φin − Φout)/Δx`. A constant line stays constant to
+    the bit, and the waterbag stays an equilibrium to the bit.
+  - A plateau at the bound with smooth sides, `0.25*min(1, 1 + 0.01cos(kx))`
+    over `|v| < 2`, also used to stop. It now runs 200 steps with its maximum
+    held to the bit.
+  - Every other `PFCNonUniform` result moves at rounding level: at most 8.7e-15
+    of the peak of `f` after 300 steps of a 50% Landau run. The golden values
+    hold no `PFCNonUniform` case and do not move.
 - **`cell_widths` keeps a Float32 grid Float32**; a `0.5` made Float64 of it.
 - **`vlasov_poisson` runs grids and data of other types**: its widths follow
   the data, `promote_type` of `f₀`'s float type and the grids', and its default
@@ -2412,3 +2430,16 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 - `Landau1P` differences a cell-centred `I` rather than staggered fluxes, so
   mass is not conserved to machine precision. Measured drift over 100 steps is
   2e-10, which the test asserts as a bound.
+- `PFC` still updates a cell as `(f + Φin) − Φout`, the form `PFCNonUniform`
+  dropped (see "The default schemes keep a line that sits at their upper bound"
+  under Fixed). From a constant line at the waterbag's `fmax`, 0.2631…, 320 of
+  2001 Courant numbers across `[−1, 1]` leave a cell one ulp above it, and the
+  next checked call refuses it. The driver's defaults are not `PFC`. A `PFC` given for a direction
+  in which `f` is constant can stop a run, though, for example
+  `f -> PFC(fmin = 0.0, fmax = maximum(f))`. Switching `PFC` to the new form
+  moves 39 of its 64 golden values, by up to 6.2e-16 relative, so the change
+  waits for a pull request that regenerates them.
+- Rounding inside the flux itself can still leave `PFCNonUniform` an ulp above
+  `fmax` where a plateau at the bound meets rough data. That happened in 199 of
+  3600 twenty-step runs on such lines, down from 733 before the fix under Fixed.
+  None of the smooth profiles measured does it, flat-topped ones included.

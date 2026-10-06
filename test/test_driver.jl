@@ -394,3 +394,32 @@ end
     # Without collisions nothing changes: the same PFC is refused.
     @test_throws ArgumentError vlasov_poisson(x, v, f₀, [0.0, 0.05]; scheme_v = PFC(fmin = 0.0, fmax = 1.0))
 end
+
+@testset "a line at the defaults' upper bound stays there" begin
+    # A waterbag, uniform in x, on the Landau grid of the first testset: every
+    # row of f is constant, and the rows over |v| < 2 sit at the defaults' upper
+    # bound, maximum(f) after the rescaling. The x sweep added a cell's inflow
+    # and subtracted its outflow in turn, and from a constant row the two
+    # roundings left one cell of the v = 1 row an ulp above the bound, which the
+    # next call refused: a DomainError on the first step. The update now takes
+    # the difference of the two fluxes, which is zero, and the equilibrium is
+    # kept to the bit.
+    k = 0.5
+    Nx = 32
+    x = collect(range(2π/k/Nx; step = 2π/k/Nx, length = Nx))
+    v = collect(-4.0:0.2:4.0)
+    t = collect(0.0:0.1:5.0)
+    waterbag = [abs(u) < 2 ? 0.25 : 0.0 for u in v, y in x]
+    r = vlasov_poisson(x, v, waterbag, t; invariants = true)
+    @test all(iszero, r.ε_e)
+    @test all(==(maximum(r.f)), r.fmax)
+    @test r.f == waterbag .* (maximum(r.f)/0.25)    # rescaled, and nothing else
+
+    # A constant f, its own ions given so that it is not rescaled: the bound is
+    # f itself. 0.7 and 1/√(2π) failed on the first step as the waterbag did.
+    Δv = cell_widths(v)
+    for c in (0.7, 1/sqrt(2π))
+        f₀ = fill(c, length(v), Nx)
+        @test vlasov_poisson(x, v, f₀, t; nᵢ = vec(sum(f₀ .* Δv, dims = 1))).f == f₀
+    end
+end
