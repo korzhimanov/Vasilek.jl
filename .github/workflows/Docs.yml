@@ -1,0 +1,83 @@
+name: Docs
+
+# Builds the site docs/make.jl describes -- the manual in docs/src, the API, and
+# the verification studies rendered by Literate.jl with their output and
+# figures -- and publishes it on the gh-pages branch, from which GitHub Pages
+# serves https://korzhimanov.github.io/Vasilek.jl/dev/.
+#
+# The studies run in every build, pull requests included (VASILEK_DOCS_EXECUTE):
+# a study can break under Literate while running fine as a script, and an
+# unexecuted build would pass it and leave master unable to deploy. The build
+# also fails on an exported docstring left out of the manual, a [`name`](@ref)
+# that resolves to nothing, or a script in verification/ that docs/make.jl does
+# not list.
+#
+# Two jobs, so that a pull request, which runs its own docs/make.jl, never holds
+# a token that can write: `build` checks pull requests read-only, and `deploy`
+# runs everywhere else with `contents: write`, which deploydocs needs to push
+# with GITHUB_TOKEN. Documenter itself deploys only from master or a tag.
+#
+# One manual step, once: after the first run on master has created gh-pages,
+# Settings > Pages > Build and deployment > Source "Deploy from a branch",
+# branch gh-pages, folder / (root).
+#
+# Weekly for the reason CI.yml runs weekly: nothing pins the dependencies.
+on:
+  push:
+    branches: [master]
+    tags: ['*']
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '53 5 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+env:
+  GKSwstype: '100'           # GR without a display
+  VASILEK_DOCS_EXECUTE: '1'
+
+jobs:
+  build:
+    name: Documentation
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: write         # julia-actions/cache deletes the caches it supersedes
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - run: julia --project=docs -e 'using Pkg; Pkg.instantiate()'
+      - run: julia --project=verification -e 'using Pkg; Pkg.instantiate()'
+      - run: julia --color=yes --project=docs docs/make.jl
+
+  deploy:
+    name: Documentation (deploy)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write        # deploydocs pushes to gh-pages with GITHUB_TOKEN
+      statuses: write        # and reports the deployment as a commit status
+      actions: write         # julia-actions/cache deletes the caches it supersedes
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - run: julia --project=docs -e 'using Pkg; Pkg.instantiate()'
+      - run: julia --project=verification -e 'using Pkg; Pkg.instantiate()'
+      - run: julia --color=yes --project=docs docs/make.jl
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,3 +1,5 @@
+# # Scheme comparison
+#
 # Which advection scheme should a Vlasov–Poisson run use?
 #
 #     julia --project=verification verification/scheme-comparison.jl
@@ -18,7 +20,8 @@
 # tests assert against, and then this script would be comparing schemes on a
 # solver nobody checks.
 
-include(joinpath(@__DIR__, "..", "test", "verification_harness.jl"))
+using Vasilek
+include(joinpath(pkgdir(Vasilek), "test", "verification_harness.jl"))
 
 using Printf
 
@@ -33,8 +36,8 @@ function landau_grid()
     L = 2*(2π/K)
     Nx = 64
     Δx = L/Nx
-    # Nx points by construction. `Δx:Δx:L` rounds its length out of the
-    # endpoints and can come up a point short; see `two_stream` in the harness.
+    ## Nx points by construction. `Δx:Δx:L` rounds its length out of the
+    ## endpoints and can come up a point short; see `two_stream` in the harness.
     x = collect(range(Δx; step = Δx, length = Nx))
     v = collect(-4:0.1:4)
     t = collect(0.0:0.08:70.0)
@@ -130,8 +133,8 @@ function main()
     println("grid: 64 x 81, Δt = 0.08, t ≤ 70, x-sweep Courant 0.41 on the fastest row (0.81 per full step)")
     println("analytic: γ = ", γ_ANALYTIC, ", ω = ", ω_ANALYTIC, "\n")
 
-    # Each row warms itself; see `run_one`. There is no single warm-up that
-    # would serve, because every scheme compiles its own step loop.
+    ## Each row warms itself; see `run_one`. There is no single warm-up that
+    ## would serve, because every scheme compiles its own step loop.
     results = Tuple{String,NamedTuple}[]
     for (name, scheme) in schemes()
         result = try
@@ -143,11 +146,11 @@ function main()
         push!(results, (name, result))
     end
 
-    # `baseline` is a `minimum` over `results`, and every row above can have
-    # been dropped by the `catch`. An empty reduction throws, which would take
-    # the script out on a non-zero exit over a table it merely cannot print --
-    # and the second table below is independent of this one and still worth
-    # running.
+    ## `baseline` is a `minimum` over `results`, and every row above can have
+    ## been dropped by the `catch`. An empty reduction throws, which would take
+    ## the script out on a non-zero exit over a table it merely cannot print --
+    ## and the second table below is independent of this one and still worth
+    ## running.
     if isempty(results)
         println("\nevery scheme failed on this case; nothing to rank")
     else
@@ -165,7 +168,7 @@ function main()
         println("magnitude, not a measurement: it is one run on a shared machine.")
     end
 
-    # ---------------------------------------------------------------------
+    ## ---------------------------------------------------------------------
     println("\n\nSame mode at 50% amplitude, where positivity starts to matter")
     println("grid: 64 x 121, Δt = 0.05, t ≤ 40\n")
     println("The table above cannot rank the schemes on positivity: at 1% the")
