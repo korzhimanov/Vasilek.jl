@@ -8,11 +8,12 @@ name: Scripts
 # suite asserts the numbers -- only that the scripts still run.
 #
 # Not on every pull request: Plots and the nine studies take about a quarter of
-# an hour. On the pull requests that touch what they depend on, weekly, and by
-# hand.
+# an hour. On the pull requests and the pushes to master that touch what they
+# depend on, weekly, and by hand. The pushes take the pull requests' paths by
+# the YAML alias, so the two cannot drift apart.
 on:
   pull_request:
-    paths:
+    paths: &paths
       - 'src/**'
       - 'verification/**'
       - 'benchmark/**'
@@ -24,6 +25,7 @@ on:
       - '.github/workflows/Scripts.yml'
   push:
     branches: [master]
+    paths: *paths
   workflow_dispatch:
   schedule:
     - cron: '41 5 * * 1'
@@ -39,6 +41,11 @@ concurrency:
 jobs:
   verification:
     name: Verification studies
+    # Not on pushes to master: Docs.yml runs every study there, through
+    # Literate, to build the published site, and a second run here would only
+    # repeat it. Pull requests keep this job, since it runs each study as a
+    # user would, from its own file.
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:

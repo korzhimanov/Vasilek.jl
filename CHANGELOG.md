@@ -9,14 +9,14 @@ This project has not been released; entries below describe work on `master`.
 
 Each section below gathers what the separate pull requests appended to it,
 newest first. Entries keep the measurements that justified them; the
-migration guide, `docs/migration-0.2.md`, is the short version.
+migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 ### Breaking
 
 - **Advection schemes are types, and `generate_solver` is gone.** `advect!`
   dispatches on an immutable scheme value; scratch memory, where a scheme
   needs any, comes from `workspace` and is passed explicitly. See
-  [docs/migration-0.2.md](docs/migration-0.2.md).
+  [docs/src/migration-0.2.md](docs/src/migration-0.2.md).
 
   No compatibility shim, contrary to the original plan: the module names
   `generate_solver` lived under are the new type names, so the two APIs
@@ -42,41 +42,38 @@ migration guide, `docs/migration-0.2.md`, is the short version.
 
 ### Added
 
-- **A documentation site** (`docs/make.jl`, `docs/Project.toml`,
-  `docs/src/api.md`, `docs/verification.md`, `.github/workflows/Docs.yml`),
-  built with Documenter.jl and published from `gh-pages` at
-  https://korzhimanov.github.io/Vasilek.jl/dev/. The verification studies
-  wrote their figures beside themselves and `Scripts.yml` threw them away; the
-  claims table lived in the README, and the docstrings, written for Documenter
-  with `@ref` links, had never been rendered.
+- **The documentation is published, with the verification studies on it**
+  (`docs/make.jl`, `.github/workflows/Docs.yml`, `docs/src/verification.md`),
+  at https://korzhimanov.github.io/Vasilek.jl/dev/ from the `gh-pages` branch.
+  The site built from `docs/src` was checked in CI and published nowhere; the
+  studies wrote their figures beside themselves and `Scripts.yml` threw them
+  away; and the claims table lived in the README.
 
   * **The studies, rendered.** Literate.jl runs each script chunk by chunk and
-    puts its printed numbers and its figures on a page under the prose its
+    puts its printed numbers and its figures on a page, under the prose its
     comments already were. The scripts still run as they did. What rendering
     needed of them: a `# # Title`, display math in ```` ```math ```` (Julia's
     Markdown reads `$$` across lines as text), the harness included through
     `pkgdir(Vasilek)` (under Literate `@__DIR__` is the page's directory), `##`
-    for comments inside a loop or a function (an indented `# ` line is
-    Markdown to Literate and cut the loop in two), and a `;` after each
-    `savefig`, whose returned path would otherwise replace the chunk's printed
-    output on the page.
-  * **What a build checks.** `checkdocs = :all` fails the build on a docstring
-    missing from the API page, and every `@ref` must resolve. That found an
-    exported `collide!` with no docstring, now written; a link from the
-    `Collisions` docstring to `Advection`, a module it cannot see, now
-    `Vasilek.Advection`; and a reference in `docs/driver-notes.md` to the
-    harness's `bgk_equilibrium`, which no docstring documents.
-  * **Two kinds of build.** Running the studies takes the quarter of an hour
-    `Scripts.yml` takes, so it is opt-in through `VASILEK_DOCS_EXECUTE=1`, as
-    the extended suite is through `VASILEK_EXTENDED`. Pull requests build the
-    pages without running them, in minutes; master, tags and the weekly run
-    build them executed and deploy. A build that did not run the studies is
-    never deployed.
-  * **The README's verification table moved** to `docs/verification.md`, with
-    the notes on the studies; the README keeps the commands and a link. The
-    README, the CHANGELOG and `docs/*.md` stay where they are, since they are
-    linked by path from docstrings and tests, and are copied into the site at
-    build time with their links rewritten.
+    for a comment inside a loop or a function (an indented `# ` line is
+    Markdown to Literate, and cut the loop in two), a `;` after each `savefig`,
+    whose returned path would otherwise replace the chunk's printed output, and
+    Unicode subscripts for the `v_φ` and `t_e` that Julia's Markdown read as
+    italics.
+  * **Every build runs them**, pull requests included: a study can break under
+    Literate while running fine as a script. That takes about three minutes.
+    The packages come from `verification/Project.toml`, stacked under
+    `docs/Project.toml` rather than repeated in it, and the build fails on a
+    script in `verification/` that `docs/make.jl` does not list. `Docs.yml`
+    replaces the build-only job in `CI.yml`; pull requests build read-only, and
+    only the deploy job, which never runs on a pull request, can write.
+    `Scripts.yml` no longer runs the studies on a push to master, where the
+    published build has just run them.
+  * **`collide!`'s docstring is attached.** A comment stood between it and the
+    definition, and Julia's parser then reads the string as a statement of its
+    own, so `collide!` had no documentation and the API page left it out.
+  * **The README's verification table moved** to `docs/src/verification.md`,
+    with the notes on the studies; the README keeps the commands and a link.
 
 - **Collisional Landau damping: the `BGK` operator in a run, against its own
   dispersion relation** (`test/test_verification.jl`; `collisional_landau`,
@@ -1066,7 +1063,7 @@ migration guide, `docs/migration-0.2.md`, is the short version.
   are now assertions: Landau damping at k = 0.5 within 5% of the tabulated
   0.1533 (measured 0.1498), and energy drift below 0.5% on the uniform grid
   and 6% on the non-uniform one at t = 3000 (measured 0.38% and 4.75%).
-- [docs/normalization.md](docs/normalization.md): the unit conventions, the
+- [docs/src/normalization.md](docs/src/normalization.md): the unit conventions, the
   wavenumber convention that the Poisson bug came from, the FDTD current
   convention that the wakefield instability came from, and why the PFC bounds
   have no default.
@@ -1106,6 +1103,29 @@ migration guide, `docs/migration-0.2.md`, is the short version.
   bit-identical output — the invariant `PFC` had been violating.
 
 ### Changed
+
+- **The docs build with Documenter.** `docs/*.md` moved to `docs/src/`, with
+  `docs/make.jl`, an index and a page of every docstring by module; a CI job
+  builds them, without deploying. `collide!` has a docstring.
+- **`Pkg.test(test_args = ["golden", "contracts"])` runs those files only**;
+  `test/runtests.jl` lists every file, and refuses a name it does not have.
+- **`vlasov_poisson` is held to its step bit for bit** (`test/test_driver.jl`):
+  the step written out from `advect!`, `collide!`, `PoissonFFT1D` and the cell
+  widths, defaults and given schemes, schemes given as functions of `f`, with
+  and without `BGK`. Its `f₀` carries 1.3 times the ions' charge: on a neutral
+  one the rescaling was 1 to 3 ulps, and ions taken from `f₀`'s own density
+  matched the step bit for bit on the uniform grid.
+- The centred Poisson difference and `slope_limit` lose their Float64
+  literals: `(…)/(2Δx)` for `0.5*(…)/Δx`, the same bits in Float64.
+- `Scripts.yml` runs on a push to master only for the paths its pull requests
+  watch, by a YAML alias of their list; it ran on every merge, documentation
+  included.
+- `runbenchmarks.jl` prints the baseline's Julia and BenchmarkTools versions
+  beside this run's: the baseline is the development machine's, on 1.12.7.
+- The complexity-class test samples for longer (`budget = 0.2, minreps = 10`),
+  and the tests' cell-width formulas are `Collisions._width`, which a test
+  holds equal to `cell_widths`. Another holds the manual's front page to the
+  README's introduction.
 
 - **Documentation says what the code does.**
   - Docstrings state contracts. The measurements and history that filled them
@@ -1352,7 +1372,7 @@ migration guide, `docs/migration-0.2.md`, is the short version.
 
   Callers should seed the interior: writing into an end node does not launch a
   wave, it changes the boundary condition to `E = const`. The convention is now
-  in [docs/normalization.md](docs/normalization.md) and in the `YeeMesh1D` and
+  in [docs/src/normalization.md](docs/src/normalization.md) and in the `YeeMesh1D` and
   `make_advance_fields` docstrings, and the tests assert the observable
   consequence rather than the loop bounds — a pulse reaching either wall returns
   inverted, with a measured reflection coefficient of −0.9998.
@@ -1441,6 +1461,39 @@ migration guide, `docs/migration-0.2.md`, is the short version.
 
 ### Fixed
 
+- **`cell_widths` keeps a Float32 grid Float32**; a `0.5` made Float64 of it.
+- **`vlasov_poisson` runs grids and data of other types**: its widths follow
+  the data, `promote_type` of `f₀`'s float type and the grids', and its default
+  schemes work in Float64 at least, as `line_advector` now does the line. Built
+  in a Float32 grid's type, the defaults stopped runs. Under Float64 `f` the
+  Float32 `fmax = maximum(f)` cut into the peak, or the Float32 accumulator
+  rounded the peak past the other default's exact bound: 45 of 54 realistic
+  profiles on a Float32 x grid ended in a `DomainError`, and those that ran had
+  `f` rounded to Float32 every sub-step, the mass drifting 3.3e-8. All in
+  Float32, a two-stream's flux sum at its peak landed an ulp above `fmax` in
+  208 of 540 runs. A Rational v grid was a `MethodError`, a Float16 one a
+  `DomainError`. Float64 runs are bit for bit as they were.
+- **`PFCNonUniform` rounds its bounds outward** to its element type, and
+  `keeps_bounds` compares in it: a Float32 partner built on `maximum(f)` of
+  Float64 data was refused as unbounded or stopped on its first step, as the
+  rounding went.
+- **`PFC{T, Checked}` and `PFCNonUniform{T, Checked}` refuse a `Checked` that
+  is not a Bool**: `PFC{Float64, 3}` constructed, then failed its first step
+  with a `TypeError`. **They also check what the keyword constructors check**,
+  every scheme being built through them: `PFC{Float64, false}(2.0, 0.0)`
+  built, and a `PFCNonUniform` given a `Δxmin` of 1.0 over cells of 0.05 took
+  20-cell steps, from data in [0.5, 1.5] to [-1.02, 3.02], without an error.
+- **`collide!` refuses a `src` sharing its workspace**: `BGK` writes its
+  Maxwellian and moments there first, and returned the Maxwellian alone, 0.08
+  from the step, or through `moment` 0.64 off. Its docstring asks for the
+  workspace in `float(eltype(src))`, which it had given as the operator's type.
+- **A scheme that takes no workspace refuses one**: `Upwind` accepted another
+  scheme's and ignored it.
+- **`advect!` refuses a workspace whose buffer shares memory with `dest` or
+  `src`**: a spline buffer as `dest` came back 0.014 off, and `PFCNonUniform`'s
+  accumulator as `src` 0.21. A workspace type with no `_scratch_aliases`
+  method of its own is a `MethodError`, not taken as sharing nothing.
+
 - **Tests that could not fail now test the code.**
   - The `Landau1P` kernel antisymmetry compared a kernel defined in the test
     file with itself, which is zero in IEEE arithmetic whatever the operator
@@ -1481,7 +1534,7 @@ migration guide, `docs/migration-0.2.md`, is the short version.
   line colder than the grid resolves (`T < Δv²`): a single-node spike off a
   dyadic node has `T` near 1e-34 rather than 0, and relaxed into a 1e14 spike.
 - **`PML` coefficients**: `r₂` is taken through `expm1`, so it no longer cancels
-  for small `σΔt` (σ\_max = 1e-9 gave 0.4974 for 0.5) and is `Δt/Δx` rather than
+  for small `σΔt` (σ_max = 1e-9 gave 0.4974 for 0.5) and is `Δt/Δx` rather than
   NaN at `σ_max = 0`. Negative `N` or `σ_max` are refused.
 - **`make_advance_fields` refuses inconsistent arguments**: `cfl` must equal
   `Δt/Δx` (the interior used one, the layer the other), and the mesh must hold

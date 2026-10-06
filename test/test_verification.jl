@@ -544,7 +544,7 @@ end
             end
 
             @testset "and it is this equilibrium, not any" begin
-                # Ions built with the Poisson sign `docs/normalization.md` used
+                # Ions built with the Poisson sign `docs/src/normalization.md` used
                 # to give, ∂E/∂x = nᵢ − nₑ: the code's field is then the
                 # equilibrium's reversed from the first sample (E/E₀ = −1.000),
                 # and f departs by 16% of its peak by t = 50.
@@ -1256,7 +1256,7 @@ end
         end
 
         @testset "Plasma oscillations, Bohm–Gross frequency" begin
-            # `docs/normalization.md` says the plasma-oscillation study verifies
+            # `docs/src/normalization.md` says the plasma-oscillation study verifies
             # the analytic plasma frequency. Nothing measured a frequency
             # anywhere in the repository until now -- only the energy drift
             # below, which a solver oscillating at entirely the wrong rate would

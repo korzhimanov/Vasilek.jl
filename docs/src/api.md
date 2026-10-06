@@ -1,124 +1,89 @@
+# API
+
+Every docstring in the package, module by module. Names that are not exported
+are included too: the docstrings refer to internal helpers such as
+`_validate_courant` by name, and those references resolve here.
+
+## `Vasilek`
+
 ```@meta
 CurrentModule = Vasilek
 ```
 
-# API reference
-
-Every docstring in the package: the exported names, and the internals that the
-docstrings and the notes refer to. The build fails if one is missing here.
-
-## Workspaces
-
-One generic function serves every kind of object that needs scratch memory:
-schemes, the Strang step, the Poisson solver and the collision operators.
-
-```@docs
-workspace
+```@autodocs
+Modules = [Vasilek]
+Public = true
+Private = true
 ```
 
-## Advection
+## `Vasilek.Advection`
 
-```@docs
-Advection
-AbstractAdvection1D
-advect!
+```@meta
+CurrentModule = Vasilek.Advection
 ```
 
-### Schemes
-
-```@docs
-Upwind
-LaxWendroff
-Godunov
-SemiLagrangian
-PFC
-PFCNonUniform
+```@autodocs
+Modules = [Advection]
+Public = true
+Private = true
 ```
 
-### Options
+## `Vasilek.StrangSplitting`
 
-```@docs
-Advection.AbstractReconstruction
-PiecewiseConstant
-PiecewiseLinear
-Advection.AbstractLimiter
-NoLimiter
-VanLeer
-Superbee
-Advection.AbstractSpline
-LinearSpline
-QuadraticSpline
-CubicSpline
+```@meta
+CurrentModule = Vasilek.StrangSplitting
 ```
 
-### Internals
-
-```@docs
-Advection.slope_limit
-Advection._validate
-Advection._validate_workspace
-Advection._check_bounds
-Advection._validate_courant
+```@autodocs
+Modules = [StrangSplitting]
+Public = true
+Private = true
 ```
 
-## Strang splitting
+## `Vasilek.Collisions`
 
-```@docs
-StrangSplitting.strang_step!
-StrangSplitting.StrangWorkspace
-StrangSplitting.make_time_step_2d!
+```@meta
+CurrentModule = Vasilek.Collisions
 ```
 
-## The 1D1V Vlasov–Poisson driver
-
-```@docs
-VlasovPoisson1D1V
-vlasov_poisson
+```@autodocs
+Modules = [Collisions]
+Public = true
+Private = true
 ```
 
-### Internals
+## `Vasilek.VlasovPoisson1D1V`
 
-```@docs
-VlasovPoisson1D1V.make_poisson
-VlasovPoisson1D1V.cell_widths
-VlasovPoisson1D1V.nlogn
-VlasovPoisson1D1V.line_advector
-VlasovPoisson1D1V.substeps
-VlasovPoisson1D1V.mode_amplitude
-VlasovPoisson1D1V.keeps_bounds
+```@meta
+CurrentModule = Vasilek.VlasovPoisson1D1V
 ```
 
-## Poisson solver
-
-```@docs
-PoissonFourier1D.PoissonFFT1D
-PoissonFourier1D.solve!
-PoissonFourier1D.generate_solver
+```@autodocs
+Modules = [VlasovPoisson1D1V]
+Public = true
+Private = true
 ```
 
-## Maxwell solver
+## `Vasilek.PoissonFourier1D`
 
-```@docs
-FDTD1D.YeeMesh1D
-FDTD1D.PML
-FDTD1D.make_advance_fields
+```@meta
+CurrentModule = Vasilek.PoissonFourier1D
 ```
 
-## Collisions
-
-```@docs
-Collisions
-AbstractCollisionOperator
-collide!
-BGK
-Collisions.Landau1P
+```@autodocs
+Modules = [PoissonFourier1D]
+Public = true
+Private = true
 ```
 
-### Internals
+## `Vasilek.FDTD1D`
 
-```@docs
-Collisions._discrete_maxwellian!
-Collisions._maxwellian_moments
-Collisions._sampled_maxwellian!
-Collisions.∂f∂v
+```@meta
+CurrentModule = Vasilek.FDTD1D
+```
+
+```@autodocs
+Modules = [FDTD1D]
+Public = true
+Private = true
 ```

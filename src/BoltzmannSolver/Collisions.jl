@@ -1,9 +1,9 @@
 """
     Collisions
 
-Collision operators, as types, matching the convention used by
-[`Vasilek.Advection`](@ref): the operator is an immutable value and `collide!` writes
-into an explicit destination.
+Collision operators, as types, matching the convention of the advection
+schemes in `Vasilek.Advection`: the operator is an immutable value and
+`collide!` writes into an explicit destination.
 """
 module Collisions
 
@@ -39,13 +39,13 @@ workspace(::AbstractCollisionOperator, ::Integer, ::Type = Float64) = nothing
 """
     collide!(dest, src, op, v, Δt[, ws])
 
-Advance the velocity line `src`, sampled on the grid `v`, through one step `Δt`
-of the collision operator `op`, write the result into `dest` and return it.
-`dest`, `src` and `v` must be of one length.
+Advance the velocity line `src`, sampled at the nodes `v`, by a time `Δt` under
+the collision operator `op`, and write the result into `dest`, which is
+returned. `dest`, `src` and `v` have the same length.
 
-`ws` is the scratch [`workspace`](@ref)`(op, length(src), T)` returns. The
-five-argument form allocates one of `src`'s element type on every call; pass one
-explicitly in any loop that runs more than once.
+`ws` is scratch from [`workspace`](@ref)`(op, length(v), float(eltype(src)))`,
+one per task, and must not share memory with `src`. Without it a workspace of
+that type is allocated for the call; pass one in any loop.
 """
 collide!(dest, src, op::AbstractCollisionOperator, v, Δt) =
     collide!(dest, src, op, v, Δt, workspace(op, length(dest), float(eltype(src))))

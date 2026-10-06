@@ -1,41 +1,25 @@
 # Verification
 
-The solver is held to analytic theory and to the literature by nine studies,
-each a script in [`verification/`](../verification) that runs on its own and
-draws what it measures:
-
-- [Landau damping](../verification/landau-damping-1d1v.jl): the linear rate and frequency on uniform and non-uniform velocity grids, the recurrence, and strong damping against the literature
-- [Plasma oscillations](../verification/plasma-oscillations-1d1v.jl): energy conservation to t = 3000, and the Bohm–Gross frequency
-- [Two-stream instability](../verification/two-stream.jl): growth rates against the cold and warm dispersion relations
-- [Bump-on-tail instability](../verification/bump-on-tail.jl): growth, saturation by trapping, and the plateau, on Arber and Vann's beam
-- [Plasma echo](../verification/plasma-echo.jl): the ballistic echo against its closed form and through four schemes, and the self-consistent echo against second-order theory
-- [BGK equilibrium](../verification/bgk-equilibrium.jl): a nonlinear stationary state, two thirds of it trapped, and how little the solver moves it
-- [Collisional Landau damping](../verification/collisional-damping.jl): the `BGK` operator in the loop, against its own dispersion relation
-- [Laser wakefield](../verification/wakefield.jl): the wake a laser pulse drives through the ponderomotive force, against linear theory
-- [Scheme comparison](../verification/scheme-comparison.jl): the advection schemes ranked on the Landau damping rate; advisory, not asserted
+The solver is held to analytic theory and to the literature by the studies in
+[`verification/`](https://github.com/korzhimanov/Vasilek.jl/blob/master/verification),
+one script each. Every study has a page of its own under Verification in the
+navigation: the script's code, the numbers it prints and the figures it draws.
 
 ## Running the studies
 
-Each study executes directly and writes its figures beside itself. They are
-written in Literate.jl comment form, which is how the documentation site
-renders them with their output:
+Each study executes directly and writes its figures beside itself:
 
 ```bash
 julia --project=verification -e 'using Pkg; Pkg.instantiate()'   # once, Julia ≥ 1.11
-julia --project=verification verification/landau-damping-1d1v.jl
-julia --project=verification verification/plasma-oscillations-1d1v.jl
-julia --project=verification verification/two-stream.jl
-julia --project=verification verification/bump-on-tail.jl
-julia --project=verification verification/plasma-echo.jl
-julia --project=verification verification/bgk-equilibrium.jl
-julia --project=verification verification/collisional-damping.jl
-julia --project=verification verification/wakefield.jl
-julia --project=verification verification/scheme-comparison.jl
+julia --project=verification verification/landau-damping-1d1v.jl  # or any other study there
 ```
+
+The scripts are written in Literate.jl comment form, which is how these pages
+render them.
 
 ## What the tests assert
 
-Their headline claims are asserted by the test suite rather than left in prose.
+The studies' headline claims are asserted by the test suite rather than left in prose.
 CI runs this on every pull request; locally it is behind an environment variable
 so that a default `Pkg.test()` stays instant:
 
@@ -44,7 +28,7 @@ VASILEK_EXTENDED=1 julia --project=. -e 'using Pkg; Pkg.test()'
 ```
 
 The analytic side of those claims is computed rather than quoted:
-[`test/dispersion.jl`](../test/dispersion.jl) solves the kinetic dispersion relation through the plasma
+[`test/dispersion.jl`](https://github.com/korzhimanov/Vasilek.jl/blob/master/test/dispersion.jl) solves the kinetic dispersion relation through the plasma
 dispersion function, which gives the Landau roots at any `k` — they used to be
 three constants typed into the test file — the growth rate of *warm*
 counter-streaming beams, which is what the runs contain, and the growing root of
@@ -114,7 +98,7 @@ Krook model's closed form, and the Chapman–Enskog fluid at large `ν`.
 
 The echo is the one place a kinetic theory beyond linear order is held to a
 number. With the field off it has a closed form, exact in both amplitudes; with
-the field on, `echo_second_order` in [`test/echo.jl`](../test/echo.jl) composes three linear
+the field on, `echo_second_order` in [`test/echo.jl`](https://github.com/korzhimanov/Vasilek.jl/blob/master/test/echo.jl) composes three linear
 responses of the Maxwellian — the seed screened, the kick screened, and the
 echo's own density polarising the plasma — and the run reproduces the result,
 the ringing after the peak included. Both runs are cheap, and both measure
@@ -180,8 +164,8 @@ the laser never entered the longitudinal push and the wake it drew was the slab
 edges relaxing. Its numbers came out bit-identical whether the transverse
 current was right or wrong by thirty-two orders of magnitude. The coupling —
 the force `−∂(pʸ² + pᶻ²)/2∂x` in the momentum advection — is now there, and the
-rows above measure the wake it produces against linear wakefield theory rather
-than against a bound.
+wakefield rows of the table under [What the tests assert](@ref) measure the
+wake it produces against linear wakefield theory rather than against a bound.
 
 The study runs at twenty cells per laser wavelength, and that is a physics
 choice rather than a taste. At the ten it used before, the Yee dispersion

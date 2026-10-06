@@ -1,4 +1,6 @@
-# # Laser wakefield excitation in a 1D1V plasma slab
+# # Laser wakefield
+#
+# Its excitation in a 1D1V plasma slab, against linear theory.
 #
 #     julia --project=verification verification/wakefield.jl
 #

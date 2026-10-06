@@ -1,28 +1,27 @@
 name: Docs
 
-# Builds the site docs/make.jl describes -- the README and the notes in docs/,
-# the API reference, and the nine verification studies rendered by Literate.jl
-# -- and publishes it on the gh-pages branch, from which GitHub Pages serves
-# https://korzhimanov.github.io/Vasilek.jl/dev/.
+# Builds the site docs/make.jl describes -- the manual in docs/src, the API, and
+# the verification studies rendered by Literate.jl with their output and
+# figures -- and publishes it on the gh-pages branch, from which GitHub Pages
+# serves https://korzhimanov.github.io/Vasilek.jl/dev/.
 #
-# Two kinds of build. On master, on tags, by hand and weekly the studies are run
-# (VASILEK_DOCS_EXECUTE=1), which is what puts their output and figures on the
-# pages: the quarter of an hour Scripts.yml spends on them, in one process. On
-# pull requests the same pages are built with the code shown but not run, in a
-# few minutes, which checks what a pull request can break: a docstring missing
-# from the API page, a cross-reference that does not resolve, a study Literate
-# cannot cut into chunks. docs/make.jl deploys only after an executed build, and
-# Documenter itself deploys only from master or a tag, never from a pull
-# request or a run by hand on another branch.
+# The studies run in every build, pull requests included (VASILEK_DOCS_EXECUTE):
+# a study can break under Literate while running fine as a script, and an
+# unexecuted build would pass it and leave master unable to deploy. The build
+# also fails on an exported docstring left out of the manual, a [`name`](@ref)
+# that resolves to nothing, or a script in verification/ that docs/make.jl does
+# not list.
 #
-# The deployment authenticates with the workflow's own GITHUB_TOKEN, hence
-# `contents: write`. One manual step, once: after the first run on master has
-# created the gh-pages branch, Settings > Pages > Build and deployment > Source
-# "Deploy from a branch", branch gh-pages, folder / (root).
+# Two jobs, so that a pull request, which runs its own docs/make.jl, never holds
+# a token that can write: `build` checks pull requests read-only, and `deploy`
+# runs everywhere else with `contents: write`, which deploydocs needs to push
+# with GITHUB_TOKEN. Documenter itself deploys only from master or a tag.
 #
-# Weekly for the reason CI.yml runs weekly: nothing pins the dependencies, so a
-# release of Documenter, Literate or Plots can break the build between one pull
-# request and the next.
+# One manual step, once: after the first run on master has created gh-pages,
+# Settings > Pages > Build and deployment > Source "Deploy from a branch",
+# branch gh-pages, folder / (root).
+#
+# Weekly for the reason CI.yml runs weekly: nothing pins the dependencies.
 on:
   push:
     branches: [master]
@@ -33,23 +32,25 @@ on:
     - cron: '53 5 * * 1'
 
 permissions:
-  contents: write    # deploydocs pushes to gh-pages with GITHUB_TOKEN
-  statuses: write    # and reports the deployment as a commit status
-  actions: write     # julia-actions/cache deletes the caches it supersedes
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
+env:
+  GKSwstype: '100'           # GR without a display
+  VASILEK_DOCS_EXECUTE: '1'
+
 jobs:
-  docs:
+  build:
     name: Documentation
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    env:
-      GKSwstype: '100'     # GR without a display
-      # The studies run everywhere but on pull requests; see the note above.
-      VASILEK_DOCS_EXECUTE: ${{ github.event_name == 'pull_request' && '0' || '1' }}
+    permissions:
+      contents: read
+      actions: write         # julia-actions/cache deletes the caches it supersedes
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
@@ -57,7 +58,26 @@ jobs:
           version: '1'
       - uses: julia-actions/cache@v3
       - run: julia --project=docs -e 'using Pkg; Pkg.instantiate()'
-      - name: Build, and deploy an executed build
-        run: julia --color=yes --project=docs docs/make.jl
+      - run: julia --project=verification -e 'using Pkg; Pkg.instantiate()'
+      - run: julia --color=yes --project=docs docs/make.jl
+
+  deploy:
+    name: Documentation (deploy)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write        # deploydocs pushes to gh-pages with GITHUB_TOKEN
+      statuses: write        # and reports the deployment as a commit status
+      actions: write         # julia-actions/cache deletes the caches it supersedes
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - run: julia --project=docs -e 'using Pkg; Pkg.instantiate()'
+      - run: julia --project=verification -e 'using Pkg; Pkg.instantiate()'
+      - run: julia --color=yes --project=docs docs/make.jl
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

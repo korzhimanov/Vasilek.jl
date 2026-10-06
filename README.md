@@ -21,21 +21,12 @@ As for now, the following functionality has been implemented:
 
 ## Verification
 
-Eight runnable studies live in `verification/`. They execute directly and write
-their figures beside themselves, and they are written in Literate.jl comment
-form so that the [documentation site](https://korzhimanov.github.io/Vasilek.jl/dev/)
-can render them with their output:
+The studies in `verification/` hold the solver to analytic theory and to the
+literature. Each runs on its own and writes its figures beside itself:
 
 ```bash
 julia --project=verification -e 'using Pkg; Pkg.instantiate()'   # once, Julia ≥ 1.11
-julia --project=verification verification/landau-damping-1d1v.jl
-julia --project=verification verification/plasma-oscillations-1d1v.jl
-julia --project=verification verification/wakefield.jl
-julia --project=verification verification/two-stream.jl
-julia --project=verification verification/bump-on-tail.jl
-julia --project=verification verification/plasma-echo.jl
-julia --project=verification verification/bgk-equilibrium.jl
-julia --project=verification verification/collisional-damping.jl
+julia --project=verification verification/landau-damping-1d1v.jl  # or any other study there
 ```
 
 Their headline claims are asserted by the test suite rather than left in prose.
@@ -46,13 +37,13 @@ so that a default `Pkg.test()` stays instant:
 VASILEK_EXTENDED=1 julia --project=. -e 'using Pkg; Pkg.test()'
 ```
 
-Each claim, the tolerance it is held to and the value measured are tabulated in
-[docs/verification.md](docs/verification.md), with notes on the studies that
-needed more than a number. A ninth study, `verification/scheme-comparison.jl`,
-compares the advection schemes on the physics and is advisory rather than
-asserted.
+The [documentation](https://korzhimanov.github.io/Vasilek.jl/dev/) renders each
+study with its output and figures. Each claim, the tolerance it is held to and
+the value measured are tabulated in
+[docs/src/verification.md](docs/src/verification.md), with notes on the
+studies that needed more than a number.
 
-Unit conventions are in [docs/normalization.md](docs/normalization.md).
+Unit conventions are in [docs/src/normalization.md](docs/src/normalization.md).
 
 
 ## Usage
@@ -75,7 +66,7 @@ task. (`PFCNonUniform` holds its grid's cell widths, so it fits lines of that
 grid only.) `dest` and `src` must be distinct, and `|courant| ≤ 1` for every scheme
 but `SemiLagrangian`, which has no Courant limit: `advect!` refuses a step past
 it rather than return an answer that looks right and is unstable. Upgrading from
-0.1: see [docs/migration-0.2.md](docs/migration-0.2.md).
+0.1: see [docs/src/migration-0.2.md](docs/src/migration-0.2.md).
 
 A whole 1D1V run, linear Landau damping at `k = 0.5`, through the driver the
 verification studies use:
@@ -112,19 +103,22 @@ julia --project=benchmark benchmark/runbenchmarks.jl
 julia --project=benchmark benchmark/workprecision.jl
 ```
 
-`runbenchmarks.jl` times each kernel against a stored baseline.
+`runbenchmarks.jl` times each kernel against a stored baseline, measured on the
+development machine, so a run anywhere else compares machines as much as code;
+it prints the baseline's Julia and BenchmarkTools versions beside its own.
 `workprecision.jl` pairs error with the cost of reaching it and prints the
 efficiency frontier per problem class — the schemes no other scheme beats on
 both axes. Both are advisory and exit 0; the accuracy half of the comparison is
 gated in `test/test_comparison.jl`, the timing half is not.
 
-The documentation site builds from `docs/`; the top of `docs/make.jl` says
-what a build runs and what it checks:
+The documentation builds with Documenter, in an environment of its own; the
+studies it renders load their packages from the verification environment:
 
 ```
-julia --project=docs -e 'using Pkg; Pkg.instantiate()'     # once, Julia ≥ 1.11
-julia --project=docs docs/make.jl                          # studies shown, not run
-VASILEK_DOCS_EXECUTE=1 julia --project=docs docs/make.jl   # the published form
+julia --project=docs -e 'using Pkg; Pkg.instantiate()'           # once, Julia ≥ 1.11
+julia --project=verification -e 'using Pkg; Pkg.instantiate()'   # once
+julia --project=docs docs/make.jl                                # into docs/build, studies not run
+VASILEK_DOCS_EXECUTE=1 julia --project=docs docs/make.jl         # studies run, as CI does
 ```
 
 See [CHANGELOG.md](CHANGELOG.md) for recent changes, including several

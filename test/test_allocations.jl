@@ -43,7 +43,7 @@ end
 function assert_constant(name, bytes_at)
     small = bytes_at(ALLOC_N)
     large = bytes_at(4*ALLOC_N)
-    println("  ", rpad(name, 24), "N=", ALLOC_N, ": ", small, "   N=", 4*ALLOC_N, ": ", large)
+    println("  ", rpad(name, 32), "N=", ALLOC_N, ": ", small, "   N=", 4*ALLOC_N, ": ", large)
     # Independent of N to within 64 bytes, four of the 16-byte boxes described
     # above: an exact equality would also fail on escape analysis deciding
     # differently at the two sizes, which is not the regression this guards
@@ -78,7 +78,7 @@ end
         # per element. Bounded so a regression is still visible.
         for spline in (QuadraticSpline(), CubicSpline())
             bytes = step_bytes(SemiLagrangian(spline), ALLOC_N, 0.4)
-            println("  ", rpad("SemiLagrangian $(typeof(spline).name.name)", 24), bytes)
+            println("  ", rpad("SemiLagrangian $(typeof(spline).name.name)", 32), bytes)
             @test bytes < 110*ALLOC_N
         end
     end
