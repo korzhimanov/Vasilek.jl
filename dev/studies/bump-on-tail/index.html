@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>The bump-on-tail instability · Vasilek.jl</title><meta name="title" content="The bump-on-tail instability · Vasilek.jl"/><meta property="og:title" content="The bump-on-tail instability · Vasilek.jl"/><meta property="twitter:title" content="The bump-on-tail instability · Vasilek.jl"/><meta name="description" content="Documentation for Vasilek.jl."/><meta property="og:description" content="Documentation for Vasilek.jl."/><meta property="twitter:description" content="Documentation for Vasilek.jl."/><script data-outdated-warner src="../../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.63.2/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../search_index.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../">Vasilek.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../../">Vasilek — Vlasov Adaptive Simulator of pLasma Electrodynamics and Kinetics</a></li><li><span class="tocitem">Manual</span><ul><li><a class="tocitem" href="../../normalization/">Normalization conventions</a></li><li><a class="tocitem" href="../../driver-notes/">Notes on the 1D1V driver</a></li><li><a class="tocitem" href="../../migration-0.2/">Migrating to 0.2</a></li></ul></li><li><span class="tocitem">Verification</span><ul><li><a class="tocitem" href="../../verification/">Verification</a></li><li><a class="tocitem" href="../landau-damping-1d1v/">Landau damping</a></li><li><a class="tocitem" href="../plasma-oscillations-1d1v/">Plasma oscillations</a></li><li><a class="tocitem" href="../two-stream/">The two-stream instability</a></li><li class="is-active"><a class="tocitem" href>The bump-on-tail instability</a><ul class="internal"><li><a class="tocitem" href="#Where-the-wave-sits,-and-how-fast-it-grows"><span>Where the wave sits, and how fast it grows</span></a></li><li><a class="tocitem" href="#Growth-and-saturation,-from-three-seeds"><span>Growth and saturation, from three seeds</span></a></li><li><a class="tocitem" href="#Phase-space"><span>Phase space</span></a></li><li><a class="tocitem" href="#The-plateau"><span>The plateau</span></a></li></ul></li><li><a class="tocitem" href="../plasma-echo/">The plasma echo</a></li><li><a class="tocitem" href="../bgk-equilibrium/">BGK equilibrium</a></li><li><a class="tocitem" href="../collisional-damping/">Collisional Landau damping</a></li><li><a class="tocitem" href="../wakefield/">Laser wakefield</a></li><li><a class="tocitem" href="../scheme-comparison/">Scheme comparison</a></li></ul></li><li><a class="tocitem" href="../../api/">API</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Verification</a></li><li class="is-active"><a href>The bump-on-tail instability</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>The bump-on-tail instability</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/korzhimanov/Vasilek.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/korzhimanov/Vasilek.jl/blob/master/verification/bump-on-tail.jl" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="The-bump-on-tail-instability"><a class="docs-heading-anchor" href="#The-bump-on-tail-instability">The bump-on-tail instability</a><a id="The-bump-on-tail-instability-1"></a><a class="docs-heading-anchor-permalink" href="#The-bump-on-tail-instability" title="Permalink"></a></h1><p>Its growth rate, and what trapping does with it.</p><pre><code class="nohighlight hljs">julia --project=verification verification/bump-on-tail.jl</code></pre><p>A beam on the tail of a Maxwellian, as Arber and Vann set it up [J. Comput. Phys. 180, 339 (2002)]:</p><pre><code class="nohighlight hljs">F(v) = [0.9·exp(−v²/2) + 0.2·exp(−2(v − 4.5)²)]/√(2π)</code></pre><p>over one wavelength of k = 0.3. A Langmuir wave travelling with the beam, its phase velocity on the beam&#39;s rising flank, takes energy from the beam and grows – the beam-plasma instability, which at this beam&#39;s temperature is mostly reactive, a cold beam growing 18% faster – until it is deep enough to trap the particles feeding it. Then the trapped beam swings round the bottom of the wave&#39;s potential well, the field swings with it, and the averaged distribution loses the slope the growth ran on.</p><p><code>bump_on_tail</code>, <code>mode_rates</code> and <code>bump_on_tail_root</code> come from <code>test/verification_harness.jl</code> and <code>test/dispersion.jl</code>, and <code>test/test_verification.jl</code> asserts what this script draws.</p><pre><code class="language-julia hljs">using Plots
+using Vasilek
+
+include(joinpath(pkgdir(Vasilek), &quot;test&quot;, &quot;verification_harness.jl&quot;))
+
+here = @__DIR__
+k = 0.3
+ωc = bump_on_tail_root(k)
+vφ = real(ωc)/k</code></pre><pre><code class="nohighlight hljs">3.337392978770397</code></pre><h2 id="Where-the-wave-sits,-and-how-fast-it-grows"><a class="docs-heading-anchor" href="#Where-the-wave-sits,-and-how-fast-it-grows">Where the wave sits, and how fast it grows</a><a id="Where-the-wave-sits,-and-how-fast-it-grows-1"></a><a class="docs-heading-anchor-permalink" href="#Where-the-wave-sits,-and-how-fast-it-grows" title="Permalink"></a></h2><p>The phase velocity of the growing root lands on the flank of the bump, between the valley and the beam&#39;s centre, and across the unstable band it stays there: from 3.9 at k = 0.125 down to 3.104 where the band closes, at k = 0.4824 – the bottom of the valley, the minimum of F, where Penrose&#39;s criterion puts a marginal mode.</p><pre><code class="language-julia hljs">v = collect(-2.0:0.01:7.0)
+F = @. (0.9*exp(-v^2/2) + 0.2*exp(-2*(v - 4.5)^2))/sqrt(2π)
+fplot = plot(v, F; yscale = :log10, ylims = (1e-4, 1), xlabel = &quot;v&quot;, ylabel = &quot;F(v)&quot;,
+             label = &quot;F&quot;, color = :black, linewidth = 2,
+             title = &quot;The distribution, and where the wave sits on it&quot;)
+vline!(fplot, [vφ]; color = :crimson, linestyle = :dash,
+       label = &quot;v_φ = ω/k = $(round(vφ; digits = 3)) at k = 0.3&quot;)
+ks = 0.125:0.005:0.48
+roots = bump_on_tail_root.(ks)
+band = plot(ks, imag.(roots); xlabel = &quot;k&quot;, ylabel = &quot;γ&quot;, label = &quot;growth rate&quot;,
+            color = :steelblue, linewidth = 2, legend = :bottom,
+            title = &quot;The unstable band&quot;)
+plot!(twinx(band), ks, real.(roots) ./ ks; ylabel = &quot;v_φ&quot;, label = &quot;phase velocity&quot;,
+      color = :crimson, linestyle = :dash, linewidth = 1.5, legend = :bottomright)
+scatter!(band, [k], [imag(ωc)]; color = :black, label = &quot;k = 0.3, the box&#39;s&quot;)
+savefig(plot(fplot, band; layout = (1, 2), size = (1300, 440), left_margin = 4Plots.mm,
+             bottom_margin = 5Plots.mm),
+        joinpath(here, &quot;bump-on-tail-dispersion.png&quot;));</code></pre><p><img src="../bump-on-tail-dispersion.png" alt="The distribution with the wave&#39;s phase velocity on it, and the unstable band"/></p><h2 id="Growth-and-saturation,-from-three-seeds"><a class="docs-heading-anchor" href="#Growth-and-saturation,-from-three-seeds">Growth and saturation, from three seeds</a><a id="Growth-and-saturation,-from-three-seeds-1"></a><a class="docs-heading-anchor-permalink" href="#Growth-and-saturation,-from-three-seeds" title="Permalink"></a></h2><p>At 1e-6 the mode grows for 74 time units at the kinetic root&#39;s rate; at 1e-3 it does the same thing ln(1000)/γ earlier and saturates at the same amplitude; at Arber and Vann&#39;s 0.04 it starts a quarter of the way to saturation, and the growth is lost in the beat with the backward wave the same seed launches.</p><pre><code class="language-julia hljs">seeds = (1e-6, 1e-3, 0.04)
+runs = Dict(α =&gt; bump_on_tail(α = α, tmax = 120.0) for α in seeds)
+growth = plot(yscale = :log10, xlabel = &quot;t&quot;, ylabel = &quot;|E_k|&quot;, legend = :bottomright,
+              title = &quot;Growth and saturation of the k = 0.3 mode&quot;, size = (820, 500),
+              ylims = (1e-7, 1))
+for (α, color) in zip(seeds, (:steelblue, :seagreen, :darkorange))
+    r = runs[α]
+    plot!(growth, r.t, abs.(r.E); label = &quot;α = $α&quot;, color = color, linewidth = 1.6)
+end
+base = runs[1e-6]
+γ, ω = mode_rates(base.t, base.E; tmin = 30.0, tmax = 50.0)
+i30 = findfirst(≥(30.0), base.t)
+tt = range(15.0, 70.0; length = 50)
+plot!(growth, tt, abs(base.E[i30]) .* exp.(imag(ωc) .* (tt .- base.t[i30]));
+      color = :black, linestyle = :dash, label = &quot;exp(γt), the kinetic root&quot;)
+A = abs.(base.E)
+isat = argmax(A)
+hline!(growth, [A[isat]]; color = :gray, linestyle = :dot,
+       label = &quot;saturation, ω_B = $(round(sqrt(k*A[isat])/imag(ωc); digits = 2))γ&quot;)
+savefig(growth, joinpath(here, &quot;bump-on-tail-growth.png&quot;));</code></pre><p><img src="../bump-on-tail-growth.png" alt="Growth and saturation of the k = 0.3 mode from three seeds"/></p><pre><code class="language-julia hljs">println(&quot;k = 0.3: root ω = &quot;, round(real(ωc); digits = 6), &quot;, γ = &quot;, round(imag(ωc); digits = 6),
+        &quot;;  measured over t ∈ [30, 50] at α = 1e-6: ω = &quot;, round(ω; digits = 5),
+        &quot;, γ = &quot;, round(γ; digits = 5))
+for α in seeds
+    r = runs[α]
+    a = abs.(r.E)
+    i = argmax(a)
+    println(&quot;  α = &quot;, rpad(α, 6), &quot; |E_k| starts at &quot;, round(a[1]; sigdigits = 4),
+            &quot;, peaks at &quot;, round(a[i]; digits = 4), &quot; at t = &quot;, round(r.t[i]; digits = 2))
+end</code></pre><pre><code class="nohighlight hljs">k = 0.3: root ω = 1.001218, γ = 0.198098;  measured over t ∈ [30, 50] at α = 1e-6: ω = 1.00108, γ = 0.19784
+  α = 1.0e-6 |E_k| starts at 3.328e-6, peaks at 0.4979 at t = 74.32
+  α = 0.001  |E_k| starts at 0.003328, peaks at 0.4981 at t = 39.32
+  α = 0.04   |E_k| starts at 0.1331, peaks at 0.5281 at t = 20.98
+</code></pre><h2 id="Phase-space"><a class="docs-heading-anchor" href="#Phase-space">Phase space</a><a id="Phase-space-1"></a><a class="docs-heading-anchor-permalink" href="#Phase-space" title="Permalink"></a></h2><p>The beam&#39;s side of it at four times: growing, at the saturation peak, at the field&#39;s first minimum, and at t = 120. The white line is the separatrix of a wave of the measured amplitude and phase, v = vᵩ ± √(2|Eₖ|(1 + sin(kx + θ))/k): the particles inside it are trapped, and the vortex they make is what carries the field once the growth stops.</p><pre><code class="language-julia hljs">snapshots = (60.0, 74.3, 86.0, 120.0)
+panels = []
+for s in snapshots
+    r = bump_on_tail(α = 1e-6, tmax = s)
+    E = r.E[end]
+    window = findall(u -&gt; 1.0 ≤ u ≤ 7.0, r.v)
+    # The colour range is the beam&#39;s: the bulk at v = 1 is nearly three times
+    # brighter and would leave the vortex in the dark.
+    p = heatmap(r.x, r.v[window], r.r.f[window, :]; xlabel = &quot;x&quot;, ylabel = &quot;v&quot;,
+                color = :viridis, clims = (0.0, 0.09), colorbar = false,
+                title = &quot;t = $s, |E_k| = $(round(abs(E); digits = 3))&quot;)
+    sep = @. sqrt(2abs(E)*(1 + sin(k*r.x + angle(E)))/k)
+    plot!(p, r.x, vφ .+ sep; color = :white, linewidth = 1.2, label = &quot;&quot;)
+    plot!(p, r.x, vφ .- sep; color = :white, linewidth = 1.2, label = &quot;&quot;)
+    push!(panels, p)
+end
+savefig(plot(panels...; layout = (1, 4), size = (1700, 420), left_margin = 4Plots.mm,
+             bottom_margin = 6Plots.mm),
+        joinpath(here, &quot;bump-on-tail-phase-space.png&quot;));</code></pre><p><img src="../bump-on-tail-phase-space.png" alt="The beam&#39;s phase space at four times, with the separatrix"/></p><h2 id="The-plateau"><a class="docs-heading-anchor" href="#The-plateau">The plateau</a><a id="The-plateau-1"></a><a class="docs-heading-anchor-permalink" href="#The-plateau" title="Permalink"></a></h2><p>Averaged over x, f loses the positive slope between vᵩ and the beam&#39;s centre: trapping stirs the resonant particles across the phase velocity, as quasilinear theory&#39;s plateau does for a spectrum of waves. It breathes with the trapping oscillation – the bump partly re-forms when the trapped beam climbs back above vᵩ – which is why the test holds it to the worst of the swing rather than to one time.</p><pre><code class="language-julia hljs">plateau = plot(xlabel = &quot;v&quot;, ylabel = &quot;⟨f⟩ₓ&quot;, legend = :topright, size = (820, 500),
+               title = &quot;The averaged distribution flattens where the wave traps&quot;,
+               xlims = (1.5, 7), ylims = (0, 0.14))
+g₀ = vec(sum(base.f₀; dims = 2))/size(base.f₀, 2)
+plot!(plateau, base.v, g₀; label = &quot;t = 0&quot;, color = :black, linewidth = 2)
+for (s, color) in zip(snapshots[2:end], (:crimson, :darkorange, :steelblue))
+    r = bump_on_tail(α = 1e-6, tmax = s)
+    plot!(plateau, r.v, vec(sum(r.r.f; dims = 2))/size(r.r.f, 2); label = &quot;t = $s&quot;,
+          color = color, linewidth = 1.6)
+end
+width = 2sqrt(A[isat]/k)
+vspan!(plateau, [vφ - width, vφ + width]; color = :gray, alpha = 0.15,
+       label = &quot;trapped at saturation&quot;)
+vline!(plateau, [vφ]; color = :gray, linestyle = :dash, label = &quot;v_φ&quot;)
+savefig(plateau, joinpath(here, &quot;bump-on-tail-plateau.png&quot;));</code></pre><p><img src="../bump-on-tail-plateau.png" alt="The x-averaged distribution flattening where the wave traps"/></p><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../two-stream/">« The two-stream instability</a><a class="docs-footer-nextpage" href="../plasma-echo/">The plasma echo »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.19.0 on <span class="colophon-date" title="Tuesday 6 October 2026 15:17">Tuesday 6 October 2026</span>. Using Julia version 1.13.1.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

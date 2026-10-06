@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>The plasma echo · Vasilek.jl</title><meta name="title" content="The plasma echo · Vasilek.jl"/><meta property="og:title" content="The plasma echo · Vasilek.jl"/><meta property="twitter:title" content="The plasma echo · Vasilek.jl"/><meta name="description" content="Documentation for Vasilek.jl."/><meta property="og:description" content="Documentation for Vasilek.jl."/><meta property="twitter:description" content="Documentation for Vasilek.jl."/><script data-outdated-warner src="../../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.63.2/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../search_index.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../">Vasilek.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../../">Vasilek — Vlasov Adaptive Simulator of pLasma Electrodynamics and Kinetics</a></li><li><span class="tocitem">Manual</span><ul><li><a class="tocitem" href="../../normalization/">Normalization conventions</a></li><li><a class="tocitem" href="../../driver-notes/">Notes on the 1D1V driver</a></li><li><a class="tocitem" href="../../migration-0.2/">Migrating to 0.2</a></li></ul></li><li><span class="tocitem">Verification</span><ul><li><a class="tocitem" href="../../verification/">Verification</a></li><li><a class="tocitem" href="../landau-damping-1d1v/">Landau damping</a></li><li><a class="tocitem" href="../plasma-oscillations-1d1v/">Plasma oscillations</a></li><li><a class="tocitem" href="../two-stream/">The two-stream instability</a></li><li><a class="tocitem" href="../bump-on-tail/">The bump-on-tail instability</a></li><li class="is-active"><a class="tocitem" href>The plasma echo</a><ul class="internal"><li><a class="tocitem" href="#The-ballistic-echo,-mode-by-mode"><span>The ballistic echo, mode by mode</span></a></li><li><a class="tocitem" href="#What-the-echo-is-made-of"><span>What the echo is made of</span></a></li><li><a class="tocitem" href="#The-same-echo-through-four-schemes"><span>The same echo through four schemes</span></a></li><li><a class="tocitem" href="#With-the-field-on"><span>With the field on</span></a></li></ul></li><li><a class="tocitem" href="../bgk-equilibrium/">BGK equilibrium</a></li><li><a class="tocitem" href="../collisional-damping/">Collisional Landau damping</a></li><li><a class="tocitem" href="../wakefield/">Laser wakefield</a></li><li><a class="tocitem" href="../scheme-comparison/">Scheme comparison</a></li></ul></li><li><a class="tocitem" href="../../api/">API</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Verification</a></li><li class="is-active"><a href>The plasma echo</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>The plasma echo</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/korzhimanov/Vasilek.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/korzhimanov/Vasilek.jl/blob/master/verification/plasma-echo.jl" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="The-plasma-echo"><a class="docs-heading-anchor" href="#The-plasma-echo">The plasma echo</a><a id="The-plasma-echo-1"></a><a class="docs-heading-anchor-permalink" href="#The-plasma-echo" title="Permalink"></a></h1><p>Phase mixing is reversible, and a Vlasov code has to keep it so.</p><pre><code class="nohighlight hljs">julia --project=verification verification/plasma-echo.jl</code></pre><p>A density perturbation in a warm plasma decays with nothing dissipated: free streaming shears it into ever finer filaments in velocity, and their integral cancels. A second perturbation, applied after the first has left every moment of <code>f</code>, shears against those filaments, and at a time set by the two wavenumbers alone their beat un-mixes into a density mode nobody seeded. That is the echo of Gould, O&#39;Neil and Malmberg (1967), seen in the laboratory by Malmberg et al. (1968). Being made of information no moment can see, it is also a sharp test of a Vlasov code: whatever a scheme&#39;s numerical diffusion does to fine filaments, the echo reports – as collisions do in the experiment (Su and Oberman 1968), and as Galeotti, Califano and Pegoraro (2006) proposed using it.</p><p>Two experiments, each against theory. With the field off <code>echo_closed_form</code> is exact; with it on, <code>echo_second_order</code> composes three linear responses of the Maxwellian. The theory and both runs are in <code>test/echo.jl</code> and <code>test/verification_harness.jl</code>, and <code>test/VlasovSolver/test_echo.jl</code> and <code>test/test_verification.jl</code> assert what this script draws.</p><pre><code class="language-julia hljs">using Plots
+using SpecialFunctions: besselj0, besselj1
+using Vasilek
+
+include(joinpath(pkgdir(Vasilek), &quot;test&quot;, &quot;verification_harness.jl&quot;))
+
+here = @__DIR__
+floor_at(y) = max(y, 1e-12)     # for the log axes: the closed forms reach 1e-20</code></pre><h2 id="The-ballistic-echo,-mode-by-mode"><a class="docs-heading-anchor" href="#The-ballistic-echo,-mode-by-mode">The ballistic echo, mode by mode</a><a id="The-ballistic-echo,-mode-by-mode-1"></a><a class="docs-heading-anchor-permalink" href="#The-ballistic-echo,-mode-by-mode" title="Permalink"></a></h2><p>A seed at k₁ = 1, a kick at k₂ = 3/2 when t = τ = 5, and the echo at k₃ = 1/2 around tₑ = k₂τ/k₃ = 15.</p><p>The seed and the kick&#39;s own mode have closed forms by the same Jacobi–Anger expansion as the echo&#39;s, from the terms (m, q) = (0, 1) and (1, 0): α·J₀(k₁ε(t − τ))·exp(−k₁²t²/2) and 2|J₁(k₂ε(t − τ))|·exp(−k₂²(t − τ)²/2).</p><pre><code class="language-julia hljs">α, ε, τ = 0.1, 0.2, 5.0
+pfc = f -&gt; PFC(fmin = 0.0, fmax = maximum(f))     # bounded by the distribution it carries
+ballistic = ballistic_echo(pfc, pfc; Nx = 128, Δt = 0.01, Δv = 0.05,
+                           snapshots = (11.0, 15.0, 19.0))
+k₁, k₂, k₃ = ballistic.k
+t = ballistic.t
+seed = [α*besselj0(k₁*ε*max(s - τ, 0.0))*exp(-(k₁*s)^2/2) for s in t]
+kicked = [s ≤ τ ? 0.0 : 2*abs(besselj1(k₂*ε*(s - τ)))*exp(-(k₂*(s - τ))^2/2) for s in t]
+closed = abs.(echo_closed_form.(t; α, ε, τ, k₁, k₂))
+
+A = abs.(ballistic.modes)
+i = argmax(A[:, 3])
+println(&quot;ballistic echo, PFC at 128 × 241, Δt = 0.01:&quot;)
+println(&quot;  seeded mode at the kick: &quot;, round(A[ballistic.kick, 1]; sigdigits = 3),
+        &quot; (closed form &quot;, round(seed[ballistic.kick]; sigdigits = 3), &quot;)&quot;)
+println(&quot;  echo peak &quot;, round(A[i, 3]; sigdigits = 4), &quot; at t = &quot;, round(t[i]; digits = 2),
+        &quot;, closed form &quot;, round(maximum(closed); sigdigits = 4), &quot; at t = &quot;,
+        round(t[argmax(closed)]; digits = 2))
+
+modes = plot(yscale = :log10, ylims = (1e-10, 1.0), xlabel = &quot;t&quot;, ylabel = &quot;|density mode|&quot;,
+             legend = :topright, size = (760, 480),
+             title = &quot;Ballistic echo: the seed hides, the kick un-hides it&quot;)
+for (m, label, exact, color) in ((1, &quot;seed, k₁ = 1&quot;, seed, :steelblue),
+                                 (2, &quot;kick, k₂ = 3/2&quot;, kicked, :darkorange),
+                                 (3, &quot;echo, k₃ = 1/2&quot;, closed, :crimson))
+    plot!(modes, t, floor_at.(A[:, m]); label = label, color = color, linewidth = 2)
+    plot!(modes, t, floor_at.(exact); label = &quot;&quot;, color = color, linestyle = :dash)
+end
+vline!(modes, [τ, k₂*τ/k₃]; color = :gray, linestyle = :dot, label = &quot;τ and t_e&quot;)
+savefig(modes, joinpath(here, &quot;plasma-echo-modes.png&quot;));</code></pre><pre><code class="nohighlight hljs">ballistic echo, PFC at 128 × 241, Δt = 0.01:
+  seeded mode at the kick: 1.84e-6 (closed form 3.73e-7)
+  echo peak 0.04442 at t = 15.28, closed form 0.04446 at t = 15.28
+</code></pre><p><img src="../plasma-echo-modes.png" alt="Density modes of the ballistic echo against their closed forms"/></p><h2 id="What-the-echo-is-made-of"><a class="docs-heading-anchor" href="#What-the-echo-is-made-of">What the echo is made of</a><a id="What-the-echo-is-made-of-1"></a><a class="docs-heading-anchor-permalink" href="#What-the-echo-is-made-of" title="Permalink"></a></h2><p>The k₃ component of <code>f</code> along v, four time units before tₑ, at it, and four after. Before and after, it oscillates in v with wavenumber k₃t − k₂τ and its integral – the density – cancels; at tₑ the phase fronts line up, the oscillation is gone, and the integral does not cancel. The run never computes this: it is what the density moment integrates.</p><pre><code class="language-julia hljs">fronts = plot(xlabel = &quot;v&quot;, ylabel = &quot;Im f_k₃(v)&quot;, xlims = (-5, 5), size = (760, 420),
+              title = &quot;The echo is phase fronts in v lining up&quot;)
+for (snap, s, color) in zip(ballistic.snapshots, (11.0, 15.0, 19.0),
+                            (:steelblue, :crimson, :seagreen))
+    Nx = length(ballistic.x)
+    fk = [2*sum(snap[iv, j]*cis(-k₃*ballistic.x[j]) for j in 1:Nx)/Nx
+          for iv in eachindex(ballistic.v)]
+    plot!(fronts, ballistic.v, imag.(fk); label = &quot;t = $s&quot;, color = color, linewidth = 2)
+end
+savefig(fronts, joinpath(here, &quot;plasma-echo-fronts.png&quot;));</code></pre><p><img src="../plasma-echo-fronts.png" alt="The k₃ component of f along v before, at and after the echo"/></p><h2 id="The-same-echo-through-four-schemes"><a class="docs-heading-anchor" href="#The-same-echo-through-four-schemes">The same echo through four schemes</a><a id="The-same-echo-through-four-schemes-1"></a><a class="docs-heading-anchor-permalink" href="#The-same-echo-through-four-schemes" title="Permalink"></a></h2><p>At 64 × 121, what a scheme keeps of a filament is what the echo returns. Upwind&#39;s loss is mostly its x-sweep, which diffuses each velocity row&#39;s modulation at a rate proportional to |v|, so the rows lose phase coherence and not only amplitude.</p><pre><code class="language-julia hljs">schemes = plot(xlabel = &quot;t&quot;, ylabel = &quot;|echo|&quot;, xlims = (8, 22), size = (760, 460),
+               legend = :topright, title = &quot;The echo through four schemes, 64 × 121&quot;)
+plot!(schemes, t, closed; label = &quot;closed form&quot;, color = :black, linewidth = 3, alpha = 0.3)
+println(&quot;\nfour schemes at 64 × 121, Δt = 0.02 -- pointwise error against the closed form:&quot;)
+for (name, scheme, color) in ((&quot;SemiLagrangian cubic&quot;, SemiLagrangian(CubicSpline()), :purple),
+                              (&quot;PFC&quot;, pfc, :crimson),
+                              (&quot;LaxWendroff&quot;, LaxWendroff(), :darkorange),
+                              (&quot;Upwind&quot;, Upwind(), :steelblue))
+    r = ballistic_echo(scheme, scheme)
+    exact = echo_closed_form.(r.t; α, ε, τ, k₁, k₂)
+    err = maximum(abs, r.modes[:, 3] .- exact)/maximum(abs, exact)
+    println(&quot;  &quot;, rpad(name, 22), round(err; sigdigits = 3))
+    plot!(schemes, r.t, abs.(r.modes[:, 3]); label = &quot;$name  ($(round(100*err; sigdigits = 2))%)&quot;,
+          color = color, linewidth = 1.8)
+end
+savefig(schemes, joinpath(here, &quot;plasma-echo-schemes.png&quot;));</code></pre><pre><code class="nohighlight hljs">
+four schemes at 64 × 121, Δt = 0.02 -- pointwise error against the closed form:
+  SemiLagrangian cubic  0.00107
+  PFC                   0.0103
+  LaxWendroff           0.0448
+  Upwind                0.449
+</code></pre><p><img src="../plasma-echo-schemes.png" alt="The echo through four schemes against the closed form"/></p><h2 id="With-the-field-on"><a class="docs-heading-anchor" href="#With-the-field-on">With the field on</a><a id="With-the-field-on-1"></a><a class="docs-heading-anchor-permalink" href="#With-the-field-on" title="Permalink"></a></h2><p>Smaller amplitudes and a later kick, for the theory&#39;s sake – see <code>self_consistent_echo</code>. The plasma screens the seed&#39;s filament, the kick and the echo&#39;s own density, and the echo that results is half the size of the field-free one, a time unit early, and rings afterwards at k₃&#39;s Landau frequency. <code>echo_second_order</code> predicts all three.</p><pre><code class="language-julia hljs">sc = self_consistent_echo()
+after = findall(&gt;(10.0), sc.t)
+ts = range(sc.t[after[1]], sc.t[after[end]]; length = length(after))
+setup = (α = 0.01, ε = 0.01, τ = 10.0, k₁ = sc.k[1], k₂ = sc.k[2])
+theory = echo_second_order(ts; setup...)
+field_off = echo_closed_form.(ts; setup...)
+measured = sc.modes[after, 3]
+j = argmax(abs.(measured))
+println(&quot;\nself-consistent echo, 128 × 241, Δt = 0.02:&quot;)
+println(&quot;  run peak &quot;, round(abs(measured[j]); sigdigits = 4), &quot; at t = &quot;, round(ts[j]; digits = 2),
+        &quot;; theory &quot;, round(maximum(abs, theory.echo); sigdigits = 4), &quot; at t = &quot;,
+        round(ts[argmax(abs.(theory.echo))]; digits = 2),
+        &quot;; field off &quot;, round(maximum(abs, field_off); sigdigits = 4), &quot; at t = &quot;,
+        round(ts[argmax(abs.(field_off))]; digits = 2))
+println(&quot;  pointwise run − theory: &quot;,
+        round(maximum(abs, measured .- theory.echo)/maximum(abs, theory.echo); sigdigits = 3),
+        &quot; of the theory&#39;s peak&quot;)
+
+signed = plot(ts, imag.(measured); label = &quot;run&quot;, color = :crimson, linewidth = 2.2,
+              xlabel = &quot;t&quot;, ylabel = &quot;Im A₃&quot;, legend = :bottomleft,
+              title = &quot;Echo with the field on: 128 × 241, α = ε = 0.01, τ = 10&quot;)
+plot!(signed, ts, imag.(theory.echo); label = &quot;second-order theory&quot;, color = :black,
+      linestyle = :dash, linewidth = 1.6)
+plot!(signed, ts, imag.(field_off); label = &quot;field off (closed form)&quot;, color = :steelblue,
+      linestyle = :dot, linewidth = 2)
+logscale = plot(ts, floor_at.(abs.(measured)); yscale = :log10, ylims = (1e-8, 1e-3),
+                label = &quot;run&quot;, color = :crimson, linewidth = 2, xlabel = &quot;t&quot;,
+                ylabel = &quot;|A₃|&quot;, legend = :bottomleft)
+plot!(logscale, ts, floor_at.(abs.(theory.echo)); label = &quot;second-order theory&quot;,
+      color = :black, linestyle = :dash)
+savefig(plot(signed, logscale; layout = (2, 1), size = (760, 760)),
+        joinpath(here, &quot;plasma-echo-self-consistent.png&quot;));</code></pre><pre><code class="nohighlight hljs">
+self-consistent echo, 128 × 241, Δt = 0.02:
+  run peak 0.0002373 at t = 29.05; theory 0.0002385 at t = 29.05; field off 0.0005018 at t = 30.19
+  pointwise run − theory: 0.00484 of the theory&#39;s peak
+</code></pre><p><img src="../plasma-echo-self-consistent.png" alt="The self-consistent echo against second-order theory and the field-free closed form"/></p><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../bump-on-tail/">« The bump-on-tail instability</a><a class="docs-footer-nextpage" href="../bgk-equilibrium/">BGK equilibrium »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.19.0 on <span class="colophon-date" title="Tuesday 6 October 2026 15:17">Tuesday 6 October 2026</span>. Using Julia version 1.13.1.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
