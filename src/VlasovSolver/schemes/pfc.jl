@@ -33,30 +33,38 @@ function advect!(dest, src, p::PFC{T,Checked}, c, ws) where {T,Checked}
         _check_bounds(src, lo, hi)
     end
 
+    # Each cell takes the difference of the fluxes through its two faces,
+    # `src[i] + (Φleft - Φright)` (signed rightwards), as `PFCNonUniform` does,
+    # so that equal fluxes cancel before they reach `f`. On a constant line
+    # every face carries the same `c*f` to the bit, and the line stays constant
+    # to the bit. The update was `(src[i] + Φin) - Φout`, which rounds twice:
+    # from a constant line at `fmax = 0.2631…` it left a cell one ulp above
+    # `fmax` at 320 of 2001 Courant numbers across [-1, 1], and the next
+    # checked call refused it.
     if c > 0
-        Φ = _Φ⁺(src, 1, n, 2, c, lo, hi)
-        dest[1] = src[1] - Φ
-        dest[2] = src[2] + Φ
+        # `_Φ⁺` at cell i is the flux through its right face.
+        Φ₁ = _Φ⁺(src, 1, n, 2, c, lo, hi)
+        Φ = Φ₁
         for i in 2:n-1
-            Φ = _Φ⁺(src, i, i-1, i+1, c, lo, hi)
-            dest[i] = dest[i] - Φ
-            dest[i+1] = src[i+1] + Φ
+            Φright = _Φ⁺(src, i, i-1, i+1, c, lo, hi)
+            dest[i] = src[i] + (Φ - Φright)
+            Φ = Φright
         end
-        Φ = _Φ⁺(src, n, n-1, 1, c, lo, hi)
-        dest[n] = dest[n] - Φ
-        dest[1] = dest[1] + Φ
+        Φₙ = _Φ⁺(src, n, n-1, 1, c, lo, hi)
+        dest[n] = src[n] + (Φ - Φₙ)
+        dest[1] = src[1] + (Φₙ - Φ₁)
     else
-        Φ = _Φ⁻(src, 1, n, 2, c, lo, hi)
-        dest[1] = src[1] + Φ
-        dest[n] = src[n] - Φ
+        # `_Φ⁻` at cell i is the flux through its left face.
+        Φ₁ = _Φ⁻(src, 1, n, 2, c, lo, hi)
+        Φ = Φ₁
         for i in 2:n-1
-            Φ = _Φ⁻(src, i, i-1, i+1, c, lo, hi)
-            dest[i] = src[i] + Φ
-            dest[i-1] = dest[i-1] - Φ
+            Φright = _Φ⁻(src, i, i-1, i+1, c, lo, hi)
+            dest[i-1] = src[i-1] + (Φ - Φright)
+            Φ = Φright
         end
-        Φ = _Φ⁻(src, n, n-1, 1, c, lo, hi)
-        dest[n] = dest[n] + Φ
-        dest[n-1] = dest[n-1] - Φ
+        Φₙ = _Φ⁻(src, n, n-1, 1, c, lo, hi)
+        dest[n-1] = src[n-1] + (Φ - Φₙ)
+        dest[n] = src[n] + (Φₙ - Φ₁)
     end
     return dest
 end

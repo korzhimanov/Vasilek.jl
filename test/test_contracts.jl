@@ -59,6 +59,22 @@ using Vasilek
         @test_throws ArgumentError PFC{Float64, 3}(0.0, 2.0)
         @test PFC{Float64, true}(0.0, 2.0) === PFC(fmin = 0.0, fmax = 2.0)
     end
+
+    @testset "a constant line at fmax stays constant, to the bit" begin
+        # Every face of a constant line carries the same flux, c*f, and each
+        # cell takes the difference of its two, which is zero. It used to add
+        # the inflow and subtract the outflow in turn, and the two roundings
+        # left a cell an ulp above fmax, which the check above then refuses:
+        # at 42 of the 401 Courant numbers below from 0.7, and at 108 from
+        # 1/√(2π).
+        for v in (0.7, 1/sqrt(2π))
+            line = fill(v, N)
+            scheme = PFC(fmin = 0.0, fmax = v)
+            ws = workspace(scheme, N)
+            @test all(c -> advect!(similar(line), line, scheme, c, ws) == line,
+                      range(-1, 1; length = 401))
+        end
+    end
 end
 
 # `PFCNonUniform` takes the same bounds and builds them into the same limiter,
