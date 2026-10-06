@@ -191,7 +191,7 @@ rather than velocity, both of which are corrections of relative order `p⊥²`.
 At `a₀ = 0.3` that is 3.2%. The transverse momentum itself is exact — it is the
 canonical `p⊥ = −A⊥`, not a force integral. See the docstring on `wakefield`.
 
-Unit conventions are in [docs/normalization.md](docs/normalization.md).
+Unit conventions are in [docs/src/normalization.md](docs/src/normalization.md).
 
 
 ## Usage
@@ -214,7 +214,7 @@ task. (`PFCNonUniform` holds its grid's cell widths, so it fits lines of that
 grid only.) `dest` and `src` must be distinct, and `|courant| ≤ 1` for every scheme
 but `SemiLagrangian`, which has no Courant limit: `advect!` refuses a step past
 it rather than return an answer that looks right and is unstable. Upgrading from
-0.1: see [docs/migration-0.2.md](docs/migration-0.2.md).
+0.1: see [docs/src/migration-0.2.md](docs/src/migration-0.2.md).
 
 A whole 1D1V run, linear Landau damping at `k = 0.5`, through the driver the
 verification studies use:
@@ -251,11 +251,20 @@ julia --project=benchmark benchmark/runbenchmarks.jl
 julia --project=benchmark benchmark/workprecision.jl
 ```
 
-`runbenchmarks.jl` times each kernel against a stored baseline.
+`runbenchmarks.jl` times each kernel against a stored baseline, measured on the
+development machine, so a run anywhere else compares machines as much as code;
+it prints the baseline's Julia and BenchmarkTools versions beside its own.
 `workprecision.jl` pairs error with the cost of reaching it and prints the
 efficiency frontier per problem class — the schemes no other scheme beats on
 both axes. Both are advisory and exit 0; the accuracy half of the comparison is
 gated in `test/test_comparison.jl`, the timing half is not.
+
+The documentation builds with Documenter, in an environment of its own:
+
+```
+julia --project=docs -e 'using Pkg; Pkg.instantiate()'   # once, Julia ≥ 1.11
+julia --project=docs docs/make.jl                        # into docs/build
+```
 
 See [CHANGELOG.md](CHANGELOG.md) for recent changes, including several
 numerically breaking fixes.

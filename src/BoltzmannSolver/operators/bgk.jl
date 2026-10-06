@@ -46,6 +46,11 @@ function collide!(dest, src, op::BGK, v, Δt, ws::BGKWorkspace)
     length(dest) == length(src) == length(v) || throw(DimensionMismatch(
         "collide! needs dest, src and v of one length, got $(length(dest)), " *
         "$(length(src)) and $(length(v))"))
+    # The Maxwellian, and the sampled operator's moments, are written before
+    # `src` is read for the last time: a `src` sharing their memory came back as
+    # the Maxwellian alone, 0.08 from the step, or 0.64 off through `moment`.
+    (Base.mightalias(src, ws.maxwellian) || Base.mightalias(src, ws.moment)) &&
+        _err_scratch_alias()
     e = exp(-Δt/op.τ)
     M = ws.maxwellian
     ok = op.conservative ? _discrete_maxwellian!(M, src, v) :
@@ -54,6 +59,10 @@ function collide!(dest, src, op::BGK, v, Δt, ws::BGKWorkspace)
     @. dest = src*e + (1 - e)*M
     return dest
 end
+
+@noinline _err_scratch_alias() = throw(ArgumentError(
+    "collide! requires src not to share memory with the workspace: the operator " *
+    "writes its Maxwellian and moments there before it is done reading src"))
 
 # The coarsest spacing: a line whose temperature is below its square is not
 # resolved, and its Maxwellian would be a spike the grid cannot integrate.

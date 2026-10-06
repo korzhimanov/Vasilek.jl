@@ -204,7 +204,7 @@ end
     # The discrete Maxwellian: Δt ≫ τ lands on a function whose logarithm is a
     # quadratic in v, with f₀'s cell-width moments to round-off.
     D = collide!(similar(f₀), f₀, BGK(1e-8), v, 1.0)
-    w = [i == 1 ? v[2]-v[1] : i == length(v) ? v[end]-v[end-1] : (v[i+1]-v[i-1])/2 for i in eachindex(v)]
+    w = [Vasilek.Collisions._width(v, i) for i in eachindex(v)]
     for p in 0:2
         @test isapprox(sum(w .* D .* v.^p), sum(w .* f₀ .* v.^p); rtol = 1e-13, atol = 1e-15)
     end
@@ -230,6 +230,17 @@ end
     f₁ = @. exp(-(v - 0.3)^2/1.4)*(1 + 0.3*sin(2v))
     @test collide!(similar(f₁), f₁, BGK(0.5f0), v, 0.1) ==
           collide!(similar(f₁), f₁, BGK(0.5f0), v, 0.1, Vasilek.workspace(BGK(0.5f0), length(v), Float64))
+    # A src sharing the workspace is refused. The Maxwellian, and the sampled
+    # operator's moments, are written there before src is done with: the line
+    # came back as the Maxwellian alone, 0.08 from the step, and through
+    # `moment` 0.64 off.
+    for op in (BGK(0.1), BGK(0.1; conservative = false))
+        ws = Vasilek.workspace(op, length(v), Float64)
+        for buf in (ws.maxwellian, ws.moment)
+            copyto!(buf, f₁)
+            @test_throws ArgumentError collide!(similar(f₁), buf, op, v, 0.05, ws)
+        end
+    end
     # Landau1P is experimental and exported from nowhere
     @test !(:Landau1P in names(Vasilek)) && !(:Landau1P in names(Vasilek.Collisions))
 end
@@ -289,8 +300,7 @@ end
         op = BGK(1e-1; conservative)
         ws = workspace(op, length(v))
         src = copy(f₀); dst = similar(src)
-        w = [i == 1 ? v[2]-v[1] : i == length(v) ? v[end]-v[end-1] : (v[i+1]-v[i-1])/2
-             for i in eachindex(v)]
+        w = [Vasilek.Collisions._width(v, i) for i in eachindex(v)]
         H(f) = conservative ? -sum(w[i]*(f[i] > 0 ? f[i]*log(f[i]) : 0.0) for i in eachindex(f)) :
                               -integrate(v, [x > 0 ? x*log(x) : 0.0 for x in f])
         previous = H(src); worst = 0.0
