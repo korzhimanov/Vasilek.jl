@@ -1,0 +1,13 @@
+[deps]
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+Vasilek = "c81326fb-3428-4180-b511-858f58317b28"
+
+# Vasilek is not registered, so the environment takes it from the checkout.
+# `[sources]` is read by Pkg from Julia 1.11 on, which is why the floor here is
+# above the package's own 1.10.
+[sources]
+Vasilek = {path = ".."}
+
+[compat]
+Documenter = "1"
+julia = "1.11"

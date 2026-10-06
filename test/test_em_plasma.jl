@@ -136,7 +136,7 @@ end
     end
 
     @testset "and the other sign of the current is not a small error" begin
-        # `docs/normalization.md` says flipping the sign turns the oscillation
+        # `docs/src/normalization.md` says flipping the sign turns the oscillation
         # into exponential growth. Asserted here rather than described: the same
         # mode with the current reversed grows without bound, so the sign in
         # `transverse_step!` is load-bearing and not a convention one could take
