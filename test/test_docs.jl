@@ -40,7 +40,8 @@ end
 @testset "The manual opens as the README does" begin
     root = joinpath(@__DIR__, "..")
     function intro(file)
-        text = replace(read(file, String), r"^\[!\[.*\n"m => "")    # the README's badges
+        text = replace(read(file, String), "\r\n" => "\n")      # a Windows checkout
+        text = replace(text, r"^\[!\[.*\n"m => "")              # the README's badges
         return replace(strip(first(split(text, "\n## "))), r"\n{3,}" => "\n\n")
     end
     @test intro(joinpath(root, "README.md")) == intro(joinpath(root, "docs", "src", "index.md"))
