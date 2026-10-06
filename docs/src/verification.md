@@ -1,0 +1,187 @@
+# Verification
+
+The solver is held to analytic theory and to the literature by the studies in
+[`verification/`](https://github.com/korzhimanov/Vasilek.jl/blob/master/verification),
+one script each. Every study has a page of its own under Verification in the
+navigation: the script's code, the numbers it prints and the figures it draws.
+
+## Running the studies
+
+Each study executes directly and writes its figures beside itself:
+
+```bash
+julia --project=verification -e 'using Pkg; Pkg.instantiate()'   # once, Julia ≥ 1.11
+julia --project=verification verification/landau-damping-1d1v.jl  # or any other study there
+```
+
+The scripts are written in Literate.jl comment form, which is how these pages
+render them.
+
+## What the tests assert
+
+The studies' headline claims are asserted by the test suite rather than left in prose.
+CI runs this on every pull request; locally it is behind an environment variable
+so that a default `Pkg.test()` stays instant:
+
+```bash
+VASILEK_EXTENDED=1 julia --project=. -e 'using Pkg; Pkg.test()'
+```
+
+The analytic side of those claims is computed rather than quoted:
+[`test/dispersion.jl`](https://github.com/korzhimanov/Vasilek.jl/blob/master/test/dispersion.jl) solves the kinetic dispersion relation through the plasma
+dispersion function, which gives the Landau roots at any `k` — they used to be
+three constants typed into the test file — the growth rate of *warm*
+counter-streaming beams, which is what the runs contain, and the growing root of
+the bump-on-tail distribution, on the continuum and on the grid's own
+centred-difference field. The cold two-stream closed form remains as its
+zero-temperature limit and is checked as such. With the `BGK` operator in the
+loop, the same `Z` gives the collisional relation: a 3×3 closure on the three
+moments the operator restores, checked against the Landau root at `ν = 0`, the
+Krook model's closed form, and the Chapman–Enskog fluid at large `ν`.
+
+| claim | asserted | measured |
+|---|---|---|
+| Landau damping rate, k = 0.3, 0.4, 0.5 | γ within 3% of the root of the kinetic dispersion relation | 0.70%, 1.14%, 0.95% |
+| Landau real frequency, same three k | ω within 1% of the same root | 0.08%, 0.22%, 0.26% |
+| and the runs are linear enough for that to be the right target | bounce phase under 2 in every fitting window | 1.70, 0.45, 0.21 |
+| the damping fit does not depend on its window | two windows agree within 3% | 0.17%, 0.05%, 0.04% |
+| nor does the frequency fit | two windows agree within 1% | 0.066%, 0.000%, 0.300% |
+| the Vlasov–Poisson flow runs backwards | round-trip error after v → −v falls by at least 3.5× when the grid is halved, at α = 0.05 | 2.82e-3 → 6.48e-4, ×4.3: second order, the limiter clipping the peak |
+| unless the flow has out-run the grid | at α = 0.5 the same refinement recovers nothing | 0.167 → 0.157, ×1.06 |
+| and reversibility is bought with positivity | the two most reversible schemes are the two that drive f negative | 0.090 and 0.108 at f = −0.093 and −0.057, against PFC's 0.167 at f ≥ 0 |
+| strong Landau damping, α = 0.5 | γ₁ in the literature's −0.281…−0.292; γ₂ within 0.070…0.090, just under the cited 0.0815…0.0858, and refining moves it toward them | 0.2863, 0.0787 (0.0813 at twice the resolution) |
+| and the non-uniform velocity grid agrees | both rates within 2% of the uniform grid at the same Δt | 0.06%, 0.5% |
+| a drifting plasma damps the same way | boosted mode matches the rest-frame one once the Doppler phase is removed at each sample's own time, and the fitted rates agree within 0.1% | 1.7e-3, 1.8e-3 rad, 0.014% |
+| collisional Landau damping, `BGK` at ν = 0.1, 0.3, 1 | γ within 1.5% and ω within 0.3% of the collisional root on the grid's field, and γ *falling* as ν rises | +0.37%, +0.49%, +0.76%; +0.05%, +0.08%, +0.03%; 0.1547 → 0.1341 → 0.1074 → 0.0660 |
+| which is BGK's root and no other operator's | a relaxation restoring only n, or only n and u, lands on its own root and over 1.5× BGK's rate | 0.31%, 0.23% from their own; 3.3×, 2.1× BGK's |
+| and the mode energy conservation adds | a matrix pencil of the field finds a real exponent within 0.2% of `heat_mode_root` at ν = 1 | 0.43377 against 0.43369 |
+| the collisional relation is the right one | the Landau root at ν = 0, Krook's closed form for density alone, and Chapman–Enskog as ν → ∞ with gaps closing as 1/ν² | 2.3e-14, 4.7e-16; gaps ×3.85–4.08 per doubling |
+| and `BGK` holds the energy on any window | at ν = 1 the energy holds to 1e-6 on ±8 and on ±4, where the sampled Maxwellian of 0.1 cools | 8.0e-9, 8.0e-8; −5.3% by t = 60 |
+| trapping stops the damping on the bounce time | ω_B·t₀ between 6.5 and 8.5 at four amplitudes, and t₀ ∝ α^(−1/2) | 7.09–8.00, slope −0.556 |
+| each mode recurs at its own 2π/(kΔv) | within a plasma period, for the seeded mode and the harmonic it generates | 128.6 vs 125.7, 64.3 vs 62.8 |
+| a plasma echo, field off, is the closed form's | pointwise within 0.3% of the peak, the peak within two steps of its own, the sign reversing with the kick | 0.12%, t = 15.28 on both |
+| out of a mode no moment could see | the echo over 10⁴ times the seeded mode's density at the kick | 2.4·10⁴ |
+| and what a scheme keeps of a filament is what it returns | SemiLagrangian < PFC < LaxWendroff < Upwind; upwind returns under 70% | 0.11%, 1.03%, 4.5%, 45%; 55% |
+| the loss is truncation | PFC's error falls at least 5× per halving of Δv | 7.4×, 6.9× |
+| a plasma echo, field on, is second-order kinetic theory's | pointwise within 1% of `echo_second_order`, the peak within 1% of its size and two steps of its time | 0.48%, 0.48%, t = 29.05 on both |
+| which is not the field-off echo | the closed form's peak over 1/0.6 times the run's and 0.5 later | 2.1×, 1.14 |
+| and the residual is the run's | it falls 2.5× from Nx = 64 to 128 | 3.3× |
+| a nonlinear equilibrium stays put, two thirds of it trapped | f within 0.5% of its peak and the field within 1% through t = 50 | 0.15%, 0.39% |
+| and what moves it is the scheme | L² falls and entropy rises; f and field converge at third order, 5× and 4× per halving | 7.6×, 6.1× |
+| with a kink in F on the separatrix, the error sits on it | the worst cell within one of the separatrix at two resolutions, converging at first order | on it both times, 1.75× |
+| and the equilibrium is this one | ions built on the Poisson sign the docs used to give hold the reversed field; a potential 10% off the ions' drifts 10× more | E/E₀ = −1.000, 16%; 24×, 27× |
+| a trapped population above f = 1 holds too | within 3% of its peak, now that PFC's bound comes from f₀ | 0.99%, against 43.6% at the old bound |
+| and the old bound is refused rather than run | at fmax = 1 `PFCNonUniform` throws on its first call; unchecked, it takes f over 30% of its peak away | first call; 43.6% |
+| plasma oscillation frequency | ω within 0.2% of Bohm–Gross √(1+3k²), and the cold ωₚ excluded | 0.018%, against 0.57% for cold |
+| nor does that frequency depend on its window | two windows agree within 0.2% | 0.006% |
+| two-stream growth rate, kv₀ = 0.4, 0.6, 0.8 | γ within 3% of the warm kinetic root, and the peak in the right place | 0.63%, 1.95%, 0.09% |
+| the same beams at twice the temperature | γ(vt = 0.6) below γ(vt = 0.3), each within 3% of its own warm root | −4.4% measured against −4.4% predicted |
+| two-stream at the cold boundary, kv₀ = 1.0 | γ within 8% of the warm root, where the cold form gives exactly zero | 3.16% |
+| two-stream stability boundary, kv₀ = 1.2, 1.6 | no growth, where cold and warm theory both give γ = 0 | decays to 0.052, 0.000 |
+| bump-on-tail growth, Arber and Vann's beam | γ and ω within 0.05% and 0.01% of the kinetic root on the grid's field, 0.5% and 0.05% of the continuum's; the wave travels with the beam | 0.016%, 0.003%; 0.131%, 0.014% |
+| it saturates by trapping, whatever the seed | ω_B/γ between 1.8 and 2.1 at the peak; a seed 1000× larger peaks within 0.5%, ln(1000)/γ earlier | 1.951; 0.04%, 35.00 vs 34.91 |
+| and the trapped beam carries the field | the amplitude swings with a period of 1 to 1.6 bounce periods; the flank's slope in ⟨f⟩ falls at least 3× | 1.316; 20× |
+| plasma oscillations, uniform grid | \|Δε/ε\| < 0.5% at t = 3000 | 0.38% |
+| plasma oscillations, non-uniform grid | \|Δε/ε\| < 6% at t = 3000 | 4.75% |
+| and the energy is one instant's | on the uniform grid ε moves by under 3e-4 of itself within a plasma period | 6.6e-5, where summing the kinetic energy after the kick swung it by 1.2e-3 |
+| the laser wakefield is a plasma wave | ω within 2% of Bohm–Gross √(ωₚ² + 3Tk²) | 0.23% |
+| the driver travels at the grid's group velocity | pulse speed within 2% of `vg_pulse`, at two resolutions | 0.73%, 1.51% |
+| and refining moves it toward the continuum | \|v − √(1−n)\| falls when Δx is halved | 0.9487 − 0.8858 → − 0.9261 |
+| its wavelength is the driver's | λ within 3% of 2π√(v² − 3T)/ωₚ, for the measured *and* the predicted driver | 0.37%, 1.12% |
+| it is phase-locked to the pulse | ω/k within 2% of the pulse velocity, measured independently | 0.58% |
+| its size is the one linear theory gives | peak within 10% of `linear_wake`, pointwise rms under 15% | 6.4%, 6.4% |
+| and it is the laser that made it | amplitude ∝ a₀² within 8%; ≥10× the unlit control; ≥4× behind the pulse over ahead | 3.3%, 36×, 9.4× |
+
+## Notes on the studies
+
+### The plasma echo
+
+The echo is the one place a kinetic theory beyond linear order is held to a
+number. With the field off it has a closed form, exact in both amplitudes; with
+the field on, `echo_second_order` in [`test/echo.jl`](https://github.com/korzhimanov/Vasilek.jl/blob/master/test/echo.jl) composes three linear
+responses of the Maxwellian — the seed screened, the kick screened, and the
+echo's own density polarising the plasma — and the run reproduces the result,
+the ringing after the peak included. Both runs are cheap, and both measure
+something no moment of `f` does: what a scheme keeps of filaments finer than any
+it can show.
+
+### The BGK equilibrium
+
+The equilibrium study is the converse of every other run: it starts on a
+nonlinear stationary state, two thirds of it trapped particles, and asks how
+little the solver moves it. The smooth equilibrium's error spreads over phase
+space and converges at third order; give the trapped particles a temperature of
+their own, which puts a kink in `F` on the separatrix, and the error sits on the
+separatrix, twelve times larger, and converges at first order.
+
+### The bump-on-tail instability
+
+The bump-on-tail study is the first run held to numbers past its linear phase.
+The growth rate lands on the kinetic root to 0.13%, and on the root of the grid's
+own field — the Poisson solve's centred difference returns `sin(kΔx)/(kΔx)` of a
+mode's field — to 0.016%. The wave then grows until it traps the beam feeding it,
+at a bounce frequency of 1.95 times the growth rate whatever the seed; the
+trapped beam swings round the well and the field swings with it; and the
+averaged distribution loses the slope the growth ran on.
+
+### Collisional damping
+
+The collisional study is the first run with the collision operator in it. `BGK`
+had been checked on a single velocity line, and never with a field. Put between
+the kicks at three rates, it lands on its own dispersion relation, which says
+something one might not guess: collisions that restore density, momentum and
+energy *weaken* the damping, from Landau's 0.153 towards a fluid wave that damps
+only by conducting heat. A relaxation that restored less would damp harder, and
+the testset runs two such relaxations to show that each lands on its own root.
+Conserved energy also adds a mode that does not oscillate, a temperature
+perturbation decaying by conduction, and a matrix pencil of the field finds it
+to 0.03%. The operator relaxes each line to its *discrete* Maxwellian, the
+`exp(a + bv + cv²)` whose density, momentum and energy on the grid equal the
+line's, so it conserves all three to round-off on any window. The sampled
+Maxwellian it used before, still there as `BGK(τ; conservative = false)`, took
+the temperature over the window and put back a Maxwellian over the whole line,
+so a window that cut the tail cooled the plasma at every relaxation: 5.3% by
+t = 60 on ±4.
+
+### The scheme comparison
+
+The comparison of the advection schemes is made on the physics rather than on a
+shifted sine, and is advisory rather than asserted.
+
+Ranked by error in the Landau damping rate, `LaxWendroff` (0.67%) and cubic
+`SemiLagrangian` (1.09%) lead the schemes that dissipate, and upwind trails at
+48.8% — its own dissipation being two orders of magnitude larger than the
+damping it is measuring. At 50% amplitude those two are exactly the two that
+drive `f` negative, which is why the solvers default to `PFC`. `Superbee` heads
+the table, at 0.21%, from below: its compression anti-diffuses, and its lead is
+a cancellation.
+
+### The laser wakefield
+
+The wakefield example was asserted only to run and stay bounded until recently,
+because that was all it could support: it had **no ponderomotive coupling**, so
+the laser never entered the longitudinal push and the wake it drew was the slab
+edges relaxing. Its numbers came out bit-identical whether the transverse
+current was right or wrong by thirty-two orders of magnitude. The coupling —
+the force `−∂(pʸ² + pᶻ²)/2∂x` in the momentum advection — is now there, and the
+wakefield rows of the table under [What the tests assert](@ref) measure the
+wake it produces against linear wakefield theory rather than against a bound.
+
+The study runs at twenty cells per laser wavelength, and that is a physics
+choice rather than a taste. At the ten it used before, the Yee dispersion
+relation puts the driver's group velocity 4.5% below `√(1−n)`: the pulse arrives
+late and the wake keeps station with it, so the wake's phase velocity is wrong
+by the same amount — `γ_φ ≈ 2.2` where the physics gives 3.0. None of the
+assertions about the wake's *frequency* could see that, and the comparison
+against `linear_wake` cannot either, since that reference is driven by the `Φ`
+of the run it is checking. It took a closed form for the driver, `vg_pulse`, and
+a second resolution.
+
+Two approximations remain, and the defaults are chosen to stay inside them
+rather than to be impressive: the ponderomotive potential is the
+non-relativistic one and the transverse current is taken through momentum
+rather than velocity, both of which are corrections of relative order `p⊥²`.
+At `a₀ = 0.3` that is 3.2%. The transverse momentum itself is exact — it is the
+canonical `p⊥ = −A⊥`, not a force integral. See the docstring on `wakefield`.
+
+Unit conventions are in [the normalization notes](normalization.md).

@@ -1,9 +1,10 @@
-# Collisional Landau damping: the BGK operator in the loop, against its own
-# dispersion relation.
+# # Collisional Landau damping
+#
+# The BGK operator in the loop, against its own dispersion relation.
 #
 #     julia --project=verification verification/collisional-damping.jl
 #
-# Writes collisional-damping-*.png beside this script.
+# Writes collisional-damping-*.png beside this script. #src
 #
 # The Landau case -- a Maxwellian perturbed by 1e-3·cos(kx) at k = 0.5 -- with
 # `BGK` relaxing every velocity line towards the Maxwellian of its own density,
@@ -31,16 +32,19 @@
 # draws.
 
 using Plots
+using Vasilek
 
-include(joinpath(@__DIR__, "..", "test", "verification_harness.jl"))
+include(joinpath(pkgdir(Vasilek), "test", "verification_harness.jl"))
 
 here = @__DIR__
 k = 0.5
 operators = (((:n, :u, :T), "BGK: n, u and T restored", :black),
              ((:n, :u),     "n and u only",             :darkorange),
-             ((:n,),        "n only (Krook)",           :steelblue))
+             ((:n,),        "n only (Krook)",           :steelblue));
 
-# ---- the runs. BGK at four rates, and each lesser operator at one.
+# ## The runs
+#
+# BGK at four rates, and each lesser operator at one.
 νs_run = (0.0, 0.1, 0.3, 1.0)
 windows = Dict(0.0 => (6.0, 30.0), 0.1 => (6.0, 35.0), 0.3 => (8.0, 40.0), 1.0 => (10.0, 50.0))
 runs = Dict(ν => collisional_landau(ν) for ν in νs_run)
@@ -50,9 +54,11 @@ fitted(r, w) = (first(damping_rate(r.t, r.ε_e; tmin = w[1], tmax = w[2])),
 measured = Dict(ν => fitted(runs[ν], windows[ν]) for ν in νs_run)
 lesser = [((:n,), 0.3, (4.0, 16.0)), ((:n, :u), 1.0, (8.0, 40.0))]
 measured_lesser = [(C, ν, fitted(collisional_landau(ν; collisions = PartialBGK{C}(1/ν)), w))
-                   for (C, ν, w) in lesser]
+                   for (C, ν, w) in lesser];
 
-# ---- the rate and the frequency against ν, the theory on the grid's field.
+# ## Rate and frequency against ν
+#
+# The rate and the frequency against ν, the theory on the grid's field.
 # Past ν ≈ 1.85 the Krook pair merges on the imaginary axis, and its curve stops.
 rate = plot(xlabel = "ν", ylabel = "γ", title = "Damping rate", legend = :topleft,
             yscale = :log10, ylims = (0.02, 2.0))
@@ -78,7 +84,8 @@ for (C, ν, (γ, ω)) in measured_lesser
 end
 savefig(plot(rate, freq; layout = (1, 2), size = (1300, 480), left_margin = 4Plots.mm,
              bottom_margin = 5Plots.mm),
-        joinpath(here, "collisional-damping-roots.png"))
+        joinpath(here, "collisional-damping-roots.png"));
+#md # ![Damping rate and frequency against ν for three operators, theory and runs](collisional-damping-roots.png)
 
 for ν in νs_run
     root = collisional_root(k, ν; Δx)
@@ -87,7 +94,7 @@ for ν in νs_run
             "), ω = ", round(ω; digits = 5), " (root ", round(real(root); digits = 5), ")")
 end
 
-# ---- the field energy, and the damping it is read from.
+# ## The field energy, and the damping it is read from
 energy = plot(yscale = :log10, xlabel = "t", ylabel = "εₑ", legend = :bottomleft,
               title = "Electric energy of the k = 0.5 mode", size = (820, 500))
 for (ν, color) in zip(νs_run, (:gray, :steelblue, :seagreen, :crimson))
@@ -99,9 +106,12 @@ for (ν, color) in zip(νs_run, (:gray, :steelblue, :seagreen, :crimson))
     plot!(energy, tt, maximum(r.ε_e[i:i+80]) .* exp.(2imag(root) .* (tt .- r.t[i]));
           color = :black, linestyle = :dash, label = ν == 0.0 ? "exp(−2γt), the roots" : "")
 end
-savefig(energy, joinpath(here, "collisional-damping-energy.png"))
+savefig(energy, joinpath(here, "collisional-damping-energy.png"));
+#md # ![Electric energy of the k = 0.5 mode at four collision rates](collisional-damping-energy.png)
 
-# ---- the complex frequency plane: BGK's Langmuir and heat branches as ν rises,
+# ## The complex frequency plane
+#
+# BGK's Langmuir and heat branches as ν rises,
 # and the exponents a matrix pencil finds in the field at ν = 1 and 3.
 branch = plot(xlabel = "Re ω", ylabel = "Im ω", legend = :bottomright, size = (820, 560),
               title = "BGK's modes as ν rises, and the exponents in the runs")
@@ -115,16 +125,19 @@ plot!(branch, zeros(length(νh)), -heat_mode_root.(k, νh; Δx); color = :crimso
 for (q, marker) in ((1.0, :circle), (3.0, :square))
     r = q == 1.0 ? runs[1.0] : collisional_landau(q)
     s = mode_exponents(r.t, r.E; tmin = 4.0, tmax = 30.0)
-    # E_k ∝ exp(st) = exp(−iωt), so each exponent is the root ω = is.
+    ## E_k ∝ exp(st) = exp(−iωt), so each exponent is the root ω = is.
     scatter!(branch, -imag.(s), real.(s); color = :white, markerstrokecolor = :black,
              markershape = marker, markersize = 7, label = "pencil exponents, ν = $q")
     g = heat_mode_root(k, q; Δx)
     heat = s[argmin(abs.(imag.(s)))]
     println("ν = ", q, ": heat mode ", round(-real(heat); digits = 5), " (root ", round(g; digits = 5), ")")
 end
-savefig(branch, joinpath(here, "collisional-damping-plane.png"))
+savefig(branch, joinpath(here, "collisional-damping-plane.png"));
+#md # ![BGK's modes in the complex frequency plane, and the exponents found in the runs](collisional-damping-plane.png)
 
-# ---- what the velocity window costs. The sampled Maxwellian of 0.1,
+# ## What the velocity window costs
+#
+# The sampled Maxwellian of 0.1,
 # `BGK(τ; conservative = false)`, takes each line's temperature over the window it
 # is given and puts back a Maxwellian on the whole line; on ±4 the tail it cannot
 # see is missing from the temperature, and every relaxation cools the line by it.
@@ -141,8 +154,9 @@ window = plot(xlabel = "t", ylabel = "Δε/ε", legend = :bottomleft, size = (82
 plot!(window, narrow.t, drift(narrow); label = "v ∈ [−4, 4], sampled Maxwellian", color = :crimson, linewidth = 2)
 plot!(window, discrete4.t, drift(discrete4); label = "v ∈ [−4, 4], discrete Maxwellian", color = :steelblue, linewidth = 2)
 plot!(window, wide.t, drift(wide); label = "v ∈ [−8, 8]", color = :black, linewidth = 2)
-savefig(window, joinpath(here, "collisional-damping-window.png"))
+savefig(window, joinpath(here, "collisional-damping-window.png"));
+#md # ![Total energy at ν = 1 on two velocity windows](collisional-damping-window.png)
 println("ν = 1: energy by t = 60 moves ", round(drift(narrow)[end]; sigdigits = 3), " on ±4 sampled, ",
         round(drift(discrete4)[end]; sigdigits = 3), " on ±4 discrete, and ",
         round(drift(wide)[end]; sigdigits = 3), " on ±8")
-println("wrote collisional-damping-{roots,energy,plane,window}.png to ", here)
+println("wrote collisional-damping-{roots,energy,plane,window}.png to ", here) #src

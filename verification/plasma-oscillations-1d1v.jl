@@ -1,10 +1,12 @@
+# # Plasma oscillations
+#
 using Plots
 
 using FFTW
 
 using Vasilek
-# Run directly, or render with Literate.jl. Figures are written beside this
-# script.
+# Run directly, or render with Literate.jl. Figures are written beside this #src
+# script. #src
 figure(name) = joinpath(@__DIR__, "$name.png")
 
 # Both runs go through the package's driver, `vlasov_poisson`: the loop, the
@@ -16,14 +18,14 @@ oscillation_f0(v, x) = [exp(-u^2/2)/sqrt(2π)*(1 + 0.01*cos(K*y)) for u in v, y 
 # so nₖ = ikEₖ.
 centre_density(r, x) = real.(im*K .* r.E_modes[:, 1] .* cis(K*x[end÷2]))
 #
-# # Plasma oscillations on uniform grid
+# ## Plasma oscillations on uniform grid
 #
 # Here we perform a verification of long-lasting stability of the scheme for the case of longitudinal plasma oscillations.
 #
 # Initial conditions for electrons are
-# $$
+# ```math
 # f(x, v) = \frac{1}{\sqrt{2\pi}}\exp\left\{-\frac{v^2}{2}\right\}\left(1 + \tilde n\cos kx\right)
-# $$
+# ```
 # where velocities $v$ are normalised to a thermal velocity $v_{\rm th}$, concentration $n$ is normalized to equilibrium concentration $N_e$, spatial coordinate $x$ is normalized to $v_{\rm th} \over \omega_p$ where $\omega_p^2 = \frac{4\pi e^2 N_e}{m}$ is a plasma frequency ($e$ is the elementary charge and $m$ is the electron mass). $k$ normalized to $\omega_p \over v_{\rm th}$ is a wave number. Here we verify the case $k \ll 1$ for which dispersion and Landau damping are negligible.
 #
 # Ions are supposed to be uniformly distributed and immobile.
@@ -36,20 +38,21 @@ x = collect(1.0:1.0:100.0)
 v = collect(-4:0.1:4)
 t = collect(0.0:0.1:3000.0)
 r = vlasov_poisson(x, v, oscillation_f0(v, x), t; modes = (K,))
-ε = r.ε
+ε = r.ε;
 #
 # Here we check conservation of energy calculating the total energy of the system as follows:
 #
-# $$
+# ```math
 # \varepsilon = \iint f\frac{v^2}{2} dvdx + \int \frac{E^2}{2} dx
-# $$
+# ```
 #
 # where $E$ is an electric filed normalized to $\frac{m\omega_p v_{\rm th}}{e}$
 #
 plot(t, (ε.-ε[1])./ε[1], label="Δε/ε")
 xlabel!("ωₚt")
 ylabel!("Δε/ε")
-savefig(figure("plasma-oscillations-1d1v-01"))
+savefig(figure("plasma-oscillations-1d1v-01"));
+#md # ![Relative change of the total energy, uniform grid](plasma-oscillations-1d1v-01.png)
 #
 # We see that despite slow growth a relative energy conservation violation is still below 0.5% at almost 500 wave periods: 0.38% at $t = 3000$.
 #
@@ -62,7 +65,8 @@ savefig(figure("plasma-oscillations-1d1v-01"))
 plot(t, centre_density(r, x), label="nₑ−nᵢ")
 xlabel!("ωₚt")
 ylabel!("nₑ−nᵢ")
-savefig(figure("plasma-oscillations-1d1v-02"))
+savefig(figure("plasma-oscillations-1d1v-02"));
+#md # ![Density perturbation at the box centre, uniform grid](plasma-oscillations-1d1v-02.png)
 #
 # We see that the amplitude also stays stable close to initial 0.01 value.
 #
@@ -76,7 +80,8 @@ plot(ω, F, yscale=:log10)
 xlabel!("ω/ωₚ")
 ylabel!("|F[Eₖ]|")
 xlims!(0,5)
-savefig(figure("plasma-oscillations-1d1v-03"))
+savefig(figure("plasma-oscillations-1d1v-03"));
+#md # ![Spectrum of the mode's field](plasma-oscillations-1d1v-03.png)
 #
 # The peak against Bohm–Gross, $\sqrt{1 + 3k^2}$, to the resolution of a 3000-long record:
 #
@@ -85,7 +90,7 @@ println("numerical:  ", ω[argmax(F)], " ± ", (ω[2] - ω[1])/2)
 #
 # 1.00528 against 1.00590, half a bin apart. `test/test_verification.jl` fits the frequency and holds it within 0.2% of Bohm–Gross, and excludes the cold $\omega_p$.
 #
-# # Plasma oscillations on non-uniform grid
+# ## Plasma oscillations on non-uniform grid
 #
 # Here we perform a verification of long-lasting stability of the scheme for the case of non-uniform grid.
 #
@@ -99,20 +104,22 @@ println("numerical:  ", ω[argmax(F)], " ± ", (ω[2] - ω[1])/2)
 #
 v = vcat(collect(-4:0.2:-1.2), collect(-1:0.1:1), collect(1.2:0.2:4))
 r = vlasov_poisson(x, v, oscillation_f0(v, x), t; modes = (K,))
-ε = r.ε
+ε = r.ε;
 #
 # Again, let us check the energy conservation and the stability of the oscillations amplitude
 #
 plot(t, (ε.-ε[1])./ε[1], label="Δε/ε")
 xlabel!("ωₚt")
 ylabel!("Δε/ε")
-savefig(figure("plasma-oscillations-1d1v-04"))
+savefig(figure("plasma-oscillations-1d1v-04"));
+#md # ![Relative change of the total energy, non-uniform grid](plasma-oscillations-1d1v-04.png)
 #
 # In this case, as clearly seen, the violation of energy conservation is more pronounced but still at reasonable level: even after almost 500 plasma oscillations it's only about 4.75%. (This study used to report about 12% here, with the limiter's coefficient computed once for the whole grid; per cell triple, as `PFCNonUniform` computes it now, it is the figure above.)
 #
 plot(t, centre_density(r, x), label="nₑ−nᵢ")
 xlabel!("ωₚt")
 ylabel!("nₑ−nᵢ")
-savefig(figure("plasma-oscillations-1d1v-05"))
+savefig(figure("plasma-oscillations-1d1v-05"));
+#md # ![Density perturbation at the box centre, non-uniform grid](plasma-oscillations-1d1v-05.png)
 #
 # The stability of the oscillations amplitude is pretty the same as in the case of uniform grid. It points out that the energy growth is mainly due to heating of plasma and not due to a growth of some instability.

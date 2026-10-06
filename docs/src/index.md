@@ -23,6 +23,5 @@ As for now, the following functionality has been implemented:
   of its choices, with the measurements behind them.
 * [Migrating to 0.2](migration-0.2.md): from the 0.1 closures to scheme values.
 * [API](api.md): every docstring, by module, the internals included.
-
-The verification studies, and the table of what the test suite asserts about
-them, are in the [README](https://github.com/korzhimanov/Vasilek.jl#readme).
+* [Verification](verification.md): the table of what the test suite asserts
+  about the verification studies, and each study rendered with its output.

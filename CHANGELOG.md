@@ -42,6 +42,39 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 ### Added
 
+- **The documentation is published, with the verification studies on it**
+  (`docs/make.jl`, `.github/workflows/Docs.yml`, `docs/src/verification.md`),
+  at https://korzhimanov.github.io/Vasilek.jl/dev/ from the `gh-pages` branch.
+  The site built from `docs/src` was checked in CI and published nowhere; the
+  studies wrote their figures beside themselves and `Scripts.yml` threw them
+  away; and the claims table lived in the README.
+
+  * **The studies, rendered.** Literate.jl runs each script chunk by chunk and
+    puts its printed numbers and its figures on a page, under the prose its
+    comments already were. The scripts still run as they did. What rendering
+    needed of them: a `# # Title`, display math in ```` ```math ```` (Julia's
+    Markdown reads `$$` across lines as text), the harness included through
+    `pkgdir(Vasilek)` (under Literate `@__DIR__` is the page's directory), `##`
+    for a comment inside a loop or a function (an indented `# ` line is
+    Markdown to Literate, and cut the loop in two), a `;` after each `savefig`,
+    whose returned path would otherwise replace the chunk's printed output, and
+    Unicode subscripts for the `v_φ` and `t_e` that Julia's Markdown read as
+    italics.
+  * **Every build runs them**, pull requests included: a study can break under
+    Literate while running fine as a script. That takes about three minutes.
+    The packages come from `verification/Project.toml`, stacked under
+    `docs/Project.toml` rather than repeated in it, and the build fails on a
+    script in `verification/` that `docs/make.jl` does not list. `Docs.yml`
+    replaces the build-only job in `CI.yml`; pull requests build read-only, and
+    only the deploy job, which never runs on a pull request, can write.
+    `Scripts.yml` no longer runs the studies on a push to master, where the
+    published build has just run them.
+  * **`collide!`'s docstring is attached.** A comment stood between it and the
+    definition, and Julia's parser then reads the string as a statement of its
+    own, so `collide!` had no documentation and the API page left it out.
+  * **The README's verification table moved** to `docs/src/verification.md`,
+    with the notes on the studies; the README keeps the commands and a link.
+
 - **Collisional Landau damping: the `BGK` operator in a run, against its own
   dispersion relation** (`test/test_verification.jl`; `collisional_landau`,
   `mode_exponents`, `PartialBGK` and a `collisions` keyword for `vlasov_poisson`

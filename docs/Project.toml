@@ -1,13 +1,17 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+Literate = "98b081ad-f1c9-55d3-8b20-4c87d4299306"
 Vasilek = "c81326fb-3428-4180-b511-858f58317b28"
 
 # Vasilek is not registered, so the environment takes it from the checkout.
 # `[sources]` is read by Pkg from Julia 1.11 on, which is why the floor here is
-# above the package's own 1.10.
+# above the package's own 1.10. The verification studies the site renders load
+# their own packages from verification/Project.toml, which docs/make.jl stacks
+# under this environment, so they are not repeated here.
 [sources]
 Vasilek = {path = ".."}
 
 [compat]
 Documenter = "1"
+Literate = "2"
 julia = "1.11"

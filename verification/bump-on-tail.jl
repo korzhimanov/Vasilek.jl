@@ -1,9 +1,10 @@
-# The bump-on-tail instability: its growth rate, and what trapping does
-# with it.
+# # The bump-on-tail instability
+#
+# Its growth rate, and what trapping does with it.
 #
 #     julia --project=verification verification/bump-on-tail.jl
 #
-# Writes bump-on-tail-*.png beside this script.
+# Writes bump-on-tail-*.png beside this script. #src
 #
 # A beam on the tail of a Maxwellian, as Arber and Vann set it up [J. Comput.
 # Phys. 180, 339 (2002)]:
@@ -23,15 +24,18 @@
 # `test/test_verification.jl` asserts what this script draws.
 
 using Plots
+using Vasilek
 
-include(joinpath(@__DIR__, "..", "test", "verification_harness.jl"))
+include(joinpath(pkgdir(Vasilek), "test", "verification_harness.jl"))
 
 here = @__DIR__
 k = 0.3
 ωc = bump_on_tail_root(k)
 vφ = real(ωc)/k
 
-# ---- where the wave sits, and how fast it grows. The phase velocity of the
+# ## Where the wave sits, and how fast it grows
+#
+# The phase velocity of the
 # growing root lands on the flank of the bump, between the valley and the
 # beam's centre, and across the unstable band it stays there: from 3.9 at
 # k = 0.125 down to 3.104 where the band closes, at k = 0.4824 -- the bottom of
@@ -53,9 +57,12 @@ plot!(twinx(band), ks, real.(roots) ./ ks; ylabel = "v_φ", label = "phase veloc
 scatter!(band, [k], [imag(ωc)]; color = :black, label = "k = 0.3, the box's")
 savefig(plot(fplot, band; layout = (1, 2), size = (1300, 440), left_margin = 4Plots.mm,
              bottom_margin = 5Plots.mm),
-        joinpath(here, "bump-on-tail-dispersion.png"))
+        joinpath(here, "bump-on-tail-dispersion.png"));
+#md # ![The distribution with the wave's phase velocity on it, and the unstable band](bump-on-tail-dispersion.png)
 
-# ---- growth and saturation, from three seeds. At 1e-6 the mode grows for 74
+# ## Growth and saturation, from three seeds
+#
+# At 1e-6 the mode grows for 74
 # time units at the kinetic root's rate; at 1e-3 it does the same thing ln(1000)/γ
 # earlier and saturates at the same amplitude; at Arber and Vann's 0.04 it
 # starts a quarter of the way to saturation, and the growth is lost in the beat
@@ -79,7 +86,8 @@ A = abs.(base.E)
 isat = argmax(A)
 hline!(growth, [A[isat]]; color = :gray, linestyle = :dot,
        label = "saturation, ω_B = $(round(sqrt(k*A[isat])/imag(ωc); digits = 2))γ")
-savefig(growth, joinpath(here, "bump-on-tail-growth.png"))
+savefig(growth, joinpath(here, "bump-on-tail-growth.png"));
+#md # ![Growth and saturation of the k = 0.3 mode from three seeds](bump-on-tail-growth.png)
 
 println("k = 0.3: root ω = ", round(real(ωc); digits = 6), ", γ = ", round(imag(ωc); digits = 6),
         ";  measured over t ∈ [30, 50] at α = 1e-6: ω = ", round(ω; digits = 5),
@@ -92,10 +100,12 @@ for α in seeds
             ", peaks at ", round(a[i]; digits = 4), " at t = ", round(r.t[i]; digits = 2))
 end
 
-# ---- phase space. The beam's side of it at four times: growing, at the
+# ## Phase space
+#
+# The beam's side of it at four times: growing, at the
 # saturation peak, at the field's first minimum, and at t = 120. The white line
 # is the separatrix of a wave of the measured amplitude and phase,
-# v = v_φ ± √(2|E_k|(1 + sin(kx + θ))/k): the particles inside it are trapped,
+# v = vᵩ ± √(2|Eₖ|(1 + sin(kx + θ))/k): the particles inside it are trapped,
 # and the vortex they make is what carries the field once the growth stops.
 snapshots = (60.0, 74.3, 86.0, 120.0)
 panels = []
@@ -103,8 +113,8 @@ for s in snapshots
     r = bump_on_tail(α = 1e-6, tmax = s)
     E = r.E[end]
     window = findall(u -> 1.0 ≤ u ≤ 7.0, r.v)
-    # The colour range is the beam's: the bulk at v = 1 is nearly three times
-    # brighter and would leave the vortex in the dark.
+    ## The colour range is the beam's: the bulk at v = 1 is nearly three times
+    ## brighter and would leave the vortex in the dark.
     p = heatmap(r.x, r.v[window], r.r.f[window, :]; xlabel = "x", ylabel = "v",
                 color = :viridis, clims = (0.0, 0.09), colorbar = false,
                 title = "t = $s, |E_k| = $(round(abs(E); digits = 3))")
@@ -115,13 +125,16 @@ for s in snapshots
 end
 savefig(plot(panels...; layout = (1, 4), size = (1700, 420), left_margin = 4Plots.mm,
              bottom_margin = 6Plots.mm),
-        joinpath(here, "bump-on-tail-phase-space.png"))
+        joinpath(here, "bump-on-tail-phase-space.png"));
+#md # ![The beam's phase space at four times, with the separatrix](bump-on-tail-phase-space.png)
 
-# ---- the plateau. Averaged over x, f loses the positive slope between v_φ and
+# ## The plateau
+#
+# Averaged over x, f loses the positive slope between vᵩ and
 # the beam's centre: trapping stirs the resonant particles across the phase
 # velocity, as quasilinear theory's plateau does for a spectrum of waves. It
 # breathes with the trapping oscillation -- the bump partly re-forms when the
-# trapped beam climbs back above v_φ -- which is why the test holds it to the
+# trapped beam climbs back above vᵩ -- which is why the test holds it to the
 # worst of the swing rather than to one time.
 plateau = plot(xlabel = "v", ylabel = "⟨f⟩ₓ", legend = :topright, size = (820, 500),
                title = "The averaged distribution flattens where the wave traps",
@@ -137,5 +150,6 @@ width = 2sqrt(A[isat]/k)
 vspan!(plateau, [vφ - width, vφ + width]; color = :gray, alpha = 0.15,
        label = "trapped at saturation")
 vline!(plateau, [vφ]; color = :gray, linestyle = :dash, label = "v_φ")
-savefig(plateau, joinpath(here, "bump-on-tail-plateau.png"))
-println("wrote bump-on-tail-{dispersion,growth,phase-space,plateau}.png to ", here)
+savefig(plateau, joinpath(here, "bump-on-tail-plateau.png"));
+#md # ![The x-averaged distribution flattening where the wave traps](bump-on-tail-plateau.png)
+println("wrote bump-on-tail-{dispersion,growth,phase-space,plateau}.png to ", here) #src

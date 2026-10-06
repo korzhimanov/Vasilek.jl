@@ -1,8 +1,10 @@
+# # BGK equilibrium
+#
 # A nonlinear equilibrium: does it stay put, and where does it give?
 #
 #     julia --project=verification verification/bgk-equilibrium.jl
 #
-# Writes bgk-equilibrium-*.png beside this script.
+# Writes bgk-equilibrium-*.png beside this script. #src
 #
 # Any function of the particle energy W = v²/2 + U(x) is a stationary solution of
 # the Vlasov equation; with an ion background whose charge makes U the potential,
@@ -24,8 +26,9 @@
 # this script draws.
 
 using Plots
+using Vasilek
 
-include(joinpath(@__DIR__, "..", "test", "verification_harness.jl"))
+include(joinpath(pkgdir(Vasilek), "test", "verification_harness.jl"))
 
 here = @__DIR__
 drift(r) = maximum(abs, r.f .- r.f₀)/maximum(r.f₀)
@@ -39,7 +42,9 @@ for (name, r) in (("Maxwell–Boltzmann", smooth), ("trapped at T = 2", kinked))
             round(maximum(departure(r)); sigdigits = 3))
 end
 
-# ---- where the error goes. The equilibrium itself, and |f(50) − f₀| for both,
+# ## Where the error goes
+#
+# The equilibrium itself, and |f(50) − f₀| for both,
 # with the separatrix v = ±√(2ψ(1 + cos kx)) drawn over them. The smooth case's
 # error is a broad pattern over the trapped region; the kinked case's is a line,
 # and the line is the separatrix.
@@ -59,9 +64,12 @@ maps = plot(panel(kinked, kinked.f₀, "f₀, trapped at T = 2"),
                   "|f − f₀|/max f₀, trapped at T = 2");
             layout = (1, 3), size = (1500, 420), left_margin = 4Plots.mm,
             bottom_margin = 6Plots.mm)
-savefig(maps, joinpath(here, "bgk-equilibrium-error.png"))
+savefig(maps, joinpath(here, "bgk-equilibrium-error.png"));
+#md # ![The kinked equilibrium, and the error of both equilibria at t = 50, with the separatrix](bgk-equilibrium-error.png)
 
-# ---- the field, against the state it was meant to keep. The equilibria drift
+# ## The field, against the state it was meant to keep
+#
+# The equilibria drift
 # steadily at the level of the scheme's dissipation; a potential 10% off the one
 # the ions hold is off by half at once; and ions built on the Poisson sign the
 # documentation used to give hold the equilibrium's field reversed.
@@ -77,4 +85,5 @@ for (name, r, color) in (("Maxwell–Boltzmann", smooth, :steelblue),
     println("  ", rpad(name, 32), "largest field departure ", round(maximum(departure(r)); sigdigits = 3),
             ", f ", round(drift(r); sigdigits = 3))
 end
-savefig(fieldplot, joinpath(here, "bgk-equilibrium-field.png"))
+savefig(fieldplot, joinpath(here, "bgk-equilibrium-field.png"));
+#md # ![Departure of the field from the equilibrium's in five configurations](bgk-equilibrium-field.png)

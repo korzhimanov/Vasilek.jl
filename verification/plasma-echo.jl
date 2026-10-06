@@ -1,8 +1,10 @@
-# The plasma echo: phase mixing is reversible, and a Vlasov code has to keep it so.
+# # The plasma echo
+#
+# Phase mixing is reversible, and a Vlasov code has to keep it so.
 #
 #     julia --project=verification verification/plasma-echo.jl
 #
-# Writes plasma-echo-*.png beside this script.
+# Writes plasma-echo-*.png beside this script. #src
 #
 # A density perturbation in a warm plasma decays with nothing dissipated: free
 # streaming shears it into ever finer filaments in velocity, and their integral
@@ -23,14 +25,17 @@
 
 using Plots
 using SpecialFunctions: besselj0, besselj1
+using Vasilek
 
-include(joinpath(@__DIR__, "..", "test", "verification_harness.jl"))
+include(joinpath(pkgdir(Vasilek), "test", "verification_harness.jl"))
 
 here = @__DIR__
 floor_at(y) = max(y, 1e-12)     # for the log axes: the closed forms reach 1e-20
 
-# ---- the ballistic echo, mode by mode. A seed at k₁ = 1, a kick at k₂ = 3/2
-# when t = τ = 5, and the echo at k₃ = 1/2 around t_e = k₂τ/k₃ = 15.
+# ## The ballistic echo, mode by mode
+#
+# A seed at k₁ = 1, a kick at k₂ = 3/2
+# when t = τ = 5, and the echo at k₃ = 1/2 around tₑ = k₂τ/k₃ = 15.
 #
 # The seed and the kick's own mode have closed forms by the same Jacobi–Anger
 # expansion as the echo's, from the terms (m, q) = (0, 1) and (1, 0):
@@ -64,11 +69,14 @@ for (m, label, exact, color) in ((1, "seed, k₁ = 1", seed, :steelblue),
     plot!(modes, t, floor_at.(exact); label = "", color = color, linestyle = :dash)
 end
 vline!(modes, [τ, k₂*τ/k₃]; color = :gray, linestyle = :dot, label = "τ and t_e")
-savefig(modes, joinpath(here, "plasma-echo-modes.png"))
+savefig(modes, joinpath(here, "plasma-echo-modes.png"));
+#md # ![Density modes of the ballistic echo against their closed forms](plasma-echo-modes.png)
 
-# ---- what the echo is made of. The k₃ component of `f` along v, four time
-# units before t_e, at it, and four after. Before and after, it oscillates in v
-# with wavenumber k₃t − k₂τ and its integral -- the density -- cancels; at t_e
+# ## What the echo is made of
+#
+# The k₃ component of `f` along v, four time
+# units before tₑ, at it, and four after. Before and after, it oscillates in v
+# with wavenumber k₃t − k₂τ and its integral -- the density -- cancels; at tₑ
 # the phase fronts line up, the oscillation is gone, and the integral does not
 # cancel. The run never computes this: it is what the density moment integrates.
 fronts = plot(xlabel = "v", ylabel = "Im f_k₃(v)", xlims = (-5, 5), size = (760, 420),
@@ -80,9 +88,12 @@ for (snap, s, color) in zip(ballistic.snapshots, (11.0, 15.0, 19.0),
           for iv in eachindex(ballistic.v)]
     plot!(fronts, ballistic.v, imag.(fk); label = "t = $s", color = color, linewidth = 2)
 end
-savefig(fronts, joinpath(here, "plasma-echo-fronts.png"))
+savefig(fronts, joinpath(here, "plasma-echo-fronts.png"));
+#md # ![The k₃ component of f along v before, at and after the echo](plasma-echo-fronts.png)
 
-# ---- the same echo through four schemes, at 64 × 121: what a scheme keeps of a
+# ## The same echo through four schemes
+#
+# At 64 × 121, what a scheme keeps of a
 # filament is what the echo returns. Upwind's loss is mostly its x-sweep, which
 # diffuses each velocity row's modulation at a rate proportional to |v|, so the
 # rows lose phase coherence and not only amplitude.
@@ -101,9 +112,12 @@ for (name, scheme, color) in (("SemiLagrangian cubic", SemiLagrangian(CubicSplin
     plot!(schemes, r.t, abs.(r.modes[:, 3]); label = "$name  ($(round(100*err; sigdigits = 2))%)",
           color = color, linewidth = 1.8)
 end
-savefig(schemes, joinpath(here, "plasma-echo-schemes.png"))
+savefig(schemes, joinpath(here, "plasma-echo-schemes.png"));
+#md # ![The echo through four schemes against the closed form](plasma-echo-schemes.png)
 
-# ---- with the field on. Smaller amplitudes and a later kick, for the theory's
+# ## With the field on
+#
+# Smaller amplitudes and a later kick, for the theory's
 # sake -- see `self_consistent_echo`. The plasma screens the seed's filament, the
 # kick and the echo's own density, and the echo that results is half the size of
 # the field-free one, a time unit early, and rings afterwards at k₃'s Landau
@@ -139,4 +153,5 @@ logscale = plot(ts, floor_at.(abs.(measured)); yscale = :log10, ylims = (1e-8, 1
 plot!(logscale, ts, floor_at.(abs.(theory.echo)); label = "second-order theory",
       color = :black, linestyle = :dash)
 savefig(plot(signed, logscale; layout = (2, 1), size = (760, 760)),
-        joinpath(here, "plasma-echo-self-consistent.png"))
+        joinpath(here, "plasma-echo-self-consistent.png"));
+#md # ![The self-consistent echo against second-order theory and the field-free closed form](plasma-echo-self-consistent.png)

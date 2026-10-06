@@ -41,6 +41,11 @@ concurrency:
 jobs:
   verification:
     name: Verification studies
+    # Not on pushes to master: Docs.yml runs every study there, through
+    # Literate, to build the published site, and a second run here would only
+    # repeat it. Pull requests keep this job, since it runs each study as a
+    # user would, from its own file.
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
