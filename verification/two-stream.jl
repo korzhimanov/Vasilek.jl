@@ -1,8 +1,10 @@
-# The two-stream instability: growth rate against the cold dispersion relation.
+# # The two-stream instability
+#
+# Growth rate against the cold and warm dispersion relations.
 #
 #     julia --project=verification verification/two-stream.jl
 #
-# Writes two-stream-*.png beside this script.
+# Writes two-stream-*.png beside this script. #src
 #
 # Every other verification here is a damped or neutral mode. This is the first
 # *unstable* one, and it catches a class of error damping cannot: a sign flip
@@ -18,10 +20,11 @@
 # script and the test that asserts its claims run the same setup.
 
 using Plots
+using Vasilek
 
-include(joinpath(@__DIR__, "..", "test", "verification_harness.jl"))
+include(joinpath(pkgdir(Vasilek), "test", "verification_harness.jl"))
 
-here = @__DIR__
+here = @__DIR__;
 
 # Sanity check before trusting the closed form for the rest of the script.
 worst = maximum(a -> abs(two_stream_residual(im*γ_cold(a), a)), (0.2, 0.4, 0.6, 0.8, 0.95))
@@ -30,8 +33,10 @@ println("warm band edge at vt = 0.3 lies between a = 1.0 (γ = ",
         round(two_stream_warm(1.0); digits = 5), ") and a = 1.05 (γ = ",
         two_stream_warm(1.05), ")")
 
-# ---- growth curves for the three wavenumbers the test asserts, with the
-# fitted exponential overlaid on the window `growth_rate` actually used.
+# ## Growth at three wavenumbers
+#
+# The three wavenumbers the test asserts, with the fitted exponential overlaid
+# on the window `growth_rate` actually used.
 growth = plot(yscale = :log10, xlabel = "ωₚt", ylabel = "εₑ",
               legend = :bottomright,
               title = "Two-stream instability: field-energy growth",
@@ -44,20 +49,23 @@ for (a, color) in zip(measured_a, (:steelblue, :crimson, :seagreen))
     push!(measured_γ, γ)
     plot!(growth, t, ε_e; label = "a = $a  (γ = $(round(γ; digits = 3)))",
           color = color, linewidth = 1.8)
-    # `exp(2γΔt)`, not `exp(γΔt)`: `growth_rate` returns the rate of the field
-    # *amplitude*, defined by `ε_e ∝ exp(2γt)`, which is the convention that
-    # lets it be compared with `γ_cold` directly. Drawn with one γ the dashed
-    # line peeled a decade below the curve it is supposed to lie along by the
-    # end of the window -- 6.0x, 11.6x and 17.9x at these three wavenumbers --
-    # so the plot showed a correct fit failing.
+    ## `exp(2γΔt)`, not `exp(γΔt)`: `growth_rate` returns the rate of the field
+    ## *amplitude*, defined by `ε_e ∝ exp(2γt)`, which is the convention that
+    ## lets it be compared with `γ_cold` directly. Drawn with one γ the dashed
+    ## line peeled a decade below the curve it is supposed to lie along by the
+    ## end of the window -- 6.0x, 11.6x and 17.9x at these three wavenumbers --
+    ## so the plot showed a correct fit failing.
     i0 = argmin(abs.(t .- t0))
     tt = range(t0, t1; length = 50)
     plot!(growth, tt, ε_e[i0] .* exp.(2 .* γ .* (tt .- t0));
           linestyle = :dash, color = color, label = "")
 end
-savefig(growth, joinpath(here, "two-stream-growth.png"))
+savefig(growth, joinpath(here, "two-stream-growth.png"));
+#md # ![Field-energy growth at kv₀ = 0.4, 0.6 and 0.8, with the fitted exponentials](two-stream-growth.png)
 
-# ---- the growth rate against the closed forms over the whole branch: γ(a) is
+# ## Growth rate against wavenumber
+#
+# The growth rate against the closed forms over the whole branch: γ(a) is
 # non-monotone, peaking near a = √(3/8) and reaching zero at the stability
 # boundary -- reproducing that shape is a statement about the dispersion
 # relation, not about one point on it.
@@ -82,7 +90,8 @@ vline!(dispersion, [sqrt(3/8)]; linestyle = :dot, color = :gray,
        label = "a = √(3/8) (cold peak)")
 vline!(dispersion, [1.0]; linestyle = :dashdot, color = :black,
        label = "a = 1 (cold stability boundary)")
-savefig(dispersion, joinpath(here, "two-stream-dispersion.png"))
+savefig(dispersion, joinpath(here, "two-stream-dispersion.png"));
+#md # ![Growth rate against kv₀: cold and warm theory, and the measured points](two-stream-dispersion.png)
 
 println("a, γ measured, γ warm, error, γ cold, error")
 for (a, γ) in zip(measured_a, measured_γ)
@@ -92,4 +101,4 @@ for (a, γ) in zip(measured_a, measured_γ)
             "  ", round(γ_cold(a); digits = 5),
             "  (", round(100*(γ - γ_cold(a))/γ_cold(a); digits = 2), "%)")
 end
-println("wrote two-stream-{growth,dispersion}.png to ", here)
+println("wrote two-stream-{growth,dispersion}.png to ", here) #src

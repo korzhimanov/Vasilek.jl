@@ -10,8 +10,8 @@ export PoissonFFT1D, solve!
 
 Spectral Poisson solve on a periodic grid of `n` points spaced `Δx`. `solve!`
 returns the field `e` with `∂e/∂x = ρ`: in the units of
-`docs/normalization.md`, pass `ρ = nₑ − nᵢ`. The zero mode of `ρ` is discarded,
-so a net charge is ignored rather than producing a divergent field.
+`docs/src/normalization.md`, pass `ρ = nₑ − nᵢ`. The zero mode of `ρ` is
+discarded, so a net charge is ignored rather than producing a divergent field.
 
 `derivative` chooses how `e` is taken from the potential:
 
@@ -103,12 +103,15 @@ function solve!(e::AbstractVector, ρ::AbstractVector, p::PoissonFFT1D, ws::Pois
         copyto!(e, φ)
     else
         mul!(φ, ws.backward, F)
+        # `/(2Δx)` rather than 0.1's `0.5*…/Δx`: one rounding of the same
+        # quotient, so the same bits in Float64, and no Float64 literal to
+        # widen a Float32 solve.
         Δx = p.Δx
-        e[1] = 0.5*(φ[2]-φ[end])/Δx
+        e[1] = (φ[2] - φ[end])/(2Δx)
         for i = 2:n-1
-            e[i] = 0.5*(φ[i+1] - φ[i-1])/Δx
+            e[i] = (φ[i+1] - φ[i-1])/(2Δx)
         end
-        e[n] = 0.5*(φ[1]-φ[end-1])/Δx
+        e[n] = (φ[1] - φ[end-1])/(2Δx)
     end
     return e
 end

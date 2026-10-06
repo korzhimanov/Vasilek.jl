@@ -1,6 +1,6 @@
 using Vasilek
 
-# The code in docs/*.md, executed, as `test_readme.jl` does for the README. The
+# The code in docs/src/*.md, executed, as `test_readme.jl` does for the README. The
 # migration guide's collision example called `workspace(BGK(τ), n)` through a
 # name that did not reach the collision operators, and nothing ran it.
 #
@@ -21,7 +21,7 @@ e  = similar(ρ)
 """
 
 @testset "The docs' examples run" begin
-    for file in filter(endswith(".md"), readdir(joinpath(@__DIR__, "..", "docs"); join = true))
+    for file in filter(endswith(".md"), readdir(joinpath(@__DIR__, "..", "docs", "src"); join = true))
         text = read(file, String)
         blocks = [m.captures[1] for m in eachmatch(r"```julia\r?\n(.*?)```"s, text)]
         for code in blocks
@@ -32,4 +32,17 @@ e  = similar(ρ)
         end
         println("  ", basename(file), ": ", length(blocks), " julia blocks")
     end
+end
+
+# The manual's front page is the README's introduction, the list of what is
+# implemented included, kept by hand in two places: an edit to one is carried
+# to the other, or this fails.
+@testset "The manual opens as the README does" begin
+    root = joinpath(@__DIR__, "..")
+    function intro(file)
+        text = replace(read(file, String), "\r\n" => "\n")      # a Windows checkout
+        text = replace(text, r"^\[!\[.*\n"m => "")              # the README's badges
+        return replace(strip(first(split(text, "\n## "))), r"\n{3,}" => "\n\n")
+    end
+    @test intro(joinpath(root, "README.md")) == intro(joinpath(root, "docs", "src", "index.md"))
 end

@@ -2,25 +2,26 @@ using Vasilek
 using Test
 using LinearAlgebra
 
+# Every test file, in the order a full run takes them, by its name without
+# `test_` and `.jl`. Each file also runs on its own, so arguments select:
+#
+#     Pkg.test(test_args = ["golden", "contracts"])
+#
+# runs those two. An unknown name is an error rather than a run of nothing.
+const TEST_FILES = ["aqua", "readme", "docs", "dispersion", "golden", "amplification",
+                    "convergence", "comparison", "invariants", "symmetry", "contracts",
+                    "threading", "allocations", "driver", "harness", "verification",
+                    "maxwell_solvers", "em_plasma", "vlasov_solvers", "boltzmann_solvers"]
+
+const SELECTED_TESTS = Set(ARGS)
+let unknown = setdiff(SELECTED_TESTS, TEST_FILES)
+    isempty(unknown) || error("no test file for ", join(sort!(collect(unknown)), ", "),
+                              "; the names are ", join(TEST_FILES, ", "))
+end
+
 @testset "Test everything" begin
-    include("test_aqua.jl")
-    include("test_readme.jl")
-    include("test_docs.jl")
-    include("test_dispersion.jl")
-    include("test_golden.jl")
-    include("test_amplification.jl")
-    include("test_convergence.jl")
-    include("test_comparison.jl")
-    include("test_invariants.jl")
-    include("test_symmetry.jl")
-    include("test_contracts.jl")
-    include("test_threading.jl")
-    include("test_allocations.jl")
-    include("test_driver.jl")
-    include("test_harness.jl")
-    include("test_verification.jl")
-    include("test_maxwell_solvers.jl")
-    include("test_em_plasma.jl")
-    include("test_vlasov_solvers.jl")
-    include("test_boltzmann_solvers.jl")
+    for stem in TEST_FILES
+        isempty(SELECTED_TESTS) || stem ∈ SELECTED_TESTS || continue
+        include("test_$stem.jl")
+    end
 end
