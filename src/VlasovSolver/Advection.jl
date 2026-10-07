@@ -16,7 +16,7 @@ using Interpolations
 import ..workspace
 
 export AbstractAdvection1D, advect!, workspace,
-       Upwind, LaxWendroff, Godunov, SemiLagrangian, PFC, PFCNonUniform,
+       Upwind, LaxWendroff, Godunov, SemiLagrangian, PFC, PFCNonUniform, OnGrid,
        PiecewiseConstant, PiecewiseLinear, NoLimiter, VanLeer, Superbee,
        LinearSpline, QuadraticSpline, CubicSpline
 
@@ -97,9 +97,10 @@ Boundaries are periodic throughout. Every scheme but `SemiLagrangian` needs
 
 The fourth argument is a Courant number for every scheme but `PFCNonUniform`,
 which takes a displacement, since a non-uniform grid has no single Courant
-number. `Vasilek.VlasovPoisson1D1V.line_advector(scheme, Δz)` hides the
-difference: it takes a displacement for any scheme, refuses a uniform scheme on
-a non-uniform grid, and splits a step wider than the narrowest cell.
+number. [`OnGrid`](@ref) hides the difference: `OnGrid(scheme, Δz)` is the
+scheme on the grid of cell widths `Δz`, takes a displacement whatever `scheme`
+takes, refuses a uniform scheme on a non-uniform grid, and splits a step wider
+than a cell.
 """
 abstract type AbstractAdvection1D end
 
@@ -217,7 +218,7 @@ not tighten the limiter elsewhere. `fmin`, `fmax` and `checked` are
 non-uniform grid has none, and it is bounded by the *narrowest* cell:
 `|α| ≤ minimum(Δx)`. Every cell gives up its outgoing flux alone, so a wider
 step is wrong in the narrowest cell however wide its neighbours are.
-`Vasilek.VlasovPoisson1D1V.line_advector` splits a longer step into sub-steps.
+[`OnGrid`](@ref) splits a longer step into sub-steps.
 """
 struct PFCNonUniform{T<:AbstractFloat, Checked} <: AbstractAdvection1D
     Δx::Vector{T}
@@ -474,6 +475,160 @@ _validate_courant(p::PFCNonUniform, α) =
     "PFCNonUniform needs |α| ≤ minimum(Δx) = $h: its fourth argument is a " *
     "displacement, and each cell gives up its outgoing flux alone, so none may " *
     "be crossed in one step. Take more, smaller steps"))
+
+# ------------------------------------------------------------- on a grid
+
+"""
+    OnGrid(scheme, Δz)
+    OnGrid(scheme::PFCNonUniform[, Δz])
+
+`scheme` on the grid whose cell widths are `Δz`. An `OnGrid` is itself a scheme,
+and its fourth `advect!` argument is always a **displacement**, a length,
+whatever `scheme` takes:
+
+  * a scheme that takes a Courant number gets the displacement divided by the
+    grid's spacing, and is refused on a non-uniform grid (each width has to
+    match the first to `1e-12` of it), rather than given one of its spacings
+    and left wrong by the ratio between them -- an `ArgumentError`;
+  * `PFCNonUniform` takes the displacement as it is. It carries its grid, so
+    `Δz` may be left out; given, it must be that grid.
+
+An `OnGrid` given again with a grid, `OnGrid(og, Δz)`, is `og` if `Δz` is its
+grid to the same `1e-12`, and refused otherwise.
+
+A step wider than a cell -- the narrowest one, for `PFCNonUniform` -- is split
+into the fewest equal sub-steps that fit, [`substeps`](@ref), since `advect!`
+refuses it whole and a translation by `α` is `m` translations by `α/m`. A
+scheme with no Courant limit, `SemiLagrangian`, takes it in one step; see
+[`nsubsteps`](@ref). Every step a scheme takes on its own is one step here, to
+the bit: within a cell `m = 1`, and `α/1` is `α`.
+
+`workspace(og, n[, T])` is scratch for the scheme and a line buffer for the
+sub-steps, in the grid's element type unless `T` is given; `n` is the grid's
+length.
+"""
+struct OnGrid{S<:AbstractAdvection1D, T<:AbstractFloat} <: AbstractAdvection1D
+    scheme::S
+    h::T
+    n::Int
+    # Every OnGrid is built through here. `h` is what a displacement is divided
+    # by, or for `PFCNonUniform` what bounds a sub-step, which has to be its
+    # narrowest cell: anything wider let a sub-step cross it.
+    function OnGrid{S,T}(scheme, h, n) where {S<:AbstractAdvection1D, T<:AbstractFloat}
+        S <: OnGrid && throw(ArgumentError(
+            "OnGrid of an OnGrid: the inner one already takes a displacement"))
+        isfinite(h) && h > 0 || throw(ArgumentError(
+            "OnGrid needs a finite, positive cell width, got h = $h"))
+        if scheme isa PFCNonUniform
+            n == length(scheme.Δx) && h == scheme.Δxmin || throw(ArgumentError(
+                "OnGrid: a PFCNonUniform of $(length(scheme.Δx)) cells, the narrowest " *
+                "$(scheme.Δxmin), is on a grid of $n cells with h = $h"))
+        end
+        return new{S,T}(scheme, h, n)
+    end
+end
+OnGrid(scheme::S, h::T, n::Integer) where {S<:AbstractAdvection1D, T<:AbstractFloat} =
+    OnGrid{S,T}(scheme, h, n)
+
+function OnGrid(s::PFCNonUniform, Δz = s.Δx)
+    length(Δz) == length(s.Δx) || throw(DimensionMismatch(
+        "PFCNonUniform has $(length(s.Δx)) cells, the grid $(length(Δz))"))
+    all(isapprox(d, w; rtol = 1e-12) for (d, w) in zip(Δz, s.Δx)) || throw(ArgumentError(
+        "PFCNonUniform carries cell widths other than the grid's: it would advect " *
+        "on its own grid while the run sums on this one"))
+    return OnGrid(s, s.Δxmin, length(s.Δx))
+end
+
+function OnGrid(s::AbstractAdvection1D, Δz)
+    isempty(Δz) && throw(ArgumentError("OnGrid needs a grid of at least one cell"))
+    h = float(first(Δz))
+    all(d -> isapprox(d, h; rtol = 1e-12), Δz) || throw(ArgumentError(
+        "$(nameof(typeof(s))) takes a Courant number, which a non-uniform grid " *
+        "does not have (spacings range over $(extrema(Δz))); use PFCNonUniform here"))
+    return OnGrid(s, h, length(Δz))
+end
+
+# Already on a grid: kept, if it is this one, to the tolerance the grid is
+# taken at. Exactly was too strict: `L/N` and the widths of the cell centres
+# `(j - 1/2)L/N` differ in the last bit for most `N`, and refused an `OnGrid`
+# built for the very grid it was given with.
+function OnGrid(og::OnGrid, Δz)
+    same = OnGrid(og.scheme, Δz)
+    isapprox(same.h, og.h; rtol = 1e-12) && same.n == og.n || throw(ArgumentError(
+        "an OnGrid on $(og.n) cells of $(og.h) given for a grid of $(same.n) cells of $(same.h)"))
+    return og
+end
+
+"""
+    OnGridWorkspace
+
+Scratch for an [`OnGrid`](@ref): the scheme's own workspace, and a line the
+sub-steps after the first read from.
+"""
+struct OnGridWorkspace{W, T}
+    inner::W
+    buffer::Vector{T}
+end
+
+function workspace(og::OnGrid{S,T}, n::Integer, ::Type{U} = T) where {S, T, U}
+    n == og.n || _err_grid(og, n)
+    return OnGridWorkspace(workspace(og.scheme, n, U), Vector{U}(undef, n))
+end
+
+@noinline _err_grid(og, n) = throw(DimensionMismatch(
+    "$(nameof(typeof(og.scheme))) is on a grid of $(og.n) cells, not $n"))
+
+"""
+    substeps(α, h)
+
+The fewest equal parts of `α` that are each no longer than `h`, and one for an
+`α` that is not finite, which `advect!` then refuses itself.
+"""
+function substeps(α, h)
+    isfinite(α) || return 1
+    m = max(1, ceil(Int, abs(α)/h))
+    return abs(α/m) > h ? m + 1 : m    # the quotient can round below the integer
+end
+
+"""
+    nsubsteps(og::OnGrid, α)
+
+How many equal sub-steps [`OnGrid`](@ref) takes the displacement `α` in:
+[`substeps`](@ref)`(α, og.h)`, so that none crosses a cell, and 1 for a scheme
+with no Courant limit. `SemiLagrangian` has a method returning 1; a scheme of
+another type that has none adds one.
+
+`|α/m| ≤ h` is what `PFCNonUniform` checks, and for a scheme that takes a
+Courant number it gives `|(α/m)/h| ≤ 1`, division being monotone. Where `α`
+fits a cell, `|α| ≤ h` exactly when `|α/h| ≤ 1` after rounding, so `m = 1`
+wherever the step alone would have been taken.
+"""
+nsubsteps(og::OnGrid, α) = substeps(α, og.h)
+nsubsteps(::OnGrid{<:SemiLagrangian}, α) = 1
+
+# The scheme's own fourth argument for a sub-step of displacement `a`: a
+# Courant number, `a/h` -- divided, not multiplied by `1/h`, which rounds
+# differently -- or, for `PFCNonUniform`, `a` itself.
+_argument(og::OnGrid, a) = a/og.h
+_argument(::OnGrid{<:PFCNonUniform}, a) = a
+
+function advect!(dest, src, og::OnGrid, α, ws::OnGridWorkspace)
+    length(src) == og.n || _err_grid(og, length(src))
+    length(ws.buffer) == og.n || _err_workspace(length(ws.buffer), og.n)
+    _scratch_aliases(ws, dest, src) && _err_alias(ws)
+    m = nsubsteps(og, α)
+    a = _argument(og, α/m)
+    advect!(dest, src, og.scheme, a, ws.inner)
+    for _ in 2:m
+        copyto!(ws.buffer, dest)
+        advect!(dest, ws.buffer, og.scheme, a, ws.inner)
+    end
+    return dest
+end
+
+# The sub-step line only; the scheme's own `advect!` checks its own scratch.
+_scratch_aliases(ws::OnGridWorkspace, dest, src) =
+    Base.mightalias(ws.buffer, dest) || Base.mightalias(ws.buffer, src)
 
 include(joinpath("schemes", "upwind.jl"))
 include(joinpath("schemes", "lax_wendroff.jl"))

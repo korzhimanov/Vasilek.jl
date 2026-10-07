@@ -809,7 +809,7 @@ end
             # other run short of the two-stream saturation: the field's
             # amplitude peaks at 0.9938 on the first step, and Δt = 0.05 is the
             # width of the narrow cells. It crossed, at 1.0017, while the driver
-            # rescaled `f` by the trapezoid, and `line_advector` split those
+            # rescaled `f` by the trapezoid, and the driver split those
             # four calls in two.
             stretched = strong_case(64, 0.1, 0.05;
                 v = vcat(collect(-6:0.1:-1.1), collect(-1:0.05:1), collect(1.1:0.1:6)))

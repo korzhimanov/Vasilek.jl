@@ -13,6 +13,21 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 ### Breaking
 
+- **`StrangSplitting.make_time_step_2d!` is gone; `strang_step!` is the split
+  step.** `strang_step!(f, scheme_x, scheme_v, cx, cv, ws[, hook])` steps one
+  matrix, `f[x, v]`, with no second array and no per-line closures: the
+  schemes are values, put on their grids by `OnGrid` where `cx` and `cv` are
+  displacements, and a collision operator is the hook `Collide(op, v, Δt)`.
+  **`cv` is now handed the state transposed**, `ft = f[v, x]` after the first
+  half step, which is the layout the driver sums the density over, where it was
+  handed `f`: a `cv` that read the rows of `f` reads the columns of `ft`. See
+  the migration guide's "Strang splitting".
+- **`VlasovPoisson1D1V.line_advector` and `substeps` are gone**: `OnGrid`
+  (Added) is the scheme on its grid, and `substeps` is
+  `Vasilek.Advection.substeps`. A uniform scheme on a non-uniform grid is
+  refused with an `ArgumentError`, where `line_advector` raised an
+  `ErrorException`.
+
 - **Advection schemes are types, and `generate_solver` is gone.** `advect!`
   dispatches on an immutable scheme value; scratch memory, where a scheme
   needs any, comes from `workspace` and is passed explicitly. See
@@ -41,6 +56,29 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
   `(1 − |c|)` factor its flux lacked in 0.1; see Fixed.)
 
 ### Added
+
+- **`OnGrid(scheme, Δz)`, exported: a scheme on its grid.** Its fourth
+  `advect!` argument is a displacement whatever the scheme takes: divided by
+  the spacing for a uniform-grid scheme, which a non-uniform grid refuses, and
+  passed as it is to `PFCNonUniform`, which carries its grid (`OnGrid(p)`; a
+  grid given with it has to be that one). A step wider than a cell, the
+  narrowest one for `PFCNonUniform`, is split into the fewest equal sub-steps
+  that fit (`substeps`); `SemiLagrangian`, with no Courant limit, takes it
+  whole, and another scheme without one opts out through `nsubsteps`.
+  `workspace(OnGrid, n[, T])` holds the scheme's scratch and the sub-steps'
+  line. It does what `line_advector` did, to the bit, as a value: the driver,
+  the harness's echo kick and the splitting tests all take it. An `OnGrid`
+  given to the driver is kept if it is on the driver's grid to `1e-12`; an
+  exact comparison refused one built with `fill(L/N, N)` for cell centres
+  `(j - 1/2)L/N`, whose widths differ from `L/N` in the last bit.
+- **`strang_step!` takes a collision hook**, `Collide(op, v, Δt)`, which
+  collides every v line for `Δt/2` either side of its kick, and
+  `workspace(scheme_x, scheme_v, f, collisions = nothing, T = float(eltype(f)))`
+  holds the operator's scratch. `T` is the type the lines are worked in, wider
+  than `f`'s if asked: the transposed copy keeps `f`'s type, so the transposes
+  are exact copies. A hook whose operator the workspace was not built for is an
+  `ArgumentError` before the first sweep, where it was a `MethodError` from
+  inside the kick with `f` half a step on.
 
 - **The documentation is published, with the verification studies on it**
   (`docs/make.jl`, `.github/workflows/Docs.yml`, `docs/src/verification.md`),
@@ -1104,6 +1142,41 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 ### Changed
 
+- **`vlasov_poisson` steps through `strang_step!`, to the bit.** The step runs
+  on `f[x, v]`, the schemes on their grids, `OnGrid(scheme_x, Δx)` and
+  `OnGrid(scheme_v, Δv)`, and the collisions as its hook. It stepped
+  `g = f'` through `make_time_step_2d!`, whose x sweep read strided views of
+  `f`'s rows; every line either sweep reads is now contiguous, which on a line
+  of 64 cells is 15 ns against 57 for `Upwind`, and about 10% for `PFC` and
+  `PFCNonUniform`, whose limiters take most of the step (550 ns against 620,
+  650 against 700; Julia 1.13). The arithmetic is the same: the gate in `test_driver.jl`, the
+  step written out with `f` and `ε_e` compared to the bit, passes unchanged,
+  and `test/data/golden.txt` is untouched. The state is transposed back to
+  `f[v, x]` after each step, a third transpose, so that the energies and the
+  invariants are summed in the order they always were; summed over `[x, v]`
+  the same terms round differently.
+
+  Under Float32 `f` the lines are still worked in Float64, and a line now
+  stays in Float64 through its sub-steps, and through the kick from the first
+  collision to the last, rounding into `f` once where it rounded after each.
+  A Float32 Landau run, with neither, is unchanged to the bit; the all-Float32
+  two-stream of `test_driver.jl`, whose x steps split in two, moves by 1.5e-7
+  of the peak over 20 steps, and a BGK(0.5) run by 3.4e-7 over 40.
+- **Uniform-grid schemes are split into sub-steps too**, by `OnGrid`, where
+  `line_advector` split `PFCNonUniform`'s only. Within a cell the count is 1:
+  `|α| ≤ h` exactly when `α/h` rounds to at most 1, and `α/1` is `α`, so every
+  call that ran takes the same step to the bit. A call past `|c| = 1`, a
+  `DomainError` until now, runs in sub-steps.
+- **`test/VlasovSolver/test_strang_splitting.jl` steps through `strang_step!`.**
+  Its exact spectral shift is a scheme, `SpectralShift`, on an `OnGrid`, which
+  copies each line into its own buffer since an FFTW plan refuses a misaligned
+  column. The step is held to its composition written out, bit for bit, for
+  three pairs of schemes, `PFCNonUniform` on stretched grids among them, with
+  steps `OnGrid` splits; the hook to `C(Δt/2) K C(Δt/2)` written out and to an
+  operator that counts two calls a line for `Δt/2` each; `OnGrid`'s sub-steps
+  to `m` steps by hand; and the grids `OnGrid` refuses. "Both arrays hold the
+  step on return" goes, with the second array.
+
 - **The docs build with Documenter.** `docs/*.md` moved to `docs/src/`, with
   `docs/make.jl`, an index and a page of every docstring by module; a CI job
   builds them, without deploying. `collide!` has a docstring.
@@ -1452,6 +1525,8 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 ### Removed
 
+- `StrangSplitting.make_time_step_2d!`, `VlasovPoisson1D1V.line_advector` and
+  `VlasovPoisson1D1V.substeps` (now `Advection.substeps`); see Breaking.
 - Five files containing a single no-op function each (`Maxwell1D`, `Maxwell2D`,
   `Poisson2D`, `Advection2D`, `Landau2P`) and the three `src/Mesh` types — bare
   structs with untyped fields, referenced by nothing and absent from the include

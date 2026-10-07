@@ -94,13 +94,61 @@ for every scheme but `SemiLagrangian`, and for `PFCNonUniform` a displacement
 wider than its narrowest cell, raise a `DomainError`. 0.1 took the step and
 returned an answer that looked right for tens of steps before it grew without
 bound. A run that needs the longer step can split it into sub-steps that fit,
-or use `SemiLagrangian`.
+as `OnGrid` (below) does, or use `SemiLagrangian`.
 
 ## Note on the fourth argument
 
 For the uniform-grid schemes it is the Courant number `vΔt/Δx`. For
 `PFCNonUniform` it is the displacement `vΔt`, a length: a non-uniform grid has
 no single Courant number to quote.
+
+`OnGrid(scheme, Δz)` puts a scheme on the grid of cell widths `Δz` and takes
+the displacement for every scheme: it divides by the spacing for a uniform-grid
+one, refuses that on a non-uniform grid, and splits a step wider than a cell
+into equal sub-steps that fit. It is a scheme like the others, with a workspace
+of its own. It replaces `VlasovPoisson1D1V.line_advector`, a closure added and
+removed during 0.2; `substeps` moved with it to `Vasilek.Advection`.
+
+```julia
+og = OnGrid(Upwind(), fill(Δx, length(f₀)))     # PFCNonUniform carries its grid: OnGrid(p)
+ws = workspace(og, length(f₀))
+advect!(f, f₀, og, 0.3Δx, ws)                   # the displacement 0.3Δx, c = 0.3
+```
+
+## Strang splitting
+
+```julia
+# 0.1
+g = f'                                          # f[v, x]; g its x lines
+make_time_step_2d!((g, f), (_ -> v*Δt, ff -> e*Δt), (advect_x!, advect_v!))
+
+# 0.2
+using Vasilek.StrangSplitting: strang_step!, Collide
+using Vasilek.VlasovPoisson1D1V: cell_widths
+x   = collect(Δx .* (1:32))
+fxv = [f₀[j]*(1 + 0.1cos(2π*i/32)) for i in eachindex(x), j in eachindex(v)]   # f[x, v]
+sx  = OnGrid(Upwind(), fill(Δx, length(x)))
+sv  = OnGrid(PFCNonUniform(cell_widths(v); fmin = 0.0, fmax = Inf))
+ws  = workspace(sx, sv, fxv, BGK(τ))            # one per task; the operator's scratch too
+E   = 0.1 .* sin.(2π .* (1:32) ./ 32)
+strang_step!(fxv, sx, sv, v .* Δt, ft -> E .* Δt, ws, Collide(BGK(τ), v, Δt))
+```
+
+`strang_step!(f, sx, sv, cx, cv, ws[, hook])` steps one matrix, `f[x, v]`: the
+x sweep runs over its columns and the v sweep over the transposed copy the
+workspace keeps, so every line is contiguous. `make_time_step_2d!` is gone,
+with its second array and its per-line closures.
+
+  * The schemes are values, on their grids through `OnGrid` when `cx` and `cv`
+    are displacements; `cx[j]` is column `j`'s full step, and each half step
+    takes `cx[j]/2`.
+  * **`cv` is handed the state transposed**, `ft[v, x]`, after the first half
+    step, not `f`: a `cv` that summed the rows of `f` sums the columns of `ft`.
+    That is the layout the density is summed over, and where the field is
+    solved.
+  * A collision operator goes in as the hook `Collide(op, v, Δt)`, collided for
+    `Δt/2` either side of the kick, `X(Δt/2) · C(Δt/2) K(Δt) C(Δt/2) · X(Δt/2)`,
+    with its scratch from `workspace(sx, sv, f, op)`.
 
 ## Poisson
 

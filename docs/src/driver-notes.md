@@ -52,42 +52,73 @@ undershoot of the peak rather than round-off leaking below zero, which is worth
 stating precisely: it is the size of the overshoot that makes the guard a
 statement about the schemes rather than about floating point.
 
-## `line_advector`
+## `OnGrid`
 
-    line_advector(scheme, Δz)
+    OnGrid(scheme, Δz)
 
-Wrap `scheme` as an in-place `(column, α)` advector, where `α` is always a
-**displacement** -- a length -- whatever the scheme's own fourth argument means.
+The driver puts each scheme on its grid, `OnGrid(scheme_x, Δx)` and
+`OnGrid(scheme_v, Δv)`, and hands it a **displacement** -- a length -- whatever
+the scheme's own fourth argument means. [`OnGrid`](@ref Vasilek.Advection.OnGrid)
+is a scheme in `Vasilek.Advection`; it replaces `line_advector`, a closure the
+driver built for itself, which took the same arguments and gave the same bits.
 
 `PFCNonUniform` takes a displacement already. Every other scheme takes a Courant
-number, which only exists on a uniform grid, so the wrapper divides by the
-spacing for those and **refuses** a non-uniform grid rather than picking one of
-its spacings and being quietly wrong by the ratio between them. That asymmetry
-is a documented wart of the advection API (see
-[normalization.md](normalization.md)); this is the one place the verification
-runs have to absorb it.
+number, which only exists on a uniform grid, so `OnGrid` divides by the spacing
+for those -- divides, rather than multiplying by its inverse, which rounds
+differently -- and **refuses** a non-uniform grid rather than picking one of its
+spacings and being quietly wrong by the ratio between them. That asymmetry is a
+documented wart of the advection API (see [normalization.md](normalization.md));
+`OnGrid` is where it is absorbed.
 
-**A displacement wider than the narrowest cell is split** into the fewest equal
-sub-steps that fit ([`substeps`](@ref)). `advect!` refuses it whole, and a
-translation by `α` is `m` translations by `α/m`. Every call the suite makes
-through here is within the bound, and so one call exactly as before, except in
-the two-stream runs, where the field drives the velocity sweep: they keep
-growing after their fits, into saturation, and the fastest would ask for 217
-cells a step by `tmax`. That moves no measured number, since no fit contains a
-split step. The strong-damping run on the notebook's non-uniform grid comes
-closest otherwise: its field peaks at 0.9938 on the first step, with `Δt` equal
-to the narrow cells' width. It crossed, at 1.0017, while the driver still
-rescaled `f` by the trapezoid, 0.79% up at that amplitude.
+**A displacement wider than a cell is split** into the fewest equal sub-steps
+that fit ([`substeps`](@ref Vasilek.Advection.substeps)), the narrowest cell
+bounding them for `PFCNonUniform`. `advect!` refuses it whole, and a translation
+by `α` is `m` translations by `α/m`. Every call the suite makes through here is
+within the bound, and so one call exactly as before, except in the two-stream
+runs, where the field drives the velocity sweep: they keep growing after their
+fits, into saturation, and the fastest would ask for 217 cells a step by `tmax`.
+That moves no measured number, since no fit contains a split step. The
+strong-damping run on the notebook's non-uniform grid comes closest otherwise:
+its field peaks at 0.9938 on the first step, with `Δt` equal to the narrow
+cells' width. It crossed, at 1.0017, while the driver still rescaled `f` by the
+trapezoid, 0.79% up at that amplitude.
 
-The uniform-grid method does not split. Nothing here asks a uniform scheme for
-more than `c = 0.50`, and `advect!` says so if something ever does.
+The uniform-grid schemes are split as well, which `line_advector` did not do.
+Within a cell the count is 1 -- `|α| ≤ h` exactly when `α/h` rounds to at most 1
+-- and `α/1` is `α`, so every call that ran before takes the same step to the
+bit; a call past `c = 1`, which was a `DomainError`, now runs in sub-steps.
+Nothing here asks a uniform scheme for more than `c = 0.50`. `SemiLagrangian`,
+which has no Courant limit, takes any step whole.
 
 **The line is worked in Float64**, its buffer and the scheme's scratch alike,
-and rounded into the column once per step. The scratch used to take the
-scheme's element type, and a Float32 `PFCNonUniform` rounded a Float64 line to
-Float32 on every sub-step: on Float32 grids under Float64 `f`, every value of `f`
-was a Float32 one after the first step, and the mass drifted 3.3e-8 over 100
-steps of a Landau run where the Float64 one holds 4e-16.
+and rounded into `f` once per step: the driver asks `strang_step!`'s workspace
+for `promote_type(Float64, eltype(f))`. The scratch used to take the scheme's
+element type, and a Float32 `PFCNonUniform` rounded a Float64 line to Float32 on
+every sub-step: on Float32 grids under Float64 `f`, every value of `f` was a
+Float32 one after the first step, and the mass drifted 3.3e-8 over 100 steps of
+a Landau run where the Float64 one holds 4e-16.
+
+## The step
+
+`vlasov_poisson` takes each step with
+[`strang_step!`](@ref Vasilek.StrangSplitting.strang_step!) on `f[x, v]`, whose
+columns are the x lines; the kick runs over the transposed copy that the step's
+workspace keeps, so every line either sweep reads is contiguous. The driver used
+to step `g = f'`, an adjoint, through `make_time_step_2d!`, and the x sweep read
+strided views of `f`'s rows. On a line of 64 cells, measured on Julia 1.13, a
+strided line costs `Upwind` 57 ns against 15 contiguous, and `PFC` and the
+default `PFCNonUniform`, whose limiters take most of the step, 620 ns against
+550 and 700 against 650. The arithmetic is the same, so the numbers are too, to
+the bit.
+
+The field is solved from the transposed state, `f[v, x]` after the first half
+step, which is the layout the density was always summed over. The collisions
+are a [`Collide`](@ref Vasilek.StrangSplitting.Collide) hook on either side of
+the kick. After the step `f` is transposed back to `f[v, x]`, a third transpose
+per step, so that the energies and the invariants are summed in the order they
+always were: summed over `f[x, v]` the same terms round differently, and the
+bits of `ε`, `mass` and `l2` move. Folding the last half step into that
+transpose is left for later.
 
 ## `vlasov_poisson`
 
@@ -198,7 +229,7 @@ Landau, a strong Landau, a two-stream and an equilibrium run tops out exactly at
 it, or below, to the last bit. `PFCNonUniform` now checks every call it takes,
 sub-steps included, and none of them is out of bounds -- the two-stream runs
 carried past their velocity Courant limits into saturation among them, since
-[`line_advector`](@ref) splits every step that would cross a cell.
+[`OnGrid`](@ref Vasilek.Advection.OnGrid) splits every step that would cross a cell.
 
 **`collisions` puts a collision operator in the step**, applied to every velocity
 line for half a step on either side of the kick:

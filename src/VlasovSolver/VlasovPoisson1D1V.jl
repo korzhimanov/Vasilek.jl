@@ -10,15 +10,15 @@ that no user could run a Landau damping problem without copying it.
 """
 module VlasovPoisson1D1V
 
-using ..Advection: AbstractAdvection1D, PFCNonUniform, advect!,
+using ..Advection: AbstractAdvection1D, PFCNonUniform, OnGrid,
                    Upwind, Godunov, PiecewiseConstant, PiecewiseLinear, VanLeer, Superbee,
                    SemiLagrangian, LinearSpline, PFC
-using ..StrangSplitting: make_time_step_2d!
-using ..Collisions: collide!
+using ..StrangSplitting: strang_step!, Collide
 using ..PoissonFourier1D: PoissonFFT1D, solve!
+using LinearAlgebra: transpose!
 import ..workspace
 
-export vlasov_poisson, cell_widths, line_advector, substeps, mode_amplitude, make_poisson
+export vlasov_poisson, cell_widths, mode_amplitude, make_poisson
 
 """
     make_poisson(x)
@@ -65,59 +65,6 @@ negative values schemes without a positivity limiter produce.
 nlogn(u) = u > 0 ? -u*log(u) : zero(u)
 
 """
-    line_advector(scheme, Δz)
-
-`scheme` as an in-place `(column, α)` advector, where `α` is always a
-**displacement**, whatever the scheme's own fourth argument is. Uniform-grid
-schemes get `α/Δz`, and are refused on a non-uniform grid rather than given one
-of its spacings. A displacement wider than the narrowest cell is split into the
-fewest equal sub-steps that fit ([`substeps`](@ref)) for `PFCNonUniform`; a
-uniform scheme's `advect!` refuses it.
-
-The line is worked in Float64, its buffer and the scheme's scratch alike, and
-rounded into the column once per step, whatever the scheme's own element type.
-"""
-function line_advector(scheme::PFCNonUniform, Δz)
-    n = length(Δz)
-    # Not the scheme's type: a Float32 scheme's accumulator rounded a Float64
-    # line to Float32 on every sub-step.
-    ws = workspace(scheme, n, Float64)
-    buf = Vector{Float64}(undef, n)
-    h = minimum(Δz)
-    return function (col, α)
-        m = substeps(α, h)
-        for _ = 1:m
-            advect!(buf, col, scheme, α/m, ws)
-            copyto!(col, buf)
-        end
-        return col
-    end
-end
-
-"""
-    substeps(α, h)
-
-The fewest equal parts of `α` that are each no longer than `h`, and one for an
-`α` that is not finite, which `advect!` then refuses itself.
-"""
-function substeps(α, h)
-    isfinite(α) || return 1
-    m = max(1, ceil(Int, abs(α)/h))
-    return abs(α/m) > h ? m + 1 : m    # the quotient can round below the integer
-end
-
-function line_advector(scheme, Δz)
-    n = length(Δz)
-    h = Δz[1]
-    all(d -> isapprox(d, h; rtol = 1e-12), Δz) || error(
-        "$(nameof(typeof(scheme))) takes a Courant number, which a non-uniform grid " *
-        "does not have (spacings range over $(extrema(Δz))); use PFCNonUniform here")
-    ws = workspace(scheme, n, Float64)
-    buf = Vector{Float64}(undef, n)
-    return (col, α) -> (advect!(buf, col, scheme, α/h, ws); copyto!(col, buf))
-end
-
-"""
     mode_amplitude(e, x, k)
 
 Complex amplitude of the `exp(ikx)` component of `e` on the uniform grid `x`,
@@ -154,6 +101,7 @@ keeps_bounds(::Upwind, lo, hi) = true
 keeps_bounds(::Godunov{PiecewiseConstant}, lo, hi) = true
 keeps_bounds(::Godunov{PiecewiseLinear, <:Union{VanLeer, Superbee}}, lo, hi) = true
 keeps_bounds(::SemiLagrangian{LinearSpline}, lo, hi) = true
+keeps_bounds(og::OnGrid, lo, hi) = keeps_bounds(og.scheme, lo, hi)
 # In the scheme's own precision, `[lo, hi]` rounded outward as its constructor
 # rounds its bounds: a Float32 scheme built on `maximum(f)` keeps it.
 function keeps_bounds(s::Union{PFC, PFCNonUniform}, lo, hi)
@@ -186,7 +134,8 @@ Strang-split electrostatic Vlasov–Poisson for electrons over fixed ions, from
   * `scheme_x`, `scheme_v`: advection schemes, or functions of the starting `f`
     that return one. Both default to `PFCNonUniform` on their grid, in Float64
     at least, bounded by `[0, maximum(f)]` (below only with `collisions`);
-    their steps wider than a cell are split by [`line_advector`](@ref).
+    each is put on its grid by [`OnGrid`](@ref), which takes the step as a
+    displacement and splits one wider than a cell.
   * `nᵢ`: the ion density over `x`; by default the Maxwellian's `Σ M Δv`,
     uniform. The ions are used as given, and never rescaled.
   * `renormalize`: rescale `f` on entry by a single factor, so that its charge
@@ -254,15 +203,14 @@ function vlasov_poisson(x, v, f₀, t;
 
     f = copy(f₀)
     renormalize && (f .*= Nᵢ/sum(f .* (Δv .* Δx')))
-    g = f'
 
     # Collisions relax a line towards a Maxwellian whose peak can sit above the
     # line's own, so the upper bound is not the run's to keep: the defaults then
     # bound `f` below only.
     bound = collisions === nothing ? maximum(f) : Inf
-    # The defaults are Float64 at least, as `line_advector` works the line: a
-    # Float32 one rounds each flux sum, and at a line's peak the sum can land an
-    # ulp above `fmax`, which the next checked call refuses.
+    # The defaults are Float64 at least, as the step works the line (`work`
+    # below): a Float32 one rounds each flux sum, and at a line's peak the sum
+    # can land an ulp above `fmax`, which the next checked call refuses.
     default(widths) = PFCNonUniform(convert(Vector{promote_type(Float64, eltype(widths))}, widths);
                                     fmin = 0.0, fmax = bound)
     pick(s, widths) = s === nothing ? default(widths) :
@@ -276,12 +224,15 @@ function vlasov_poisson(x, v, f₀, t;
     scheme_v === nothing && scheme_x !== nothing &&
         refuse_unbounded(sx, :scheme_x, :scheme_v, bound)
 
-    advect_x! = line_advector(sx, Δx)
-    advect_v! = line_advector(sv, Δv)
-    if collisions !== nothing
-        cws = workspace(collisions, length(v), eltype(f))
-        cbuf = similar(v)
-    end
+    # Each scheme on its grid, taking a displacement and splitting a step wider
+    # than a cell; a uniform scheme on a non-uniform grid is refused here.
+    ox, ov = OnGrid(sx, Δx), OnGrid(sv, Δv)
+    # The step runs on `f[x, v]`, whose columns are the x lines, and sweeps v over
+    # the transpose it keeps. The lines are worked in Float64 at least and
+    # rounded into `f` once a step, whatever `f`'s own type; see the defaults.
+    fxv = permutedims(f)
+    work = promote_type(Float64, eltype(f))
+    ws = workspace(ox, ov, fxv, collisions, work)
 
     solve_poisson! = make_poisson(x)
     e = similar(x)
@@ -316,19 +267,17 @@ function vlasov_poisson(x, v, f₀, t;
 
     for k in 1:length(t)-1
         Δt = t[k+1] - t[k]
-        vΔt(_) = v*Δt
-        function eΔt(ff)
-            nₖ = vec(sum(ff'.*Δv, dims = 1))
+        # `ft` is the state as `f[v, x]`, which the density is summed over.
+        function eΔt(ft)
+            nₖ = vec(sum(ft .* Δv, dims = 1))
             solve_poisson!(e, nₖ - nᵢ)
-            return e*Δt
+            return e .* Δt
         end
-        kick! = collisions === nothing ? advect_v! : function (col, α)
-            collide!(cbuf, col, collisions, v, Δt/2, cws); copyto!(col, cbuf)
-            advect_v!(col, α)
-            collide!(cbuf, col, collisions, v, Δt/2, cws); copyto!(col, cbuf)
-            return col
-        end
-        make_time_step_2d!((g, f), (vΔt, eΔt), (advect_x!, kick!))
+        hook = collisions === nothing ? nothing : Collide(collisions, v, Δt)
+        strang_step!(fxv, ox, ov, v .* Δt, eΔt, ws, hook)
+        # Back to `f[v, x]`, so that every sum below runs in the order it always
+        # has: summed over `[x, v]` the same terms round differently.
+        transpose!(f, fxv)
         if E_modes !== nothing
             for (j, km) in enumerate(modes)
                 E_modes[k, j] = mode_amplitude(e, x, km)

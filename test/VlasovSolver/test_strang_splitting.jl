@@ -1,15 +1,10 @@
 using Vasilek
 using Vasilek: StrangSplitting
+using Vasilek.StrangSplitting: strang_step!, Collide
+using Vasilek.Advection: nsubsteps
 using FFTW
 using LinearAlgebra: mul!
 
-# `StrangSplitting` had no test of its own.
-#
-# It is exercised only by `verification_harness.jl`, which runs behind
-# `VASILEK_EXTENDED=1` -- so in a default test run the module was executed zero
-# times, and the transpose bookkeeping that ties the two phase-space layouts
-# together was never checked at all.
-#
 # The splitting is tested here *in isolation from the advection schemes*, by
 # handing it an exact spectral shift as its advection operator. A scheme's
 # spatial error does not vanish as Δt → 0 -- semi-Lagrangian interpolation error
@@ -17,60 +12,119 @@ using LinearAlgebra: mul!
 # against a real scheme measures the scheme, not the splitting. With an exact
 # shift the only error left is the splitting error, and it comes out at the
 # second order Strang promises.
+#
+# Every step goes through `strang_step!` with the schemes on their grids,
+# `OnGrid(scheme, Δz)`, as `vlasov_poisson` takes it: `f[x, v]`, `cx` the
+# displacements of the x lines, `cv` handed the state transposed.
 
 # Rigid-rotation geometry, shared by the two testsets at the foot of this file.
 const LD_ROT = 12.0
 const Σ_ROT = 0.8
 const T_ROT = 1.0
 
-"Exact periodic translation by a physical displacement `α`, via the spectrum."
-function exact_shift!(col, α, plan, iplan, k, buf)
-    mul!(buf, plan, col)
-    @. buf *= cis(-k*α)
-    mul!(col, iplan, buf)
-    return col
+"""
+    SpectralShift()
+
+An exact periodic translation, through the spectrum: `advect!` shifts a line
+by `c` cells, `c` being its fourth argument -- the Courant number an `OnGrid`
+divides a displacement into. No Courant limit: like `SemiLagrangian`, it takes
+a step of any width whole.
+"""
+struct SpectralShift <: AbstractAdvection1D end
+
+struct SpectralShiftWorkspace{P, Q}
+    in::Vector{Float64}
+    out::Vector{Float64}
+    spectrum::Vector{ComplexF64}
+    k::Vector{Float64}          # radians per cell
+    forward::P
+    inverse::Q
 end
 
-"An advection closure of the shape `make_time_step_2d!` expects."
-function shift_advector(n, h)
-    k = 2π*collect(rfftfreq(n, 1/h))
-    plan = plan_rfft(Vector{Float64}(undef, n))
-    buf = Vector{ComplexF64}(undef, length(k))
-    iplan = plan_irfft(copy(buf), n)
-    return (col, α) -> exact_shift!(col, α, plan, iplan, k, buf)
+function Vasilek.workspace(::SpectralShift, n::Integer, ::Type = Float64)
+    in = Vector{Float64}(undef, n)
+    spectrum = Vector{ComplexF64}(undef, n ÷ 2 + 1)
+    return SpectralShiftWorkspace(in, similar(in), spectrum, collect(2π .* rfftfreq(n)),
+                                  plan_rfft(in), plan_irfft(copy(spectrum), n))
 end
 
-"One scheme-based advector per direction, as the solvers actually use it."
-function scheme_advector(scheme, n, h)
-    ws = workspace(scheme, n)
-    buf = Vector{Float64}(undef, n)
-    return (col, α) -> (advect!(buf, col, scheme, α/h, ws); copyto!(col, buf))
+function Vasilek.Advection.advect!(dest, src, ::SpectralShift, c, ws::SpectralShiftWorkspace)
+    # Through the workspace's own arrays: a plan is made for an aligned,
+    # contiguous one and refuses a column view that is not aligned as it was, as
+    # `PoissonFourier1D.solve!` copies for the same reason.
+    copyto!(ws.in, src)
+    mul!(ws.spectrum, ws.forward, ws.in)
+    @. ws.spectrum *= cis(-ws.k*c)
+    mul!(ws.out, ws.inverse, ws.spectrum)
+    return copyto!(dest, ws.out)
+end
+
+Vasilek.Advection.nsubsteps(::OnGrid{SpectralShift}, α) = 1
+
+"""
+A collision operator that changes nothing and records the `Δt` of every call:
+which lines the hook collides, how often, and for how long.
+"""
+struct CountingCollisions <: AbstractCollisionOperator
+    Δts::Vector{Float64}
+end
+
+function Vasilek.Collisions.collide!(dest, src, op::CountingCollisions, v, Δt, ::Nothing)
+    push!(op.Δts, Δt)
+    return copyto!(dest, src)
+end
+
+"""
+    written_out!(g, sx, sv, cx, cv[, op, v, Δt])
+
+One Strang step of `g[x, v]` written out from `advect!` and `copyto!` as the 0.1
+form took it -- the first direction over the columns of `g`, the second over
+those of its transpose, `cv` handed that transpose -- and with `op`, every line
+of the second direction collided for `Δt/2` either side of its advection.
+"""
+function written_out!(g, sx, sv, cx, cv, op = nothing, v = nothing, Δt = nothing)
+    nx, nv = size(g)
+    bx, bv = zeros(nx), zeros(nv)
+    wx, wv = workspace(sx, nx), workspace(sv, nv)
+    wc = op === nothing ? nothing : workspace(op, nv, Float64)
+    for j in 1:nv
+        advect!(bx, view(g, :, j), sx, cx[j]/2, wx)
+        g[:, j] = bx
+    end
+    f = Matrix(g')
+    c = cv(f)
+    for i in 1:nx
+        line = view(f, :, i)
+        op === nothing || (collide!(bv, line, op, v, Δt/2, wc); copyto!(line, bv))
+        advect!(bv, line, sv, c[i], wv)
+        copyto!(line, bv)
+        op === nothing || (collide!(bv, line, op, v, Δt/2, wc); copyto!(line, bv))
+    end
+    g .= f'
+    for j in 1:nv
+        advect!(bx, view(g, :, j), sx, cx[j]/2, wx)
+        g[:, j] = bx
+    end
+    return g
 end
 
 @testset "StrangSplitting" begin
 
     @testset "a zero step is the identity" begin
-        # With no displacement in either direction the three sweeps must leave
-        # the data alone, and the two layouts must still be transposes.
-        # Deliberately non-square: Nx ≠ Nv is the case the `f[2][:] = (f[1])'`
-        # bookkeeping can get wrong, and the only caller that exercises it is
-        # behind the extended gate.
+        # With no displacement in either direction the three sweeps and the two
+        # transposes must leave the data alone. Deliberately non-square: Nx ≠ Nv
+        # is the case the transposes can get wrong.
         Nx, Nv = 32, 24
-        g = [1.0 + 0.3*sin(2π*i/Nx)*cos(2π*j/Nv) for i = 1:Nx, j = 1:Nv]
-        f = Matrix(g')
-        g₀ = copy(g)
-
-        s = SemiLagrangian(CubicSpline())
-        ax! = scheme_advector(s, Nx, 1.0)
-        av! = scheme_advector(s, Nv, 1.0)
-
-        StrangSplitting.make_time_step_2d!((g, f), (_ -> zeros(Nv), _ -> zeros(Nx)),
-                                           (ax!, av!))
-        println("  zero step: max|g - g₀| = ", maximum(abs, g .- g₀),
-                ", max|f - g'| = ", maximum(abs, f .- Matrix(g')))
-        @test maximum(abs, g .- g₀) ≤ 1e-13
-        @test size(g) == (Nx, Nv) && size(f) == (Nv, Nx)
-        @test maximum(abs, f .- Matrix(g')) ≤ 1e-13
+        f₀ = [1.0 + 0.3*sin(2π*i/Nx)*cos(2π*j/Nv) for i = 1:Nx, j = 1:Nv]
+        for scheme in (SemiLagrangian(CubicSpline()), SpectralShift())
+            sx, sv = OnGrid(scheme, fill(1.0, Nx)), OnGrid(scheme, fill(1.0, Nv))
+            f = copy(f₀)
+            @test strang_step!(f, sx, sv, zeros(Nv), _ -> zeros(Nx), workspace(sx, sv, f)) === f
+            println("  zero step, ", rpad(nameof(typeof(scheme)), 15),
+                    "max|f - f₀| = ", maximum(abs, f .- f₀))
+            @test size(f) == (Nx, Nv)
+            @test maximum(abs, f .- f₀) ≤ 1e-13
+        end
     end
 
     @testset "second order in Δt" begin
@@ -79,21 +133,20 @@ end
         # split-step reference and the analytic answer are checked, because
         # agreeing with a fine reference only proves self-consistency.
         #
-        # Measured orders: 2.003, 2.001, 2.000, 2.001 against the analytic
-        # rotation, and the same against a Δt/1024 reference.
+        # Measured orders: 2.003, 2.001, 2.002 against the analytic rotation.
         N = 64; L = 12.0; h = L/N; σ = 0.8; T = 1.0
         z = [-L/2 + (i-1)*h for i = 1:N]        # x and v share this grid
-        adv! = shift_advector(N, h)
+        s = OnGrid(SpectralShift(), fill(h, N))
 
         blob(a, b) = [exp(-((z[i]-a)^2 + (z[j]-b)^2)/(2σ^2)) for i = 1:N, j = 1:N]
 
         function rotate(Δt)
-            g = blob(2.0, 0.0); f = Matrix(g')
+            f = blob(2.0, 0.0)
+            ws = workspace(s, s, f)
             for _ = 1:round(Int, T/Δt)
-                StrangSplitting.make_time_step_2d!(
-                    (g, f), (_ -> z.*Δt, _ -> -z.*Δt), (adv!, adv!))
+                strang_step!(f, s, s, z .* Δt, _ -> -z .* Δt, ws)
             end
-            return g
+            return f
         end
 
         exact = blob(2.0*cos(T), -2.0*sin(T))
@@ -113,61 +166,183 @@ end
         @test errs[1] < 5e-3
     end
 
-    @testset "both arrays hold the step on return" begin
-        # The third sweep wrote f[1] and never transposed back, so f[2] used to
-        # lag by the final half step (and a test pinned that as expected). Two
-        # independent arrays now agree on return; the harness's shared
-        # `g = f'` is consistent by construction and skips the copies.
-        Nx, Nv = 32, 24
-        g = [exp(-((i-16)/5)^2 - ((j-12)/4)^2) for i = 1:Nx, j = 1:Nv]
-        f = Matrix(g')
-        s = SemiLagrangian(CubicSpline())
-        StrangSplitting.make_time_step_2d!(
-            (g, f), (_ -> fill(0.3, Nv), _ -> fill(0.2, Nx)),
-            (scheme_advector(s, Nx, 1.0), scheme_advector(s, Nv, 1.0)))
-        @test f == Matrix(g')
-
-        # and the shared layout gives the same step, bit for bit
-        g₂ = [exp(-((i-16)/5)^2 - ((j-12)/4)^2) for i = 1:Nx, j = 1:Nv]
-        f₂ = Matrix(g₂')
-        StrangSplitting.make_time_step_2d!(
-            (f₂', f₂), (_ -> fill(0.3, Nv), _ -> fill(0.2, Nx)),
-            (scheme_advector(s, Nx, 1.0), scheme_advector(s, Nv, 1.0)))
-        @test f₂ == f
-    end
-
-    @testset "strang_step! is the same step on schemes and workspaces" begin
-        # The scheme-value form of the splitting must take exactly the step the
-        # closure form takes with the same schemes, for a uniform scheme and for
-        # PFCNonUniform, whose argument is a displacement.
+    @testset "strang_step! is the composition, bit for bit" begin
+        # `strang_step!` has to take the step `written_out!` takes, to the bit:
+        # its transposes, its half steps of `cx[j]*(1//2)` against `cx[j]/2`,
+        # and `cv` handed the transposed state. For a uniform scheme, for
+        # PFCNonUniform on grids that are not uniform, and with displacements
+        # wide enough that `OnGrid` splits them.
         Nx, Nv = 32, 24
         g₀ = [exp(-((i-16)/5)^2 - ((j-12)/4)^2) for i = 1:Nx, j = 1:Nv]
-        cx = collect(range(-0.6, 0.6, length = Nv))
-        cv(f) = [0.4*sin(2π*i/Nx) + 1e-3*sum(view(f, i, :)) for i in 1:Nx]
-        for (sx, sv) in ((SemiLagrangian(CubicSpline()), SemiLagrangian(CubicSpline())),
-                         (PFC(fmin = 0.0, fmax = 1.0), Godunov(PiecewiseLinear(), VanLeer())),
-                         (PFCNonUniform(fill(1.0, Nx); fmin = 0.0, fmax = 1.0),
-                          PFCNonUniform(fill(1.0, Nv); fmin = 0.0, fmax = 1.0)))
-            g = copy(g₀); f = Matrix(g')
+        cx = collect(range(-1.6, 1.6, length = Nv))
+        cv(ft) = [0.4*sin(2π*i/Nx) + 1e-3*sum(view(ft, :, i)) for i in 1:Nx]
+        wx = [0.5 + 0.2sin(2π*i/Nx) for i in 1:Nx]
+        wv = [0.25 + 0.1cos(2π*j/Nv) for j in 1:Nv]
+        for (sx, sv) in ((OnGrid(SemiLagrangian(CubicSpline()), fill(0.5, Nx)),
+                          OnGrid(SemiLagrangian(CubicSpline()), fill(0.25, Nv))),
+                         (OnGrid(PFC(fmin = 0.0, fmax = 1.0), fill(0.5, Nx)),
+                          OnGrid(Godunov(PiecewiseLinear(), VanLeer()), fill(0.25, Nv))),
+                         (OnGrid(PFCNonUniform(wx; fmin = 0.0, fmax = 1.0)),
+                          OnGrid(PFCNonUniform(wv; fmin = 0.0, fmax = 1.0))))
+            g = copy(g₀)
             for _ in 1:5
-                StrangSplitting.make_time_step_2d!((g, f), (_ -> cx, cv),
-                    (scheme_advector(sx, Nx, 1.0), scheme_advector(sv, Nv, 1.0)))
+                written_out!(g, sx, sv, cx, cv)
             end
-            h = copy(g₀)
-            ws = workspace(sx, sv, h)
+            f = copy(g₀)
+            ws = workspace(sx, sv, f)
             for _ in 1:5
-                @test StrangSplitting.strang_step!(h, sx, sv, cx, cv, ws) === h
+                @test strang_step!(f, sx, sv, cx, cv, ws) === f
             end
-            @test h == g
+            @test f == g
+            sx.scheme isa SemiLagrangian ||
+                @test nsubsteps(sx, cx[end]/2) > 1 && nsubsteps(sv, 0.4) > 1
         end
+    end
+
+    @testset "OnGrid splits a step wider than a cell into equal ones" begin
+        # `m` sub-steps of `α/m`, each taken as the scheme takes it, to the bit;
+        # within a cell, the scheme's own single step. `h` is the narrowest
+        # cell, 0.2 on the stretched grid.
+        n = 40
+        src = [exp(-((i - 15)/4)^2) for i in 1:n]
+        uniform = fill(0.5, n)
+        stretched = [0.5 + 0.3sin(2π*i/n) for i in 1:n]
+        for (scheme, Δz) in ((Upwind(), uniform), (Godunov(PiecewiseLinear(), VanLeer()), uniform),
+                             (PFCNonUniform(stretched; fmin = 0.0, fmax = 1.0), stretched))
+            og = OnGrid(scheme, Δz)
+            ws, inner = workspace(og, n), workspace(scheme, n)
+            h = minimum(Δz)
+            argument(a) = scheme isa PFCNonUniform ? a : a/h
+            for α in (2.5h, -2.5h, 0.7h, -h)
+                m = nsubsteps(og, α)
+                @test m == (abs(α) > h ? 3 : 1)
+                ref, buf = copy(src), similar(src)
+                for _ in 1:m
+                    advect!(buf, ref, scheme, argument(α/m), inner)
+                    copyto!(ref, buf)
+                end
+                @test advect!(similar(src), src, og, α, ws) == ref
+            end
+            # the four-argument form builds its own workspace
+            @test advect!(similar(src), src, og, 2.5h) == advect!(similar(src), src, og, 2.5h, ws)
+        end
+        # SemiLagrangian has no Courant limit, and takes the step whole.
+        s = SemiLagrangian(CubicSpline())
+        og = OnGrid(s, uniform)
+        @test nsubsteps(og, 1.25) == 1
+        @test advect!(similar(src), src, og, 1.25, workspace(og, n)) ==
+              advect!(similar(src), src, s, 2.5, workspace(s, n))
+    end
+
+    @testset "OnGrid refuses a grid its scheme cannot take" begin
+        # A uniform scheme on a non-uniform grid would take one of its spacings
+        # and be wrong by the ratio between them.
+        @test_throws ArgumentError OnGrid(Upwind(), [1.0, 2.0, 1.0, 1.0])
+        message = try
+            OnGrid(LaxWendroff(), [1.0, 2.0, 1.0, 1.0])
+            ""
+        catch err
+            sprint(showerror, err)
+        end
+        @test occursin("LaxWendroff", message) && occursin("PFCNonUniform", message)
+        @test OnGrid(Upwind(), [1.0, 1.0 + 1e-14, 1.0]).h == 1.0     # uniform to 1e-12
+        # A PFCNonUniform carries its grid, and is refused on another.
+        Δz = [0.5 + 0.3sin(2π*i/16) for i in 1:16]
+        p = PFCNonUniform(Δz; fmin = 0.0, fmax = 1.0)
+        @test OnGrid(p).h == OnGrid(p, Δz).h == minimum(Δz)
+        @test_throws ArgumentError OnGrid(p, reverse(Δz))
+        @test_throws DimensionMismatch OnGrid(p, Δz[1:end-1])
+        @test_throws ArgumentError OnGrid(p, 0.5, 16)                # not its narrowest cell
+        # Already on a grid: kept on that grid, refused on another.
+        og = OnGrid(Upwind(), fill(0.5, 8))
+        @test OnGrid(og, fill(0.5, 8)) === og
+        @test_throws ArgumentError OnGrid(og, fill(0.25, 8))
+        @test_throws ArgumentError OnGrid(og, 0.5, 8)
+        # To the same 1e-12 the grid is taken at: `L/N` and the widths of the
+        # cell centres `(j - 1/2)L/N` differ in the last bit (L = 4π, N = 6), and
+        # an exact comparison refused an OnGrid on the very grid it was given.
+        L, N = 4π, 6
+        widths = Vasilek.VlasovPoisson1D1V.cell_widths([(j - 0.5)*L/N for j in 1:N])
+        og₆ = OnGrid(Upwind(), fill(L/N, N))
+        @test first(widths) != L/N
+        @test OnGrid(og₆, widths) === og₆
+        # No cells, or cells of no positive width.
+        @test_throws ArgumentError OnGrid(Upwind(), Float64[])
+        @test_throws ArgumentError OnGrid(Upwind(), fill(-0.5, 8))
+        # The grid's length binds the workspace and the line.
+        @test_throws DimensionMismatch workspace(og, 9)
+        @test_throws DimensionMismatch advect!(zeros(9), ones(9), og, 0.25)
+    end
+
+    @testset "the hook collides half a step either side of the kick" begin
+        # `X(Δt/2) · C(Δt/2) K(Δt) C(Δt/2) · X(Δt/2)`, against the composition
+        # written out, bit for bit: two beams, so that BGK moves every line, on
+        # the driver's default schemes.
+        Nx, Nv = 16, 49
+        v = collect(range(-6.0, 6.0; length = Nv))
+        Δt = 0.2
+        f₀ = [(exp(-(u - 1.5)^2/2) + exp(-(u + 1.5)^2/2))/(2sqrt(2π))*(1 + 0.3cos(2π*i/Nx))
+              for i in 1:Nx, u in v]
+        sx = OnGrid(PFCNonUniform(fill(0.5, Nx); fmin = 0.0, fmax = Inf))
+        sv = OnGrid(PFCNonUniform(fill(v[2] - v[1], Nv); fmin = 0.0, fmax = Inf))
+        cx = v .* Δt
+        cv(ft) = [(0.3sin(2π*i/Nx) + 1e-3*sum(view(ft, :, i)))*Δt for i in 1:Nx]
+        op = BGK(0.5)
+        g = copy(f₀)
+        for _ in 1:4
+            written_out!(g, sx, sv, cx, cv, op, v, Δt)
+        end
+        f, plain = copy(f₀), copy(f₀)
+        ws = workspace(sx, sv, f, op)
+        for _ in 1:4
+            strang_step!(f, sx, sv, cx, cv, ws, Collide(op, v, Δt))
+            strang_step!(plain, sx, sv, cx, cv, ws)
+        end
+        @test f == g
+        @test maximum(abs, f .- plain) > 1e-3*maximum(f)
+
+        # Every line of the second direction, twice a step, for half of it each
+        # time, and nothing else: an operator that changes nothing leaves the
+        # step without collisions to the bit.
+        counting = CountingCollisions(Float64[])
+        f = copy(f₀)
+        strang_step!(f, sx, sv, cx, cv, workspace(sx, sv, f, counting), Collide(counting, v, Δt))
+        @test length(counting.Δts) == 2Nx
+        @test all(==(Δt/2), counting.Δts)
+        plain = copy(f₀)
+        @test f == strang_step!(plain, sx, sv, cx, cv, workspace(sx, sv, plain))
+
+        # A workspace built for no operator, or for another kind, is refused
+        # before the first sweep, and leaves `f` as it was; it was a MethodError
+        # from inside the kick, half a step in. The operator's parameters aside:
+        # `BGK(0.5f0)`'s workspace serves `BGK(0.5)`.
+        f = copy(f₀)
+        message = try
+            strang_step!(f, sx, sv, cx, cv, workspace(sx, sv, f), Collide(op, v, Δt))
+            ""
+        catch err
+            sprint(showerror, err)
+        end
+        @test occursin("BGK", message) && occursin("no collision operator", message)
+        @test_throws ArgumentError strang_step!(f, sx, sv, cx, cv, workspace(sx, sv, f, counting),
+                                                Collide(op, v, Δt))
+        @test f == f₀
+        g = copy(f₀)
+        strang_step!(f, sx, sv, cx, cv, workspace(sx, sv, f, BGK(0.5f0)), Collide(op, v, Δt))
+        @test f == strang_step!(g, sx, sv, cx, cv, workspace(sx, sv, g, op), Collide(op, v, Δt))
     end
 
     @testset "strang_step! checks its shapes" begin
         h = rand(8, 6)
         s = Upwind()
         ws = workspace(s, s, h)
-        @test_throws DimensionMismatch StrangSplitting.strang_step!(h, s, s, zeros(5), _ -> zeros(8), ws)
-        @test_throws DimensionMismatch StrangSplitting.strang_step!(h, s, s, zeros(6), _ -> zeros(7), ws)
+        @test_throws DimensionMismatch strang_step!(h, s, s, zeros(5), _ -> zeros(8), ws)
+        @test_throws DimensionMismatch strang_step!(h, s, s, zeros(6), _ -> zeros(7), ws)
+        @test_throws DimensionMismatch strang_step!(h, s, s, zeros(6), _ -> zeros(8),
+                                                    workspace(s, s, rand(6, 8)))
+        wc = workspace(s, s, h, BGK(1.0))
+        @test_throws DimensionMismatch strang_step!(h, s, s, zeros(6), _ -> zeros(8), wc,
+                                                    Collide(BGK(1.0), zeros(5), 0.1))
     end
 
     # ------------------------------------------------------------------
@@ -197,22 +372,21 @@ end
     grows with `|z|`, so the fastest line runs at `(L/2)·Δt/h = N·T/(2·nsteps)`,
     and `PFC` is a finite-volume scheme with a Courant limit of 1. At
     `nsteps = N` that is 0.5; at the `nsteps = N/4` first tried it is 2.0, and
-    `PFC` undershoots to -3.9e-10 and trips its own bounds check. Tying the step
-    count to the resolution also means Δx, Δv and Δt refine together, so the
-    orders below are joint rather than temporal.
+    `PFC` undershot to -3.9e-10 and tripped its own bounds check (`OnGrid` would
+    now split those steps). Tying the step count to the resolution also means
+    Δx, Δv and Δt refine together, so the orders below are joint rather than
+    temporal.
     """
     function rotate(scheme, N, nsteps; g0 = nothing)
         h, z = rot_grid(N)
         Δt = T_ROT/nsteps
-        g = g0 === nothing ? rot_blob(z, 2.0, 0.0) : copy(g0)
-        f = Matrix(g')
-        ax! = scheme_advector(scheme, N, h)
-        av! = scheme_advector(scheme, N, h)
+        f = g0 === nothing ? rot_blob(z, 2.0, 0.0) : copy(g0)
+        s = OnGrid(scheme, fill(h, N))
+        ws = workspace(s, s, f)
         for _ = 1:nsteps
-            StrangSplitting.make_time_step_2d!((g, f), (_ -> z.*Δt, _ -> -z.*Δt),
-                                               (ax!, av!))
+            strang_step!(f, s, s, z .* Δt, _ -> -z .* Δt, ws)
         end
-        return g
+        return f
     end
 
     @testset "splitting and scheme together reproduce the analytic rotation" begin
