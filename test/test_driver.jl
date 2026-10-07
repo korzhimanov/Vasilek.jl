@@ -32,6 +32,13 @@ using Vasilek.Advection: substeps
     @test advect!(similar(col), col, og, 0.5, workspace(og, 32)) == ref
     @test_throws ArgumentError OnGrid(Upwind(), [1.0, 2.0, 1.0, 1.0])
     @test substeps(2.5, 1.0) == 3
+    # An OnGrid given to the driver is kept on its grid to 1e-12. On cell
+    # centres `L/N` and the widths differ in the last bit, which an exact
+    # comparison refused; it runs as the bare scheme does, but for that bit.
+    xc = [(j - 0.5)*4π/6 for j in 1:6]
+    fc = [exp(-u^2/2)/sqrt(2π)*(1 + 0.01cos(0.5y)) for u in v, y in xc]
+    @test vlasov_poisson(xc, v, fc, t[1:4]; scheme_x = OnGrid(Upwind(), fill(4π/6, 6))).f ≈
+          vlasov_poisson(xc, v, fc, t[1:4]; scheme_x = Upwind()).f rtol = 1e-13
     @test cell_widths([0.0, 1.0, 3.0]) == [1.0, 1.5, 2.0]
 
     # The field solve needs a uniform x grid. A stretched one used to run and
@@ -338,6 +345,9 @@ using Vasilek.VlasovPoisson1D1V: keeps_bounds
     @test !keeps_bounds(PFC(fmin = 0.0, fmax = 1.5), 0.0, 1.0)
     @test !keeps_bounds(PFC(fmin = -0.1, fmax = 1.0), 0.0, 1.0)
     @test !keeps_bounds(UnvouchedScheme(), 0.0, 1.0)
+    # On its grid, a scheme keeps the bounds it keeps alone.
+    @test keeps_bounds(OnGrid(Upwind(), fill(1.0, 8)), 0.0, 1.0)
+    @test !keeps_bounds(OnGrid(LaxWendroff(), fill(1.0, 8)), 0.0, 1.0)
 end
 
 @testset "collisions in the driver" begin

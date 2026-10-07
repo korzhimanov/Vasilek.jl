@@ -493,6 +493,9 @@ whatever `scheme` takes:
   * `PFCNonUniform` takes the displacement as it is. It carries its grid, so
     `Δz` may be left out; given, it must be that grid.
 
+An `OnGrid` given again with a grid, `OnGrid(og, Δz)`, is `og` if `Δz` is its
+grid to the same `1e-12`, and refused otherwise.
+
 A step wider than a cell -- the narrowest one, for `PFCNonUniform` -- is split
 into the fewest equal sub-steps that fit, [`substeps`](@ref), since `advect!`
 refuses it whole and a translation by `α` is `m` translations by `α/m`. A
@@ -545,10 +548,13 @@ function OnGrid(s::AbstractAdvection1D, Δz)
     return OnGrid(s, h, length(Δz))
 end
 
-# Already on a grid: kept, if it is this one.
+# Already on a grid: kept, if it is this one, to the tolerance the grid is
+# taken at. Exactly was too strict: `L/N` and the widths of the cell centres
+# `(j - 1/2)L/N` differ in the last bit for most `N`, and refused an `OnGrid`
+# built for the very grid it was given with.
 function OnGrid(og::OnGrid, Δz)
     same = OnGrid(og.scheme, Δz)
-    same.h == og.h && same.n == og.n || throw(ArgumentError(
+    isapprox(same.h, og.h; rtol = 1e-12) && same.n == og.n || throw(ArgumentError(
         "an OnGrid on $(og.n) cells of $(og.h) given for a grid of $(same.n) cells of $(same.h)"))
     return og
 end

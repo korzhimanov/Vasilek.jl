@@ -258,6 +258,17 @@ end
         @test OnGrid(og, fill(0.5, 8)) === og
         @test_throws ArgumentError OnGrid(og, fill(0.25, 8))
         @test_throws ArgumentError OnGrid(og, 0.5, 8)
+        # To the same 1e-12 the grid is taken at: `L/N` and the widths of the
+        # cell centres `(j - 1/2)L/N` differ in the last bit (L = 4π, N = 6), and
+        # an exact comparison refused an OnGrid on the very grid it was given.
+        L, N = 4π, 6
+        widths = Vasilek.VlasovPoisson1D1V.cell_widths([(j - 0.5)*L/N for j in 1:N])
+        og₆ = OnGrid(Upwind(), fill(L/N, N))
+        @test first(widths) != L/N
+        @test OnGrid(og₆, widths) === og₆
+        # No cells, or cells of no positive width.
+        @test_throws ArgumentError OnGrid(Upwind(), Float64[])
+        @test_throws ArgumentError OnGrid(Upwind(), fill(-0.5, 8))
         # The grid's length binds the workspace and the line.
         @test_throws DimensionMismatch workspace(og, 9)
         @test_throws DimensionMismatch advect!(zeros(9), ones(9), og, 0.25)
@@ -300,6 +311,25 @@ end
         @test all(==(Δt/2), counting.Δts)
         plain = copy(f₀)
         @test f == strang_step!(plain, sx, sv, cx, cv, workspace(sx, sv, plain))
+
+        # A workspace built for no operator, or for another kind, is refused
+        # before the first sweep, and leaves `f` as it was; it was a MethodError
+        # from inside the kick, half a step in. The operator's parameters aside:
+        # `BGK(0.5f0)`'s workspace serves `BGK(0.5)`.
+        f = copy(f₀)
+        message = try
+            strang_step!(f, sx, sv, cx, cv, workspace(sx, sv, f), Collide(op, v, Δt))
+            ""
+        catch err
+            sprint(showerror, err)
+        end
+        @test occursin("BGK", message) && occursin("no collision operator", message)
+        @test_throws ArgumentError strang_step!(f, sx, sv, cx, cv, workspace(sx, sv, f, counting),
+                                                Collide(op, v, Δt))
+        @test f == f₀
+        g = copy(f₀)
+        strang_step!(f, sx, sv, cx, cv, workspace(sx, sv, f, BGK(0.5f0)), Collide(op, v, Δt))
+        @test f == strang_step!(g, sx, sv, cx, cv, workspace(sx, sv, g, op), Collide(op, v, Δt))
     end
 
     @testset "strang_step! checks its shapes" begin

@@ -67,13 +67,18 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
   whole, and another scheme without one opts out through `nsubsteps`.
   `workspace(OnGrid, n[, T])` holds the scheme's scratch and the sub-steps'
   line. It does what `line_advector` did, to the bit, as a value: the driver,
-  the harness's echo kick and the splitting tests all take it.
+  the harness's echo kick and the splitting tests all take it. An `OnGrid`
+  given to the driver is kept if it is on the driver's grid to `1e-12`; an
+  exact comparison refused one built with `fill(L/N, N)` for cell centres
+  `(j - 1/2)L/N`, whose widths differ from `L/N` in the last bit.
 - **`strang_step!` takes a collision hook**, `Collide(op, v, Δt)`, which
   collides every v line for `Δt/2` either side of its kick, and
   `workspace(scheme_x, scheme_v, f, collisions = nothing, T = float(eltype(f)))`
   holds the operator's scratch. `T` is the type the lines are worked in, wider
   than `f`'s if asked: the transposed copy keeps `f`'s type, so the transposes
-  are exact copies.
+  are exact copies. A hook whose operator the workspace was not built for is an
+  `ArgumentError` before the first sweep, where it was a `MethodError` from
+  inside the kick with `f` half a step on.
 
 - **The documentation is published, with the verification studies on it**
   (`docs/make.jl`, `.github/workflows/Docs.yml`, `docs/src/verification.md`),
