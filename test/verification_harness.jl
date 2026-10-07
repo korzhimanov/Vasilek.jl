@@ -9,8 +9,8 @@
 
 using Vasilek
 using Vasilek: StrangSplitting, FDTD1D, PoissonFourier1D
-using Vasilek.VlasovPoisson1D1V: vlasov_poisson, cell_widths, line_advector, substeps,
-                                 mode_amplitude, make_poisson, nlogn
+using Vasilek.VlasovPoisson1D1V: vlasov_poisson, cell_widths, mode_amplitude, make_poisson,
+                                 nlogn
 
 const VERIFICATION_HARNESS = true
 using NumericalIntegration, FFTW
@@ -70,11 +70,13 @@ function self_consistent_echo(; L = 4π, m₁ = 2, m₂ = 3, Nx = 128, Δv = 0.0
     seed = vlasov_poisson(x, v, f₀, before; modes = k)
 
     f = copy(seed.f)
-    widths = cell_widths(v)
-    kick! = line_advector(PFCNonUniform(widths; fmin = 0.0, fmax = maximum(f)), widths)
+    kick = OnGrid(PFCNonUniform(cell_widths(v); fmin = 0.0, fmax = maximum(f)))
+    ws, buf = workspace(kick, length(v)), similar(v)
     nsub = max(1, ceil(Int, abs(ε)/(kick_courant*Δv)))
     for j in eachindex(x), _ = 1:nsub
-        kick!(view(f, :, j), ε*cos(k₂*x[j])/nsub)
+        line = view(f, :, j)
+        advect!(buf, line, kick, ε*cos(k₂*x[j])/nsub, ws)
+        copyto!(line, buf)
     end
 
     after = collect(τ:Δt:tmax)
@@ -823,7 +825,7 @@ over the same run, fitting `t ∈ [8,18]`, `[10,20]`, `[12,22]`, `[14,24]` gives
 `hi` used to be held down by the solver's validity as well. The field grows with
 the mode and displaces the velocity sweep by `E·Δt`, and a large enough `ε_e`
 took that sweep past `PFC`'s Courant limit and the run to `NaN`. `advect!` now
-refuses such a step and [`line_advector`](@ref) splits it, so that bound is
+refuses such a step and `OnGrid` splits it, so that bound is
 gone. At the `hi = 5.0` this package uses, the velocity Courant number -- the
 largest `|E|Δt/Δv` over `x` when `ε_e` first reaches it -- is 0.53 to 0.73, and
 no fit contains a split step.
@@ -936,7 +938,7 @@ length right; the colon form comes up short at 14 of the 156 values of `a` in
     drives passed `PFC`'s Courant limit -- at `t = 21.10` for `a = 0.6`, 22.20
     for the `vt = 0.6` run and 23.25 for `a = 0.4` -- and went on to 217 cells a
     step and `ε_e = 7.8e4` by `t = 24`, then `NaN`. `advect!` now refuses such a
-    step and [`line_advector`](@ref) splits it into sub-steps that fit, so the
+    step and `OnGrid` splits it into sub-steps that fit, so the
     runs stay valid past their fits and saturate instead: `ε_e` peaks at 106 at
     `t = 24.95` for `a = 0.6`, and every run here is finite to `t = 40`. The
     fits are over before the first split -- the velocity Courant number is 0.53

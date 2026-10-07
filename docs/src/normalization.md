@@ -83,9 +83,24 @@ common dimensionless form. This is a wart; it is documented rather than hidden.
 Both are bounded, and `advect!` refuses a step past the bound with a
 `DomainError`: `|c| ≤ 1` for every uniform-grid scheme but `SemiLagrangian`,
 which has no Courant limit, and `|vΔt| ≤ minimum(Δx)` for `PFCNonUniform` -- the
-narrowest cell, because every cell gives up its outgoing flux alone. A caller
-whose displacement is larger splits it into sub-steps that fit, as the
-verification harness does for the field-driven velocity sweep.
+narrowest cell, because every cell gives up its outgoing flux alone.
+
+[`OnGrid`](@ref Vasilek.Advection.OnGrid) removes the wart for a caller who has a
+grid: `OnGrid(scheme, Δz)` is the scheme on the grid of cell widths `Δz`, and
+its fourth argument is the displacement `vΔt` whatever the scheme takes. It
+divides by the spacing for a uniform-grid scheme, refuses one on a non-uniform
+grid, and splits a step past the bound into the fewest equal sub-steps that
+fit. `vlasov_poisson` puts both its schemes on their grids this way, and the
+verification harness its echo kick. A bare scheme keeps its own argument.
+
+```julia
+x  = collect(Δx .* (1:64))
+og = OnGrid(Upwind(), fill(Δx, 64))
+line = exp.(-(x .- 3.2).^2)
+advect!(similar(line), line, og, 0.25Δx, workspace(og, 64)) ==
+    advect!(similar(line), line, Upwind(), 0.25)            # true
+advect!(similar(line), line, og, 2.5Δx, workspace(og, 64))  # three steps of c = 0.8333…
+```
 
 ## Currents in the FDTD solver
 

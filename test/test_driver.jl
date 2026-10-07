@@ -1,7 +1,8 @@
 # The Vlasov–Poisson driver ships with the package. These run without the
 # verification harness, as a user would: nothing here is included from test/.
 
-using Vasilek.VlasovPoisson1D1V: line_advector, cell_widths, substeps
+using Vasilek.VlasovPoisson1D1V: cell_widths
+using Vasilek.Advection: substeps
 
 @testset "vlasov_poisson is the package's" begin
     @test isdefined(Vasilek, :vlasov_poisson)
@@ -24,11 +25,12 @@ using Vasilek.VlasovPoisson1D1V: line_advector, cell_widths, substeps
     @test maximum(abs, r.ε .- r.ε[1])/r.ε[1] < 1e-3
     @test minimum(r.fmin) ≥ 0
 
-    # the adapter that takes a displacement whatever the scheme takes
+    # the scheme on its grid, which takes a displacement whatever the scheme takes
     col = [1.0 + 0.5sin(2π*i/32) for i in 1:32]
     ref = advect!(similar(col), col, Upwind(), 0.25)
-    @test line_advector(Upwind(), fill(2.0, 32))(copy(col), 0.5) == ref
-    @test_throws ErrorException line_advector(Upwind(), [1.0, 2.0, 1.0, 1.0])
+    og = OnGrid(Upwind(), fill(2.0, 32))
+    @test advect!(similar(col), col, og, 0.5, workspace(og, 32)) == ref
+    @test_throws ArgumentError OnGrid(Upwind(), [1.0, 2.0, 1.0, 1.0])
     @test substeps(2.5, 1.0) == 3
     @test cell_widths([0.0, 1.0, 3.0]) == [1.0, 1.5, 2.0]
 

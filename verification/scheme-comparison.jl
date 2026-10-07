@@ -104,10 +104,10 @@ concern it: `damping_rate` needs three maxima in its window and
 already in hand by then.
 
 `timed = true` runs the case **twice** and clocks the second. Timing the first
-call measures the compiler: `line_advector` returns a distinct closure type per
-scheme, so `vlasov_poisson`, `make_time_step_2d!` and the whole step loop are
-specialised afresh for every row of the table. Measured here, first call against
-second: `Upwind` 1.03 s / 0.12 s, `Godunov constant` 0.98 s / 0.10 s, `PFC`
+call measures the compiler: each scheme is a type of its own, and so is the
+`OnGrid` that puts it on its grid, so `vlasov_poisson`, `strang_step!` and the
+whole step loop are specialised afresh for every row of the table. Measured
+here, first call against second: `Upwind` 1.03 s / 0.12 s, `Godunov constant` 0.98 s / 0.10 s, `PFC`
 1.23 s / 0.23 s. A single warm-up in `main` -- which is what this did until now
 -- only ever warmed the default scheme's own row, and left the table reporting
 `Upwind` as marginally *slower* than `PFCNonUniform` when it is about twice as
