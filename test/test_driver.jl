@@ -53,10 +53,13 @@ using Vasilek.Advection: substeps
     # rather than of the spacing. A Float32 grid resolves its spacing to a few
     # parts in 10⁶, which 1e-10 of the spacing alone refuses although the
     # harness's driver ran it; it runs, and matches the Float64 run to Float32
-    # precision (measured 6.9e-7 of the peak in `f`, 8.3e-6 in `ε_e`, with its
-    # cell widths in Float32 and its default schemes in Float64; 5.6e-7 and
-    # 1.8e-6 while a `0.5` made the widths Float64 too). A grid far from the
-    # origin is taken too, and a stretch of a millionth of a cell is still refused.
+    # precision. Measured with the density, the field and the histories in
+    # Float32 and the lines worked in Float64: 7.7e-7 of the peak in `f` and
+    # 6.9e-6 in `ε_e` on Julia 1.13, 1.2e-6 and 3.3e-6 on 1.10. (6.9e-7 and
+    # 8.3e-6 while the default ions, and the charge with them, were Float64;
+    # 5.6e-7 and 1.8e-6 while a `0.5` made the widths Float64 too.) A grid far
+    # from the origin is taken too, and a stretch of a millionth of a cell is
+    # still refused.
     r₃₂ = vlasov_poisson(Float32.(x), Float32.(v), Float32.(f₀), Float32.(t))
     @test maximum(abs, r₃₂.f .- r.f) < 1e-5*maximum(r.f)
     @test maximum(abs, r₃₂.ε_e .- r.ε_e) < 1e-4*maximum(r.ε_e)
@@ -121,6 +124,105 @@ end
     vq = collect(-4//1:1//5:4//1)
     @test vlasov_poisson(x, vq, landau(0.05), t).f ≈ vlasov_poisson(x, Float64.(vq), landau(0.05), t).f rtol = 1e-14
     @test all(isfinite, vlasov_poisson(x, Float16.(v), landau(0.05), t).f)
+end
+
+using Vasilek.VlasovPoisson1D1V: setup
+
+# The run is in the data's type: the widths, the ions, the density, the field,
+# the histories and `E_modes` follow `f₀`. They followed the grids and the
+# times: all in Float32, the default ions and the charge were Float64 and the
+# modes ComplexF64, and Float32 data stepped through Float64 times recorded
+# Float64 histories.
+@testset "vlasov_poisson runs in the data's type" begin
+    k = 0.5
+    Nx = 32
+    x = collect(range(2π/k/Nx; step = 2π/k/Nx, length = Nx))
+    v = collect(-4.0:0.2:4.0)
+    f₀ = [exp(-u^2/2)/sqrt(2π)*(1 + 0.01*cos(k*y)) for u in v, y in x]
+    t = collect(0.0:0.1:2.0)
+    x32, v32, f32, t32 = Float32.(x), Float32.(v), Float32.(f₀), Float32.(t)
+
+    prob, state, hist = setup(x32, v32, f32, t32; modes = (k,), invariants = true)
+    @test prob.Δx isa Vector{Float32} && prob.Δv isa Vector{Float32}
+    @test prob.nᵢ isa Vector{Float32}
+    @test state.f isa Matrix{Float32} && state.fxv isa Matrix{Float32} && state.wt isa Matrix{Float32}
+    for b in (:e, :nₖ, :ρ, :αv)
+        @test getfield(state.field, b) isa Vector{Float32}
+    end
+    @test state.field.Δt isa Float32
+    @test hist.ε_e isa Vector{Float32} && hist.E_modes isa Matrix{ComplexF32}
+    # The lines alone are worked in Float64, the default schemes and the step's
+    # line buffers alike, and rounded into `f` once a step. Worked in Float32, a
+    # plateau with smooth sides over |v| < 2 and an edge down to 0, all in
+    # Float32, stopped with a DomainError in 13 of 24 runs of 40 steps, each on
+    # a cell rounded to -1.0e-45, one subnormal below the defaults' `fmin = 0`;
+    # worked in Float64, in none. This one stopped on its 9th step.
+    @test prob.ox.scheme isa PFCNonUniform{Float64} && prob.ov.scheme isa PFCNonUniform{Float64}
+    @test state.ws.bx isa Vector{Float64} && state.ws.bv isa Vector{Float64}
+    xp = collect(range(4π/32; step = 4π/32, length = 32))
+    vp = collect(range(-8.0, 8.0; length = 65))
+    plateau = [abs(u) < 2 ? 0.25min(1, 1 + 1e-3cos(0.5y)) : 0.0 for u in vp, y in xp]
+    tp = Float32.(0:0.2:4.0)
+    pp, = setup(Float32.(xp), Float32.(vp), Float32.(plateau), tp)
+    rp = vlasov_poisson(Float32.(xp), Float32.(vp), Float32.(plateau), tp; invariants = true)
+    @test maximum(rp.fmax) ≤ pp.ov.scheme.fmax && minimum(rp.fmin) ≥ 0
+
+    r = vlasov_poisson(x32, v32, f32, t32; modes = (k, 2k), invariants = true)
+    for h in (r.ε_e, r.ε, r.mass, r.momentum, r.l2, r.entropy, r.fmin, r.fmax)
+        @test h isa Vector{Float32}
+    end
+    @test r.E_modes isa Matrix{ComplexF32} && r.f isa Matrix{Float32}
+    # The histories are the data's type, not the times': they were `similar(t)`.
+    r = vlasov_poisson(x32, v32, f32, t; modes = (k,), invariants = true)
+    @test r.ε isa Vector{Float32} && r.mass isa Vector{Float32} && r.E_modes isa Matrix{ComplexF32}
+    r = vlasov_poisson(x, v, f₀, t32; modes = (k,), invariants = true)
+    @test r.ε isa Vector{Float64} && r.mass isa Vector{Float64} && r.E_modes isa Matrix{ComplexF64}
+    # Float64 data on a Float32 grid is a Float64 run. The field was the grid's
+    # Float32, and became Float64: on a 50% Landau run of 30 steps, `ε_e` moved
+    # by 8.8e-9 of its peak and `f` not at all.
+    r = vlasov_poisson(x32, v, f₀, t; modes = (k,))
+    @test r.ε_e isa Vector{Float64} && r.E_modes isa Matrix{ComplexF64}
+    @test maximum(abs, r.ε_e .- vlasov_poisson(x, v, f₀, t).ε_e) < 1e-6*maximum(r.ε_e)
+end
+
+# Nothing but `f` passes from one step to the next, so a run handed back its own
+# `f` goes on as if it had not stopped: `self_consistent_echo` in the harness
+# restarts the driver this way around its kick.
+@testset "a run continues from the f it returns" begin
+    k = 0.5
+    Nx = 32
+    x = collect(range(2π/k/Nx; step = 2π/k/Nx, length = Nx))
+    v = collect(-6.0:0.15:6.0)
+    Δx, Δv = cell_widths(x), cell_widths(v)
+    f₀ = [exp(-u^2/2)/sqrt(2π)*(1 + 0.5cos(k*y)) for u in v, y in x]
+    t = collect(0.0:0.1:4.0)
+    m = 21
+    joined(a, b) = vcat(selectdim(a, 1, 1:m-1), b)
+    names = (:ε_e, :ε, :mass, :momentum, :l2, :entropy, :fmin, :fmax, :E_modes)
+
+    # To the bit, with the ions given, so that neither call rescales `f`, and
+    # schemes that do not depend on it: the defaults' own bounds, taken from f₀,
+    # or with collisions the defaults, which are not bounded above.
+    nᵢ = fill(sum(@. exp(-v^2/2)/sqrt(2π)*Δv), Nx)
+    bounded = (scheme_x = PFCNonUniform(Δx; fmin = 0.0, fmax = maximum(f₀)),
+               scheme_v = PFCNonUniform(Δv; fmin = 0.0, fmax = maximum(f₀)))
+    for (collisions, schemes) in ((nothing, bounded), (BGK(0.5), (;)))
+        kw = (; nᵢ, modes = (k, 2k), invariants = true, collisions)
+        whole = vlasov_poisson(x, v, f₀, t; kw...)
+        part₁ = vlasov_poisson(x, v, f₀, t[1:m]; kw..., schemes...)
+        part₂ = vlasov_poisson(x, v, part₁.f, t[m:end]; kw..., schemes...)
+        @test part₂.f == whole.f
+        for h in names
+            @test joined(getfield(part₁, h), getfield(part₂, h)) == getfield(whole, h)
+        end
+    end
+
+    # With the defaults the second call rescales `f` again, by a factor 1 to
+    # round-off, and bounds its schemes by the `f` it is handed: here the same
+    # run to 5.6e-16 of the peak on Julia 1.13, and to the bit on 1.10.
+    whole = vlasov_poisson(x, v, f₀, t)
+    second = vlasov_poisson(x, v, vlasov_poisson(x, v, f₀, t[1:m]).f, t[m:end])
+    @test maximum(abs, second.f .- whole.f) ≤ 1e-14*maximum(whole.f)
 end
 
 # The gate the driver's rewrites are held to. The step is written out below from

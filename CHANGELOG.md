@@ -1142,6 +1142,44 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 ### Changed
 
+- **A step of `vlasov_poisson` allocates nothing.** It allocated 84 KiB a
+  step at 64 × 161, more than `f`'s 80.5 KiB: the density was summed as
+  `sum(ft .* Δv, dims = 1)`, a temporary the size of `f`, and `v .* Δt`,
+  `nₖ - nᵢ` and `e .* Δt` were a line each, and the field solve was a closure
+  defined inside the time loop. The driver is now
+  `setup`, which checks the arguments and allocates every buffer once, then
+  `step!` and `record!` for each step, over four internal types: a `Problem`
+  (the grids, widths, ions, schemes on their grids, collisions, modes), a
+  `State` (`f` in both layouts, the x displacements, one scratch matrix, the
+  quadrature weights, the splitting's workspace), a `FieldSolve` (the callable
+  `strang_step!` takes as its `cv`, with the density, charge, field and kick
+  buffers) and `Histories`. None is exported, and the signature and the
+  NamedTuple are unchanged.
+  - **Every Float64 result is the same to the bit.** The density is summed by
+    `sum!` into a `1 × Nx` matrix sharing `nₖ`'s memory, which sums each
+    column in the order `sum(dims = 1)` does: the same bits on 100 shapes on
+    Julia 1.10 and 1.13, where a loop down the column or a matrix-vector
+    product rounds differently. The gate in `test_driver.jl` passes
+    unchanged, `test/data/golden.txt` is untouched, and eleven runs of the
+    driver -- defaults, BGK, a stretched `v`, given ions with and without
+    `renormalize`, given schemes and schemes as functions, a Rational `v` --
+    return the same bits in every history on 1.10 and 1.13.
+  - **`test_allocations.jl` gates the step**: a 12-step run against a 2-step
+    one, at 64 × 81 and 128 × 161, with the invariants and a mode. Both
+    measure 80 bytes a step on Julia 1.10 and 1.13, which is the histories'
+    own growth; the test asks for at most 192 and for the two sizes to agree
+    to 64. With `BGK` it asks only for a few boxes a line, since `collide!`
+    leaves one on the Windows runner under 1.10.
+  - The kinetic energy is summed over `f*(v*v)*wt`, the bits of `f*v^2*wt`:
+    the literal power boxed a value every step on Julia 1.10 under
+    `--check-bounds=yes`.
+  - A run is continued by calling the driver again on the `f` it returned:
+    with the ions given and schemes that do not depend on the starting `f`,
+    two calls over the halves of `t` give one call's `f` and histories to the
+    bit, as `test_driver.jl` now checks. With the defaults the second call
+    rescales `f` by 1 to round-off and bounds its schemes by the `f` it is
+    handed: 5.6e-16 of the peak apart on one case.
+
 - **`vlasov_poisson` steps through `strang_step!`, to the bit.** The step runs
   on `f[x, v]`, the schemes on their grids, `OnGrid(scheme_x, Δx)` and
   `OnGrid(scheme_v, Δv)`, and the collisions as its hook. It stepped
@@ -1535,6 +1573,30 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
   reason the test environment needed Plots and GR.
 
 ### Fixed
+
+- **`vlasov_poisson` runs in the data's type, `T = float(eltype(f₀))`.**
+  Under Float32 `f₀` the field and the density took the grids' type, the
+  default ions and so the charge were Float64, `E_modes` was `ComplexF64`, and
+  the histories took the type of `t` (`similar(t)`): Float32 data with Float64
+  times gave Float64 histories, and Float64 data with Float32 times Float32
+  ones. All of them are now `T`, and `E_modes` is `Complex{T}`; given ions are
+  converted to `T`. The cell widths stay `T` or a grid's own type where that
+  is wider.
+  - **The lines are still worked in Float64 under Float32 data**, the default
+    schemes and the step's line buffers alike, as the previous change made
+    them. Worked in Float32, a plateau with smooth sides and an edge down to
+    0, all in Float32, stopped with a `DomainError` in 13 of 24 runs of 40
+    steps, each on a cell rounded to −1.0e-45, one subnormal below the
+    defaults' `fmin = 0`. Worked in Float64, none of 240 runs over five
+    profiles, with and without `BGK`, stopped. `test_driver.jl` runs one of
+    those that stopped, and holds the defaults to `PFCNonUniform{Float64}`.
+  - The all-Float32 Landau run of `test_driver.jl` now matches the Float64
+    one to 7.7e-7 of the peak in `f` and 6.9e-6 in `ε_e` on Julia 1.13, 1.2e-6
+    and 3.3e-6 on 1.10, where it read 6.9e-7 and 8.3e-6 against Float64 ions.
+    The test's bounds, 1e-5 and 1e-4, stay.
+  - Float64 data on a Float32 x grid solves its field in Float64 now: `ε_e`
+    moves by 8.8e-9 of its peak on a 50% Landau run of 30 steps, and `f`
+    does not move.
 
 - **`PFC` keeps a line that sits at its upper bound.** It updated a cell as
   `(f + Φin) − Φout`, the form `PFCNonUniform` dropped (see "The default
