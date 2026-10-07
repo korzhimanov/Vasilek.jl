@@ -68,10 +68,10 @@ concern it: `damping_rate` needs three maxima in its window and
 already in hand by then.
 
 `timed = true` runs the case **twice** and clocks the second. Timing the first
-call measures the compiler: `line_advector` returns a distinct closure type per
-scheme, so `vlasov_poisson`, `make_time_step_2d!` and the whole step loop are
-specialised afresh for every row of the table. Measured here, first call against
-second: `Upwind` 1.03 s / 0.12 s, `Godunov constant` 0.98 s / 0.10 s, `PFC`
+call measures the compiler: each scheme is a type of its own, and so is the
+`OnGrid` that puts it on its grid, so `vlasov_poisson`, `strang_step!` and the
+whole step loop are specialised afresh for every row of the table. Measured
+here, first call against second: `Upwind` 1.03 s / 0.12 s, `Godunov constant` 0.98 s / 0.10 s, `PFC`
 1.23 s / 0.23 s. A single warm-up in `main` -- which is what this did until now
 -- only ever warmed the default scheme&#39;s own row, and left the table reporting
 `Upwind` as marginally *slower* than `PFCNonUniform` when it is about twice as
@@ -176,15 +176,15 @@ grid: 64 x 81, Δt = 0.08, t ≤ 70, x-sweep Courant 0.41 on the fastest row (0.
 analytic: γ = 0.1533594669096043, ω = 1.415661888604538
 
 scheme                           γ      err           ω      err       wall     rel   mass drift      ΔL²/L²
-Godunov Superbee           0.15304    0.21%     1.41372    0.14%     0.051s    1.3x      2.8e-16    8.87e-05
-LaxWendroff                0.15438    0.67%     1.40808    0.54%     0.050s    1.2x      2.8e-16   -8.02e-07
-SemiLagrangian cubic       0.15503    1.09%     1.40808    0.54%     1.206s   29.8x      6.9e-14   -1.94e-07
-PFCNonUniform              0.15540    1.33%     1.41372    0.14%     0.144s    3.6x      2.8e-16   -1.01e-05
-PFC                        0.15540    1.33%     1.41372    0.14%     0.125s    3.1x      4.2e-16   -1.01e-05
-Godunov VanLeer            0.15559    1.45%     1.40808    0.54%     0.050s    1.2x      2.8e-16   -3.42e-05
-Godunov constant           0.22823   48.82%     1.32669    6.29%     0.041s    1.0x      2.8e-16   -1.58e-03
-Upwind                     0.22823   48.82%     1.32669    6.29%     0.040s    1.0x      4.2e-16   -1.58e-03
-SemiLagrangian linear      0.22823   48.82%     1.32669    6.29%     0.079s    1.9x      2.8e-16   -1.58e-03
+Godunov Superbee           0.15304    0.21%     1.41372    0.14%     0.105s    1.3x      2.8e-16    8.87e-05
+LaxWendroff                0.15438    0.67%     1.40808    0.54%     0.084s    1.0x      2.8e-16   -8.02e-07
+SemiLagrangian cubic       0.15503    1.09%     1.40808    0.54%     1.613s   19.8x      6.9e-14   -1.94e-07
+PFC                        0.15540    1.33%     1.41372    0.14%     0.184s    2.3x      4.2e-16   -1.01e-05
+PFCNonUniform              0.15540    1.33%     1.41372    0.14%     0.237s    2.9x      4.2e-16   -1.01e-05
+Godunov VanLeer            0.15559    1.45%     1.40808    0.54%     0.094s    1.2x      2.8e-16   -3.42e-05
+Godunov constant           0.22823   48.82%     1.32669    6.29%     0.082s    1.0x      2.8e-16   -1.58e-03
+Upwind                     0.22823   48.82%     1.32669    6.29%     0.208s    2.6x      2.8e-16   -1.58e-03
+SemiLagrangian linear      0.22823   48.82%     1.32669    6.29%     0.126s    1.6x      2.8e-16   -1.58e-03
 
 Ranked by damping-rate error. Read the wall column as an order of
 magnitude, not a measurement: it is one run on a shared machine.
@@ -202,12 +202,12 @@ the sign of f rather than an error.
 scheme                           min f   mass drift    positive
 Upwind                        3.07e-09      5.7e-16         yes
 LaxWendroff                  -9.34e-02      2.8e-16          NO
-Godunov constant              3.07e-09      5.7e-16         yes
+Godunov constant              3.07e-09      4.2e-16         yes
 Godunov VanLeer               3.06e-09      2.8e-16         yes
 Godunov Superbee              3.05e-09      5.7e-16         yes
-SemiLagrangian linear         3.07e-09      2.0e-15         yes
-SemiLagrangian cubic         -1.05e-01      5.1e-14          NO
-PFC                           5.49e-10      4.2e-16         yes
+SemiLagrangian linear         3.07e-09      2.1e-15         yes
+SemiLagrangian cubic         -1.05e-01      5.2e-14          NO
+PFC                           5.49e-10      2.8e-16         yes
 PFCNonUniform                 5.49e-10      2.8e-16         yes
 
 Among the schemes that dissipate, the two that lead on damping-rate
@@ -227,4 +227,4 @@ that grows, and its rate sits under the analytic value where every
 other scheme&#39;s sits above. Refined to Nx = 256 at the same Courant
 number, its error changes sign (-2.58%, -0.21%, -0.67%, +0.13%) rather
 than shrinking, so its lead here is a cancellation, not accuracy.
-</code></pre><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../wakefield/">« Laser wakefield</a><a class="docs-footer-nextpage" href="../../api/">API »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.19.0 on <span class="colophon-date" title="Tuesday 6 October 2026 18:03">Tuesday 6 October 2026</span>. Using Julia version 1.13.1.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+</code></pre><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../wakefield/">« Laser wakefield</a><a class="docs-footer-nextpage" href="../../api/">API »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.19.0 on <span class="colophon-date" title="Wednesday 7 October 2026 08:43">Wednesday 7 October 2026</span>. Using Julia version 1.13.1.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
