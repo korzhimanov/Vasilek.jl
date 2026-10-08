@@ -72,6 +72,10 @@ struct PML{T<:AbstractFloat}
         r₂ = [iszero(s) ? Δt/Δx : -expm1(-Δt*s)/(Δx*s) for s in σ]
         new{T}(N, σ_max, r₁, r₂)
     end
+    # The same layer with its constants rounded to `T`, for an operator whose
+    # step works in `T`. From the coefficients, not from `σ_max`, so that a
+    # layer computed in a wider type is rounded once.
+    PML{T}(p::PML) where {T<:AbstractFloat} = new{T}(p.N, p.σ_max, p.r₁, p.r₂)
 end
 
 """
@@ -89,14 +93,20 @@ PML(; N, σ_max, Δx, Δt) = PML(N, σ_max, Δx, Δt)
             pml = PML(; N = 10, σ_max = 1e3, Δx, Δt))
 
 The Yee update on a uniform grid of spacing `Δx`, stepped by `Δt`, for
-[`advance!`](@ref). Its fields are those keywords, `cfl`, `Δx`, `Δt` and `x_min`
-converted to one floating-point type `T`, the promotion of the first three.
+[`advance!`](@ref). Its fields are those keywords. The step works in one
+floating-point type `T`, `float` of the promotion of `Δx` and `Δt`: `cfl`, `Δx`,
+`Δt` and the coefficients of `pml` are converted to it, so `Float32` steps give a
+`Float32` operator whatever type the literal `cfl` or the default layer was
+written in. `x_min` is only a coordinate for the source and keeps its own
+floating-point type, so the `x` the source sees is computed as before.
 
 `cfl` must equal `Δt/Δx`: the interior update uses `cfl` and the absorbing
 layer `Δt/Δx`, so two different values would put an impedance step at the edge
-of the layer. It is checked, to a relative `1e-12`. It is a keyword of its own
-because `cfl*Δx/Δx` need not round back to `cfl`, and a caller that sets the
-Courant number gets exactly that number in the interior.
+of the layer. It is checked in `T`, to a relative `max(1e-12, 4eps(T))`, by
+every constructor, the positional `Yee1D(cfl, Δx, Δt, x_min, pml, source)`
+included. It is a keyword of its own because `cfl*Δx/Δx` need not round back
+to `cfl`, and a caller that sets the Courant number gets exactly that number,
+rounded to `T`, in the interior.
 
 `source` is a named tuple `(y, z)` of functions `(t, x) -> amplitude`,
 injected one-way (rightwards) at the first interior node `pml.N + 2`. Their
@@ -108,23 +118,27 @@ The value holds no fields and no scratch, so it can be shared by any number of
 meshes and tasks; [`workspace`](@ref Vasilek.workspace) returns `nothing` for
 it.
 """
-struct Yee1D{T<:AbstractFloat, P<:PML, S}
+struct Yee1D{T<:AbstractFloat, X<:AbstractFloat, S}
     cfl::T
     Δx::T
     Δt::T
-    x_min::T
-    pml::P
+    x_min::X
+    pml::PML{T}
     source::S
+    function Yee1D(cfl::Real, Δx::Real, Δt::Real, x_min::Real, pml::PML, source)
+        T = float(promote_type(typeof(Δx), typeof(Δt)))
+        c, h, τ = T(cfl), T(Δx), T(Δt)
+        isapprox(c, τ/h; rtol = max(1e-12, 4eps(T))) || throw(ArgumentError(
+            "cfl = $cfl but Δt/Δx = $(τ/h): the interior and the absorbing " *
+            "layer would use different Courant numbers"))
+        x₀ = float(x_min)
+        return new{T, typeof(x₀), typeof(source)}(c, h, τ, x₀, PML{T}(pml), source)
+    end
 end
 
-function Yee1D(; Δx, Δt, cfl = Δt/Δx, source, x_min = 0.0,
-                 pml = PML(; N = 10, σ_max = 1e3, Δx = Δx, Δt = Δt))
-    isapprox(cfl, Δt/Δx; rtol = 1e-12) || throw(ArgumentError(
-        "cfl = $cfl but Δt/Δx = $(Δt/Δx): the interior and the absorbing layer " *
-        "would use different Courant numbers"))
-    T = float(promote_type(typeof(cfl), typeof(Δx), typeof(Δt)))
-    return Yee1D{T, typeof(pml), typeof(source)}(cfl, Δx, Δt, x_min, pml, source)
-end
+Yee1D(; Δx, Δt, cfl = Δt/Δx, source, x_min = 0.0,
+        pml = PML(; N = 10, σ_max = 1e3, Δx = Δx, Δt = Δt)) =
+    Yee1D(cfl, Δx, Δt, x_min, pml, source)
 
 """
     workspace(op::Yee1D, args...)
@@ -137,6 +151,10 @@ workspace(::Yee1D, args...) = nothing
 @noinline _err_fit(Nx, NP) = throw(ArgumentError(
     "a mesh of $Nx cells cannot hold two absorbing layers of $NP cells " *
     "and an interior; need N ≥ $(2*NP + 2)"))
+
+@noinline _err_current(Nx, ny, nz) = throw(DimensionMismatch(
+    "a mesh of $Nx cells needs currents on its $(Nx + 1) electric nodes; " *
+    "got length(j.y) = $ny and length(j.z) = $nz"))
 
 """
     advance!(mesh::YeeMesh1D, op::Yee1D, t, j)
@@ -155,11 +173,13 @@ ignored -- a current cannot be injected into a perfect conductor. The arrays
 still span the full `N+1` nodes so that they index alongside `mesh.ey`.
 
 The mesh must hold both absorbing layers of `op` and an interior,
-`mesh.N ≥ 2*op.pml.N + 2`; that is checked here, on every call, since the
-operator is built without a mesh.
+`mesh.N ≥ 2*op.pml.N + 2`, and `j.y` and `j.z` must have the `N+1` entries
+of `mesh.ey`; both are checked here, on every call and before anything is
+written, since the operator is built without a mesh.
 """
 function advance!(mesh::YeeMesh1D, op::Yee1D, t, j)
     mesh.N ≥ 2*op.pml.N + 2 || _err_fit(mesh.N, op.pml.N)
+    length(j.y) == length(j.z) == mesh.N + 1 || _err_current(mesh.N, length(j.y), length(j.z))
     _inject!(mesh, op, t)
     _update_ey!(mesh, op, j.y)
     _update_ez!(mesh, op, j.z)

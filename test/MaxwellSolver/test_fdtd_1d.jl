@@ -125,16 +125,38 @@ end
     pml = FDTD1D.PML(; N = 10, σ_max = 1e3, Δx = Δx, Δt = Δt)
     # the interior would run at 0.9, the layer at 0.8
     @test_throws ArgumentError FDTD1D.Yee1D(; Δx, Δt, cfl = 0.9, source = NO_PULSE, pml)
+    # and so does the positional constructor, which is the one that checks
+    @test_throws ArgumentError FDTD1D.Yee1D(0.9, Δx, Δt, 0.0, pml, NO_PULSE)
+    @test FDTD1D.Yee1D(0.8, Δx, Δt, 0.0, pml, NO_PULSE).cfl === 0.8
+    # The step refuses a mesh or a current it cannot take before it writes
+    # anything. Every field is seeded and the source is on, so a check that ran
+    # after the injection or after either polarisation would show.
+    pulse = (y = (t, x) -> 1.0, z = (t, x) -> 1.0)
+    function refuses_untouched(m, op, j)
+        m.ey[26] = m.ez[26] = m.hy[25] = m.hz[25] = 1.0
+        before = deepcopy(m)
+        thrown = try
+            FDTD1D.advance!(m, op, 0.0, j); nothing
+        catch e
+            e
+        end
+        @test m.ey == before.ey && m.ez == before.ez &&
+              m.hy == before.hy && m.hz == before.hz
+        return thrown
+    end
     # two layers of 30 cells do not fit in 50: the operator is built without a
     # mesh, so it is the step that refuses
-    wide = FDTD1D.Yee1D(; Δx, Δt, source = NO_PULSE,
+    wide = FDTD1D.Yee1D(; Δx, Δt, source = pulse,
                         pml = FDTD1D.PML(; N = 30, σ_max = 1e3, Δx = Δx, Δt = Δt))
-    m.ey[26] = 1.0                                   # a step would move this
-    before = deepcopy(m)
-    @test_throws ArgumentError FDTD1D.advance!(m, wide, 0.0, zero_current(51))
-    @test m.ey == before.ey && m.hz == before.hz     # and refuses before writing
+    @test refuses_untouched(m, wide, zero_current(51)) isa ArgumentError
     @test FDTD1D.advance!(FDTD1D.YeeMesh1D{Float64}(62), wide, 0.0, zero_current(63)) isa
           FDTD1D.YeeMesh1D{Float64}                  # 2·30 + 2 cells is enough
+    # a current on fewer (or more) nodes than the mesh has
+    driven = FDTD1D.Yee1D(; Δx, Δt, source = pulse, pml)
+    @test refuses_untouched(m, driven, zero_current(26)) isa DimensionMismatch
+    @test refuses_untouched(m, driven, (y = zeros(51), z = zeros(26))) isa DimensionMismatch
+    @test refuses_untouched(m, driven, zero_current(52)) isa DimensionMismatch
+    fill!(m.ey, 0); fill!(m.ez, 0); fill!(m.hy, 0); fill!(m.hz, 0)
 
     # the defaults: the Courant number of the step, no offset, the layer the
     # solver has always defaulted to
@@ -148,6 +170,32 @@ end
     @test FDTD1D.Yee1D(; Δx, Δt, source = NO_PULSE, x_min = 0).x_min === 0.0
     # cfl is kept as given, not recomputed: Δt/Δx need not round back to it
     @test FDTD1D.Yee1D(; Δx, Δt, cfl = 0.8, source = NO_PULSE).cfl === 0.8
+
+    # The step works in the type of Δx and Δt. A Float64 literal cfl, the
+    # default layer's Float64 σ_max and a Float64 layer passed in are rounded
+    # to it; cfl is checked there, where Δt/Δx is one ulp off 0.8.
+    Δx32 = 0.01f0; Δt32 = 0.008f0
+    @test Δt32/Δx32 != 0.8f0
+    for kw in ((;), (cfl = 0.8,), (cfl = 0.8f0,), (pml = pml,))
+        op32 = FDTD1D.Yee1D(; Δx = Δx32, Δt = Δt32, source = NO_PULSE, kw...)
+        @test op32 isa FDTD1D.Yee1D{Float32}
+        @test op32.pml isa FDTD1D.PML{Float32}
+    end
+    @test FDTD1D.Yee1D(; Δx = Δx32, Δt = Δt32, cfl = 0.8, source = NO_PULSE).cfl === 0.8f0
+    @test_throws ArgumentError FDTD1D.Yee1D(; Δx = Δx32, Δt = Δt32, cfl = 0.8001,
+                                             source = NO_PULSE)
+    # the layer is rounded once, from the coefficients computed in Float64
+    @test FDTD1D.Yee1D(; Δx = Δx32, Δt = Δt32, source = NO_PULSE).pml.r₁ ==
+          Float32.(FDTD1D.PML(; N = 10, σ_max = 1e3, Δx = Δx32, Δt = Δt32).r₁)
+    # x_min is a coordinate and keeps its type: the source sees x_min + Δx in
+    # Float64, as it did before the step had a type
+    xs = Float64[]
+    probe = (y = (t, x) -> (push!(xs, x); 0.0), z = (t, x) -> 0.0)
+    op32 = FDTD1D.Yee1D(; Δx = Δx32, Δt = Δt32, x_min = -5*2π, source = probe)
+    @test op32.x_min === -5*2π
+    FDTD1D.advance!(FDTD1D.YeeMesh1D{Float32}(50), op32, 0.0f0,
+                    (y = zeros(Float32, 51), z = zeros(Float32, 51)))
+    @test xs == [-5*2π + Δx32, -5*2π + 1.5*Δx32]
 
     # no scratch, whatever generic code passes along
     @test workspace(op) === nothing

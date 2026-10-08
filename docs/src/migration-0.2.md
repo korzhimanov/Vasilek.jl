@@ -202,14 +202,21 @@ end
 fields, so one value steps any number of meshes from any number of tasks, and
 `workspace(op)` is `nothing`. The closure captured its mesh; the operator does
 not, so the check that the mesh holds both layers and an interior moved from
-construction to every `advance!` call. `cfl` still has to equal `Δt/Δx`, and is
+construction to every `advance!` call, beside a check that `j.y` and `j.z`
+have the mesh's `N + 1` entries. `cfl` still has to equal `Δt/Δx`, and is
 checked when the operator is built. It is a keyword of its own because a caller
 that sets the Courant number wants exactly that number in the interior, and
 `cfl*Δx/Δx` need not round back to it.
 
+The step works in the type of `Δx` and `Δt`: `cfl` and the layer are converted
+to it, so `Float32` steps with a literal `cfl = 0.8` or the default layer give a
+`Float32` operator, where the closure computed those terms in `Float64`.
+`x_min` keeps its own type.
+
 `FDTD1D` exports `PML` now, beside `YeeMesh1D`, `Yee1D` and `advance!`. The
-update is the closure's, moved: every field comes out bit-for-bit as
-`make_advance_fields` left it.
+update is the closure's, moved: with `Float64` data every field comes out
+bit-for-bit as `make_advance_fields` left it; with `Float32` data and a
+`Float64` layer, to the `Float32` rounding of the fields.
 
 ## Collisions
 

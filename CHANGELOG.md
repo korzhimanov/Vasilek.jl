@@ -35,9 +35,31 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
   * **`cfl` stays a keyword**, defaulting to `Δt/Δx` and checked against it as
     before, because a caller that sets the Courant number wants exactly that
     number in the interior: `0.8*Δx/Δx` need not round back to 0.8.
+    The check runs in every constructor, the positional
+    `Yee1D(cfl, Δx, Δt, x_min, pml, source)` included, which Julia's default
+    constructor would otherwise have left unchecked.
+  * **The step works in the type of `Δx` and `Δt`.** `cfl`, `Δx`, `Δt` and
+    the layer's coefficients are converted to it, so `Float32` steps give a
+    `Yee1D{Float32}` with a `PML{Float32}` even with a literal `cfl = 0.8` or
+    the default layer's `σ_max = 1e3`; before, either widened the step to
+    `Float64` and converted on every store. The layer is rounded once, from
+    the coefficients computed in the arguments' types. `cfl` is checked after
+    the conversion, to `max(1e-12, 4eps(T))`: at `1e-12`, `cfl = 0.8f0` with
+    `Δt = 0.008f0`, `Δx = 0.01f0` was refused, `Δt/Δx` being `0.8000001f0`,
+    one ulp off — on `master` too. A `Float32` run of 400 steps on 300 cells
+    with a 10-cell layer and `cfl = Δt/Δx` differs from `make_advance_fields`
+    with a `Float64` layer by at most 1.0e-7 in `ey` and `hz`, the rounding of
+    a unit pulse in `Float32`; `Float64` runs are untouched. `x_min` is a
+    coordinate for the source only and keeps its own float type, so the `x`
+    the source sees is computed as `make_advance_fields` computed it, in
+    `Float64` for a `Float64` `x_min` whatever the steps' type.
   * **The mesh-holds-both-layers check moved** from construction, where the
     closure had its mesh, to every `advance!` call, since the operator has
-    none. It throws before writing anything.
+    none. `advance!` also checks that `j.y` and `j.z` have the mesh's `N + 1`
+    entries, a `DimensionMismatch`: a short current used to throw a
+    `BoundsError` halfway through the step, with the source injected and part
+    of `ey` already written. Both checks throw before writing anything, which
+    the test now confirms on all four fields with the source on.
   * **`PML{T}` has one parameter, the float type**, and `N` is an `Int`. An
     integer `σ_max` was a `MethodError`, the type taking its float parameter
     from `σ_max` alone; `PML(10, 1000, Δx, Δt)` is now `PML(10, 1e3, Δx, Δt)`
