@@ -180,7 +180,8 @@ written, since the operator is built without a mesh.
 function advance!(mesh::YeeMesh1D, op::Yee1D, t, j)
     mesh.N ≥ 2*op.pml.N + 2 || _err_fit(mesh.N, op.pml.N)
     length(j.y) == length(j.z) == mesh.N + 1 || _err_current(mesh.N, length(j.y), length(j.z))
-    _inject!(mesh, op, t)
+    _inject!(mesh.ey, mesh.hz, op.source.y, -, op, t)
+    _inject!(mesh.ez, mesh.hy, op.source.z, +, op, t)
     cfl = op.cfl; pml = op.pml; Nx = mesh.N
     _update_e!(mesh.ey, mesh.hz, j.y, -, cfl, pml, Nx)
     _update_e!(mesh.ez, mesh.hy, j.z, +, cfl, pml, Nx)
@@ -191,37 +192,44 @@ end
 
 # The steps of `advance!`. The source is injected first, then each
 # polarisation's electric field and, after both, each one's magnetic field.
+#
+# Each step takes one polarisation: `e` on the nodes, `h` on the cells, and `±`
+# the sign the curl enters with -- `-` for (ey, hz) and `+` for (ez, hy). A
+# right-going wave has hz = ey but hy = -ez, so the pair (ez, hy) is (ey, -hz).
+# `±` is `+` or `-` itself, not a factor of ±1, so `e ± cfl*d` is the same
+# operation the two hand-written copies performed, bit for bit.
 
-function _inject!(mesh, op, t)
-    f = mesh; cfl = op.cfl; Δt = op.Δt; Δx = op.Δx; x_min = op.x_min
-    pml = op.pml; pulse_shape = op.source
-    f.ey[pml.N+2] -= cfl*pulse_shape.y(t, x_min + Δx)
-    f.ez[pml.N+2] -= cfl*pulse_shape.z(t, x_min + Δx)
-
-    # A right-going wave has hz = ey but hy = -ez: the (ez, hy) pair is
-    # (ey, -hz). With `-=` here the z source launched its pulse to the left,
-    # into the absorbing layer.
-    f.hz[pml.N+2] -= cfl*pulse_shape.y(t + 0.5*Δt, x_min + 1.5*Δx)
-    f.hy[pml.N+2] += cfl*pulse_shape.z(t + 0.5*Δt, x_min + 1.5*Δx)
+# `s` is the source's component for this polarisation. The magnetic field takes
+# it with `±`: with `-=` for both pairs the z source launched its pulse to the
+# left, into the absorbing layer.
+function _inject!(e, h, s, ±, op, t)
+    i = op.pml.N + 2; cfl = op.cfl; Δt = op.Δt; Δx = op.Δx; x_min = op.x_min
+    e[i] -= cfl*s(t, x_min + Δx)
+    h[i] = h[i] ± cfl*s(t + 0.5*Δt, x_min + 1.5*Δx)
     return nothing
 end
 
-# One polarisation's update: `e` on the nodes, `h` on the cells, and `±` the
-# sign the curl enters with -- `-` for (ey, hz) and `+` for (ez, hy), the pair
-# (ez, hy) being (ey, -hz). `±` is `+` or `-` itself, not a factor of ±1, so
-# `e ± cfl*d` is the same operation the two hand-written copies performed.
+# The layer coefficients are tabulated every half cell, `k = 1 + 2d` at depth
+# `d` cells into the layer, measured from the interior's edge: node `pml.N+1`
+# on the left, node `Nx-pml.N+1` on the right. The functions take the position
+# in half cells, `_node(i)` or `_cell(i)`, so each side's formula is written
+# once for both fields.
+_node(i) = 2*(i - 1)
+_cell(i) = 2*i - 1
+_k_left(p, pml) = 1 + 2*pml.N - p
+_k_right(p, pml, Nx) = 1 + p - 2*(Nx - pml.N)
 
 # `e` on the interior nodes 2:Nx, then the current. The end nodes are PEC.
 function _update_e!(e, h, j, ±, cfl, pml, Nx)
     for i = 2:pml.N+1
-        k = 1 + 2*(pml.N-i+1)
+        k = _k_left(_node(i), pml)
         e[i] = pml.r₁[k]*e[i] ± pml.r₂[k]*(h[i] - h[i-1])
     end
     for i = pml.N+2:Nx-pml.N
         e[i] = e[i] ± cfl*(h[i] - h[i-1])
     end
     for i = Nx-pml.N+1:Nx
-        k = 1 + 2*(i-Nx+pml.N-1)
+        k = _k_right(_node(i), pml, Nx)
         e[i] = pml.r₁[k]*e[i] ± pml.r₂[k]*(h[i] - h[i-1])
     end
     for i = 2:Nx
@@ -233,14 +241,14 @@ end
 # `h` on all Nx cells. The last reads `e[end]`, the right-hand PEC node.
 function _update_h!(h, e, ±, cfl, pml, Nx)
     for i = 1:pml.N
-        k = 2*(pml.N-i+1)
+        k = _k_left(_cell(i), pml)
         h[i] = pml.r₁[k]*h[i] ± pml.r₂[k]*(e[i+1] - e[i])
     end
     for i = pml.N+1:Nx-pml.N
         h[i] = h[i] ± cfl*(e[i+1] - e[i])
     end
     for i = Nx-pml.N+1:Nx
-        k = 2*(i-Nx+pml.N)
+        k = _k_right(_cell(i), pml, Nx)
         h[i] = pml.r₁[k]*h[i] ± pml.r₂[k]*(e[i+1] - e[i])
     end
     return nothing

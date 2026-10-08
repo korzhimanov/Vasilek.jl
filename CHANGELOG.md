@@ -1229,20 +1229,28 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 ### Changed
 
 - **The two polarisations of the FDTD step share one update.** The
-  copy-paste pairs `_update_ey!`/`_update_ez!` and `_update_hz!`/`_update_hy!`
-  are `_update_e!(e, h, j, ±, …)` and `_update_h!(h, e, ±, …)`, called with
-  `-` for (ey, hz) and `+` for (ez, hy). `±` is the operator itself, not a
-  factor of ±1, so each line performs the operation the hand-written copy did,
-  and a fix to the layer's indexing is made once. Twelve runs of 400 steps on
-  300 cells — `Float64` and `Float32`, no layer and layers of 5, 10 and 20
-  cells, `cfl` 0.5 to 1, either polarisation and both, with currents and a
-  nonzero `x_min` — give `ey`, `ez`, `hy` and `hz` identical in every byte to
-  `master`; golden data are unchanged. The step is also faster, since the
-  loops now take the field vectors as arguments and LLVM vectorises more of
-  them (47 vector instructions in the electric update against 16): minimum
-  time per step, three runs each, `master` → this change, `Float64` 535 →
-  267 ns at N = 100, 4.7 → 1.3 µs at 1000, 48.6 → 19.7 µs at 10 000;
-  `Float32` 515 → 267 ns, 4.5 → 0.71 µs, 45.4 → 9.9 µs. Still 0 bytes.
+  copy-paste pairs `_update_ey!`/`_update_ez!`, `_update_hz!`/`_update_hy!`
+  and the y/z halves of `_inject!` are `_update_e!(e, h, j, ±, …)`,
+  `_update_h!(h, e, ±, …)` and `_inject!(e, h, s, ±, …)`, called with `-` for
+  (ey, hz) and `+` for (ez, hy). `±` is the operator itself, not a factor of
+  ±1, so each line performs the operation the hand-written copy did. The
+  absorbing layer's index is computed by `_k_left` and `_k_right` from a
+  position in half cells (`_node(i)`, `_cell(i)`), so each side's formula is
+  written once, for nodes and cells alike, instead of four times. Seventy-two
+  runs of 400 steps on 300 cells — `Float64` and `Float32`, no layer and
+  layers of 5, 10 and 20 cells, `cfl` 0.5, 0.8 and 1, either polarisation and
+  both, with currents and a nonzero `x_min` — give `ey`, `ez`, `hy` and `hz`
+  identical in every byte to `master`; golden data are unchanged. The step is
+  also faster, since the loops take the field vectors as arguments and LLVM
+  vectorises more of them: minimum of three `@benchmark`s of `advance!`,
+  `cfl` 0.8, `master` → this change, Julia 1.13.1, `Float64` 498 → 145 ns at
+  N = 100, 4.0 → 1.2 µs at 1000, 38.3 → 14.0 µs at 10 000; with layers of 10
+  cells 479 → 267 ns, 3.8 → 1.3 µs, 38.6 → 16.0 µs; `Float32` 506 → 118 ns,
+  3.7 → 0.54 µs, 37.1 → 7.0 µs. Still 0 bytes. The `Float64` case without a
+  layer is `Maxwell/fdtd/advance N` in `benchmark/runbenchmarks.jl`, which
+  reports a regression against `benchmark/results.json`; like the rest of
+  that suite it is advisory and does not gate CI (wall-clock times on shared
+  runners vary by 20–50 %), so only the allocation test is enforced.
 
 - **A step of `vlasov_poisson` allocates nothing.** It allocated 84 KiB a
   step at 64 × 161, more than `f`'s 80.5 KiB: the density was summed as
