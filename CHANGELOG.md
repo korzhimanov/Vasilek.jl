@@ -69,8 +69,16 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
   network blocked it exits 0 and says which hosts it needs: on a fresh
   container it leaves Julia uninstalled, and where Julia is already installed
   it keeps it and instantiates from the depot. Its stdout is empty, since a
-  SessionStart hook's stdout is added to the session's context. Its timeout is
-  900 s, where the default of 600 s left less than twice the fresh install.
+  SessionStart hook's stdout is added to the session's context; the output of
+  the install and of `Pkg` goes to stderr, so a resolver or precompilation
+  error is shown rather than reported as a network one. The test extras are
+  resolved together with `[deps]` under the package's `[compat]`, both read
+  from `Project.toml`, so the depot holds the versions `Pkg.test()` takes
+  (Aqua 0.8.18). After `/clear` or a compaction the hook exits at once (10 ms),
+  and it writes the `PATH` line to `CLAUDE_ENV_FILE` once however often it
+  runs. Without juliaup it goes on with a Julia on `PATH` only from 1.10. Its
+  command is quoted, so a path with spaces works. Its timeout is 900 s, where
+  the default of 600 s left less than twice the fresh install.
 
 - **`OnGrid(scheme, Δz)`, exported: a scheme on its grid.** Its fourth
   `advect!` argument is a displacement whatever the scheme takes: divided by
