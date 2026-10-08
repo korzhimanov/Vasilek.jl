@@ -1,51 +1,51 @@
 # CLAUDE.md
 
-## Проверка изменений
+## Checking changes
 
-- Все проверки по возможности проводить с реальным запуском кода (тесты, примеры,
-  скрипты из `verification/`, бенчмарки), а не только чтением исходников.
-- Для запуска использовать последнюю стабильную версию Julia. Если Julia в окружении
-  нет или версия устаревшая — установить актуальную (например, через `juliaup`:
-  `curl -fsSL https://install.julialang.org | sh -s -- --yes`, затем
-  `juliaup add release && juliaup default release`). В облачных сессиях это делает
-  `.claude/hooks/session-start.sh`.
+- Check by actually running the code wherever possible (tests, examples, scripts
+  from `verification/`, benchmarks), not only by reading the sources.
+- Run with the latest stable Julia. If Julia is missing or outdated, install the
+  current one (for instance through `juliaup`:
+  `curl -fsSL https://install.julialang.org | sh -s -- --yes`, then
+  `juliaup add release && juliaup default release`). In cloud sessions
+  `.claude/hooks/session-start.sh` does this.
 
-## Команды
+## Commands
 
-- Быстрые тесты: `julia --project=. -e 'using Pkg; Pkg.test()'`.
-  Отдельные файлы: `Pkg.test(test_args = ["golden", "contracts"])` — имена без
-  `test_` и `.jl`, список в `test/runtests.jl`.
-- Расширенная верификация (как в CI на PR):
+- Quick tests: `julia --project=. -e 'using Pkg; Pkg.test()'`.
+  Single files: `Pkg.test(test_args = ["golden", "contracts"])` — names without
+  `test_` and `.jl`, listed in `test/runtests.jl`.
+- Extended verification (as CI runs on a PR):
   `VASILEK_EXTENDED=1 julia --project=. -e 'using Pkg; Pkg.test()'`.
-- Исследования: один раз `julia --project=verification -e 'using Pkg; Pkg.instantiate()'`,
-  затем `julia --project=verification verification/<study>.jl` (нужна Julia ≥ 1.11).
-- Документация: `julia --project=docs docs/make.jl`. Примеры из README и docs
-  проверяются тестами (`test_readme.jl`, `test_docs.jl`).
+- Studies: once `julia --project=verification -e 'using Pkg; Pkg.instantiate()'`,
+  then `julia --project=verification verification/<study>.jl` (needs Julia ≥ 1.11).
+- Documentation: `julia --project=docs docs/make.jl`. The examples in the README
+  and docs are checked by tests (`test_readme.jl`, `test_docs.jl`).
 
-## Совместимость
+## Compatibility
 
-- Нижняя граница — Julia 1.10 (LTS); CI гоняет `lts` и `1` на Linux, Windows и macOS.
-  Работать на последней версии, но не использовать возможности языка и Pkg,
-  которых нет в 1.10 (кроме окружений `verification/` и `docs/`, там пол — 1.11).
-- Manifest не коммитится.
+- The floor is Julia 1.10 (LTS); CI runs `lts` and `1` on Linux, Windows and macOS.
+  Work on the latest version, but use no language or Pkg features missing from
+  1.10 (except in the `verification/` and `docs/` environments, whose floor is 1.11).
+- The Manifest is not committed.
 
-## Требования к коду
+## Code requirements
 
-- Шаг солвера не выделяет память (`test/test_allocations.jl`) и работает в типе
-  данных, а не только во `Float64`.
-- Каждое заявление о точности из `verification/` закрепляется тестом; допуск и
-  измеренное значение заносятся в таблицу `docs/src/verification.md`.
-- Эталонные данные не правятся руками — перегенерируются через
+- A solver step allocates nothing (`test/test_allocations.jl`) and works in the
+  data's type, not only in `Float64`.
+- Every accuracy claim from `verification/` is pinned by a test; the tolerance and
+  the measured value go into the table in `docs/src/verification.md`.
+- Golden data are never edited by hand — they are regenerated with
   `test/generate_golden.jl`.
-- Единицы и нормировка — `docs/src/normalization.md`.
+- Units and normalization — `docs/src/normalization.md`.
 
-## Оформление
+## Conventions
 
-- Каждый PR дописывает запись в `CHANGELOG.md` (Keep a Changelog, раздел текущей
-  версии) с измерениями, которые обосновывают изменение. Ломающие изменения
-  дополнительно описываются в `docs/src/migration-0.2.md`.
-- Коммиты: `fix:` / `refactor:` и т. п., формулировка описывает поведение
-  («a step of vlasov_poisson allocates nothing»).
-- Ветку с master обновлять через merge, не через rebase.
-- Код, комментарии, документация и коммиты — на английском; общение с
-  пользователем — на русском.
+- Every PR adds an entry to `CHANGELOG.md` (Keep a Changelog, the current
+  version's section) with the measurements that justify the change. Breaking
+  changes are also described in `docs/src/migration-0.2.md`.
+- Commits: `fix:` / `refactor:` and so on, worded as behavior
+  ("a step of vlasov_poisson allocates nothing").
+- Bring a branch up to date with master by merge, not by rebase.
+- Code, comments, documentation and commits are in English; talk to the user
+  in Russian.
