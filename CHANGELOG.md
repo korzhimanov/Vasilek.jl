@@ -1579,9 +1579,16 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
   default ions and so the charge were Float64, `E_modes` was `ComplexF64`, and
   the histories took the type of `t` (`similar(t)`): Float32 data with Float64
   times gave Float64 histories, and Float64 data with Float32 times Float32
-  ones. All of them are now `T`, and `E_modes` is `Complex{T}`; given ions are
-  converted to `T`. The cell widths stay `T` or a grid's own type where that
-  is wider.
+  ones. All of them are now `T`, and `E_modes` is `Complex{T}`. The cell
+  widths stay `T` or a grid's own type where that is wider, and the density,
+  the ions and the charge follow the widths: given ions are converted to the
+  widths' type.
+  - **Float32 data on Float64 grids keeps its density in Float64**, summed
+    and cancelled against the ions as `sum(ft .* Δv, dims = 1)` did. Summed
+    and cancelled in Float32, `ε_e` of a Float32 Landau run on Float64 grids
+    was 1.2e-5 of its peak from the Float64 run's, 13 times the 8.6e-7 it
+    had been; in Float64 it is 9.0e-7. The field solve then holds a matrix the
+    size of `f` in the widths' type, of its own.
   - **The lines are still worked in Float64 under Float32 data**, the default
     schemes and the step's line buffers alike, as the previous change made
     them. Worked in Float32, a plateau with smooth sides and an edge down to

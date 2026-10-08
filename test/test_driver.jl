@@ -132,7 +132,8 @@ using Vasilek.VlasovPoisson1D1V: setup
 # the histories and `E_modes` follow `f₀`. They followed the grids and the
 # times: all in Float32, the default ions and the charge were Float64 and the
 # modes ComplexF64, and Float32 data stepped through Float64 times recorded
-# Float64 histories.
+# Float64 histories. The density, the ions and the charge follow the widths,
+# which are wider than `f₀` on a wider grid.
 @testset "vlasov_poisson runs in the data's type" begin
     k = 0.5
     Nx = 32
@@ -183,6 +184,23 @@ using Vasilek.VlasovPoisson1D1V: setup
     r = vlasov_poisson(x32, v, f₀, t; modes = (k,))
     @test r.ε_e isa Vector{Float64} && r.E_modes isa Matrix{ComplexF64}
     @test maximum(abs, r.ε_e .- vlasov_poisson(x, v, f₀, t).ε_e) < 1e-6*maximum(r.ε_e)
+    # Float32 data on Float64 grids sums its density, and cancels it against
+    # the ions, in Float64, as `sum(ft .* Δv, dims = 1)` does. Summed and
+    # cancelled in Float32, `ε_e` of this run was 7.2e-6 of its peak from the
+    # Float64 run's, against 1.6e-6.
+    prob, state, = setup(x, v, f32, t)
+    @test prob.nᵢ isa Vector{Float64}
+    for b in (:nₖ, :ρ, :nᵢ)
+        @test getfield(state.field, b) isa Vector{Float64}
+    end
+    @test state.field.e isa Vector{Float32} && state.field.αv isa Vector{Float32}
+    state.field(state.f)
+    @test state.field.nₖ == vec(sum(state.f .* prob.Δv, dims = 1))
+    @test state.field.ρ == state.field.nₖ .- prob.nᵢ
+    r64 = vlasov_poisson(x, v, f₀, t)
+    r = vlasov_poisson(x, v, f32, t)
+    @test r.ε_e isa Vector{Float32}
+    @test maximum(abs, r.ε_e .- r64.ε_e) < 4e-6*maximum(r64.ε_e)
 end
 
 # Nothing but `f` passes from one step to the next, so a run handed back its own

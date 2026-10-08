@@ -344,8 +344,9 @@ compute in Float64 and round into the line once, as they did before the widths
 kept the grid's type.
 
 **The run is in the data's type, `T = float(eltype(f₀))`, but for its lines.**
-The ions, the density, the field and every history are `T`, and `E_modes` is
-`Complex{T}`. They followed the grids and the times: under Float32 `f` the
+The field and every history are `T`, and `E_modes` is `Complex{T}`; the
+density, the ions and the charge are in the cell widths' type, `T` or a grid's
+wider one. They followed the grids and the times: under Float32 `f` the
 default ions, and the charge with them, were Float64, the field was Float64 on
 a Float64 grid, `E_modes` was always `ComplexF64`, and the histories were
 `similar(t)`, Float64 for Float32 data stepped through Float64 times. The
@@ -360,6 +361,17 @@ Float64, none of 240 runs over five profiles, with and without `BGK`,
 stopped. The all-Float32 Landau run of
 `test_driver.jl` matches the Float64 one to 7.7e-7 of the peak in `f` and
 6.9e-6 in `ε_e` on Julia 1.13, 1.2e-6 and 3.3e-6 on 1.10.
+
+The density is the exception the other way. Float32 data on Float64 grids
+sums `Σ f Δv` in Float64 and cancels it against Float64 ions, as
+`sum(ft .* Δv, dims = 1)` always did: the charge of a Landau run is a
+difference of two numbers near 1, and rounding the sum and the ions to Float32
+first loses as many digits as the perturbation is small. Summed and cancelled
+in Float32, a Float32 Landau run (`Nx = 64`, `Nv = 128`, a 1% perturbation, to
+`t = 20`) put `ε_e` 1.2e-5 of its peak from the Float64 run's and the mode
+amplitude 3.0e-5, where they had been 8.6e-7 and 1.8e-6; summed in Float64,
+they are 9.0e-7 and 2.0e-6. The cost is a Float64 matrix the size of `f` for
+the products `f Δv`, held by the field solve beside the Float32 scratch.
 
 ### `keeps_bounds`
 

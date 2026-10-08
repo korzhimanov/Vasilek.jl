@@ -143,7 +143,8 @@ Strang-split electrostatic Vlasov–Poisson for electrons over fixed ions, from
     each is put on its grid by [`OnGrid`](@ref), which takes the step as a
     displacement and splits one wider than a cell.
   * `nᵢ`: the ion density over `x`; by default the Maxwellian's `Σ M Δv`,
-    uniform. The ions are used as given, in the data's type, and never rescaled.
+    uniform. The ions are used as given, in the cell widths' type, and never
+    rescaled.
   * `renormalize`: rescale `f` on entry by a single factor, so that its charge
     `Σ f ΔvΔx` equals the ions' `Σ nᵢ Δx`. On by default without `nᵢ` and off
     with it. With a given `nᵢ`, `renormalize = true` matches the totals only:
@@ -170,11 +171,13 @@ step `k`, `t[k+1]`.** None is sampled at `t[1]`, and the last row of each is
 a copy of the one before. The kinetic energy in `ε` is centred on the kick, so
 `ε` and `ε_e` describe the same instant.
 
-**The run is in the data's type, `T = float(eltype(f₀))`.** `f`, the ions, the
+**The run is in the data's type, `T = float(eltype(f₀))`.** `f`, the
 field and every history are `T`, `E_modes` is `Complex{T}`: Float32 `f₀` gives
 Float32 histories whatever the type of `t`, and Float64 `f₀` Float64 ones. The
-cell widths are `T`, or a grid's own type where that is wider. The lines alone
-are advanced in Float64 at least, as the default schemes are built, and rounded
+cell widths are `T`, or a grid's own type where that is wider, and the density
+`Σ f Δv`, the ions and the charge are in the widths' type: Float32 data on
+Float64 grids solves for its field from a Float64 charge. The lines alone are
+advanced in Float64 at least, as the default schemes are built, and rounded
 into `f` once a step.
 
 A run carries nothing from one step to the next but `f`, so it can be continued:
@@ -219,15 +222,16 @@ the two schemes on their grids, `ox` and `ov` ([`OnGrid`](@ref)s), the collision
 operator or `nothing`, and the wavenumbers of the modes recorded. Built by
 [`setup`](@ref).
 
-`T` is the data's type and `W` the widths', `T` or wider.
+`W` is the widths' type, the data's or wider. The ions are `W`, as the density
+they are set against is.
 """
-struct Problem{T<:AbstractFloat, W<:AbstractFloat, X<:AbstractVector, V<:AbstractVector,
+struct Problem{W<:AbstractFloat, X<:AbstractVector, V<:AbstractVector,
                SX<:OnGrid, SV<:OnGrid, C, M}
     x::X
     v::V
     Δx::Vector{W}
     Δv::Vector{W}
-    nᵢ::Vector{T}
+    nᵢ::Vector{W}
     ox::SX
     ov::SV
     collisions::C
@@ -243,22 +247,29 @@ the field `e` with `∂e/∂x = nₖ − nᵢ`, and returns the kick's displacem
 `e·Δt`, all into buffers it owns. Mutable for `Δt` alone, which
 [`step!`](@ref) sets before each step.
 
+The density, the ions and the charge are in the widths' type `W`, as
+`ft .* Δv` is: Float32 data on Float64 grids sums its density and cancels it
+against the ions in Float64. Summed and cancelled in Float32, the field of a
+Float32 Landau run on Float64 grids was 13 times further from the Float64 run's
+than it had been; see `docs/src/driver-notes.md`.
+
 `nrow` is `nₖ` as a `1 × Nx` matrix, sharing its memory, for `sum!`: that sums
 each column in the order `sum(ft .* Δv, dims = 1)` does, to the bit, where a
-loop or a matrix-vector product rounds differently. `tmp` is the state's
-scratch, the size of `f`, which the field solve and the diagnostics take in
-turn.
+loop or a matrix-vector product rounds differently. `tmp` holds `ft .* Δv`:
+the state's scratch, the size of `f`, which the field solve and the diagnostics
+take in turn, when `W` is `T`, and a matrix of the field solve's own when `W`
+is wider.
 """
 mutable struct FieldSolve{T<:AbstractFloat, W<:AbstractFloat, P, PW}
     Δt::T
     const e::Vector{T}
-    const nₖ::Vector{T}
-    const nrow::Matrix{T}
-    const ρ::Vector{T}
+    const nₖ::Vector{W}
+    const nrow::Matrix{W}
+    const ρ::Vector{W}
     const αv::Vector{T}
-    const nᵢ::Vector{T}
+    const nᵢ::Vector{W}
     const Δv::Vector{W}
-    const tmp::Matrix{T}
+    const tmp::Matrix{W}
     const poisson::P
     const pws::PW
 end
@@ -278,9 +289,9 @@ end
 What a run of [`vlasov_poisson`](@ref) carries from step to step, and the
 buffers it is stepped in: `f` as `f[v, x]`, the layout every sum is taken over,
 and `fxv`, the same state as `f[x, v]`, which [`strang_step!`](@ref) steps; the x
-displacements `αx`; the scratch `tmp`, shared with `field`; the quadrature
-weights `wt = Δv .* Δx'`; the splitting's workspace `ws`; the [`FieldSolve`](@ref)
-`field`; and `kinetic`, the kinetic energy `Σ f v² ΔvΔx` of `f` as it stands,
+displacements `αx`; the scratch `tmp`, shared with `field` when the widths are
+the data's type; the quadrature weights `wt = Δv .* Δx'`; the splitting's
+workspace `ws`; the [`FieldSolve`](@ref) `field`; and `kinetic`, the kinetic energy `Σ f v² ΔvΔx` of `f` as it stands,
 which `ε` is centred with.
 """
 struct State{T<:AbstractFloat, W<:AbstractFloat, WS, F<:FieldSolve}
@@ -353,11 +364,11 @@ function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants
     if nᵢ === nothing
         # By the same sum over `v` as the electron density the field is solved
         # from, so that a uniform `f` is neutral as it stands.
-        ions = fill(T(sum(@. exp(-0.5*v^2)/sqrt(2π)*Δv)), length(x))
+        ions = fill(W(sum(@. exp(-0.5*v^2)/sqrt(2π)*Δv)), length(x))
     else
         length(nᵢ) == length(x) || throw(DimensionMismatch(
             "nᵢ has $(length(nᵢ)) points, the x grid $(length(x))"))
-        ions = convert(Vector{T}, float.(nᵢ))
+        ions = convert(Vector{W}, float.(nᵢ))
     end
     Nᵢ = sum(ions .* Δx)
 
@@ -402,10 +413,10 @@ function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants
     # invariants are sums over arrays the shape of `f`, and allocating a
     # temporary per sum per step dominated the step itself.
     tmp = similar(f)
-    nₖ = Vector{T}(undef, Nx)
+    nₖ = Vector{W}(undef, Nx)
     field = FieldSolve(zero(T), Vector{T}(undef, Nx), nₖ, reshape(nₖ, 1, Nx),
-                       Vector{T}(undef, Nx), Vector{T}(undef, Nx), ions, Δv, tmp,
-                       poisson, workspace(poisson))
+                       Vector{W}(undef, Nx), Vector{T}(undef, Nx), ions, Δv,
+                       W === T ? tmp : similar(f, W), poisson, workspace(poisson))
     wt = Δv .* Δx'      # the flux-form quadrature, for every sum
     @. tmp = f*(v*v)*wt     # as `record!` takes it
     state = State(f, fxv, Vector{T}(undef, Nv), tmp, wt, ws, field, Ref(sum(tmp)))
