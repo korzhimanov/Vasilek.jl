@@ -26,7 +26,8 @@ cd "$CLAUDE_PROJECT_DIR"
 # The package and its test-only dependencies ([extras] are not in the
 # environment itself, so they are added to the depot by name), then the
 # verification studies (Plots included) and the documentation. Packages come
-# from pkg.julialang.org; if the network policy blocks it, say so and let the
+# from pkg.julialang.org, which redirects to its regional mirrors and to
+# storage.julialang.net; if the network policy blocks them, say so and let the
 # session start with Julia alone rather than fail it.
 instantiate() {
   julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()' &&
@@ -37,5 +38,5 @@ instantiate() {
 }
 if ! instantiate >/dev/null 2>&1; then
   echo "session-start: Julia is installed, but the packages could not be" \
-       "instantiated (is pkg.julialang.org allowed by the network policy?)" >&2
+       "instantiated (are pkg.julialang.org, *.pkg.julialang.org and storage.julialang.net allowed by the network policy?)" >&2
 fi
