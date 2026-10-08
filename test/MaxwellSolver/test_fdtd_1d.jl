@@ -7,9 +7,9 @@ zero_current(n) = (y = zeros(n), z = zeros(n))
 
 function run_fdtd(f₀, cfl, pulse_shape, Δt, Δx, pml, nsteps, j)
     f = deepcopy(f₀)
-    advance_fields! = FDTD1D.make_advance_fields(f, cfl, pulse_shape, Δt, Δx, 0, pml)
+    op = FDTD1D.Yee1D(; Δx, Δt, cfl, source = pulse_shape, pml)
     for t in 1:nsteps
-        advance_fields!(t*Δt, j(t*Δt, f))
+        FDTD1D.advance!(f, op, t*Δt, j(t*Δt, f))
     end
     return f
 end
@@ -52,11 +52,10 @@ end
 
 function test_fdtd_1d_pml(Δx, Δt, cfl, f₀, f₁, exp_norm_dev)
     f = deepcopy(f₀)
-    advance_fields! = FDTD1D.make_advance_fields(f, cfl, NO_PULSE, Δt, Δx, 0,
-                                                 FDTD1D.PML(10, 1e3, Δx, Δt))
+    op = FDTD1D.Yee1D(; Δx, Δt, cfl, source = NO_PULSE, pml = FDTD1D.PML(10, 1e3, Δx, Δt))
     j = zero_current(length(f.ey))
     for _ in 1:200
-        advance_fields!(0, j)
+        FDTD1D.advance!(f, op, 0, j)     # an integer time, as a source may be handed
     end
     s = sum(@. (f.ey - f₁.ey)^2)
     println("FDTD1D PML: $s")
@@ -108,17 +107,105 @@ end
     # and swapping the two must be observable -- otherwise the default
     # argument could stay wrong without any test noticing
     @test FDTD1D.PML(10, 1e3, Δt, Δx).r₂ != positional.r₂
+
+    # An integer σ_max is a number like any other. It was a MethodError while
+    # the type took its float parameter from σ_max alone.
+    whole = FDTD1D.PML(10, 1000, Δx, Δt)
+    @test whole isa FDTD1D.PML{Float64}
+    @test whole.σ_max === 1e3
+    @test whole.r₁ == positional.r₁
+    @test whole.r₂ == positional.r₂
+    @test FDTD1D.PML(; N = 10, σ_max = 1000, Δx, Δt).r₂ == positional.r₂
+    @test FDTD1D.PML(0, 1, Δx, Δt) isa FDTD1D.PML{Float64}
 end
 
-@testset "make_advance_fields checks its arguments" begin
+@testset "Yee1D checks its arguments" begin
     Δx = 0.01; Δt = 0.8*Δx
     m = FDTD1D.YeeMesh1D{Float64}(50)
     pml = FDTD1D.PML(; N = 10, σ_max = 1e3, Δx = Δx, Δt = Δt)
     # the interior would run at 0.9, the layer at 0.8
-    @test_throws ArgumentError FDTD1D.make_advance_fields(m, 0.9, NO_PULSE, Δt, Δx, 0, pml)
-    # two layers of 30 cells do not fit in 50
-    @test_throws ArgumentError FDTD1D.make_advance_fields(m, Δt/Δx, NO_PULSE, Δt, Δx, 0,
-        FDTD1D.PML(; N = 30, σ_max = 1e3, Δx = Δx, Δt = Δt))
+    @test_throws ArgumentError FDTD1D.Yee1D(; Δx, Δt, cfl = 0.9, source = NO_PULSE, pml)
+    # and so does the positional constructor, which is the one that checks
+    @test_throws ArgumentError FDTD1D.Yee1D(0.9, Δx, Δt, 0.0, pml, NO_PULSE)
+    @test FDTD1D.Yee1D(0.8, Δx, Δt, 0.0, pml, NO_PULSE).cfl === 0.8
+    # The step refuses a mesh or a current it cannot take before it writes
+    # anything. Every field is seeded and the source is on, so a check that ran
+    # after the injection or after either polarisation would show.
+    pulse = (y = (t, x) -> 1.0, z = (t, x) -> 1.0)
+    function refuses_untouched(m, op, j)
+        m.ey[26] = m.ez[26] = m.hy[25] = m.hz[25] = 1.0
+        before = deepcopy(m)
+        thrown = try
+            FDTD1D.advance!(m, op, 0.0, j); nothing
+        catch e
+            e
+        end
+        @test m.ey == before.ey && m.ez == before.ez &&
+              m.hy == before.hy && m.hz == before.hz
+        return thrown
+    end
+    # two layers of 30 cells do not fit in 50: the operator is built without a
+    # mesh, so it is the step that refuses
+    wide = FDTD1D.Yee1D(; Δx, Δt, source = pulse,
+                        pml = FDTD1D.PML(; N = 30, σ_max = 1e3, Δx = Δx, Δt = Δt))
+    @test refuses_untouched(m, wide, zero_current(51)) isa ArgumentError
+    @test FDTD1D.advance!(FDTD1D.YeeMesh1D{Float64}(62), wide, 0.0, zero_current(63)) isa
+          FDTD1D.YeeMesh1D{Float64}                  # 2·30 + 2 cells is enough
+    # a current on fewer (or more) nodes than the mesh has
+    driven = FDTD1D.Yee1D(; Δx, Δt, source = pulse, pml)
+    @test refuses_untouched(m, driven, zero_current(26)) isa DimensionMismatch
+    @test refuses_untouched(m, driven, (y = zeros(51), z = zeros(26))) isa DimensionMismatch
+    @test refuses_untouched(m, driven, zero_current(52)) isa DimensionMismatch
+    fill!(m.ey, 0); fill!(m.ez, 0); fill!(m.hy, 0); fill!(m.hz, 0)
+
+    # the defaults: the Courant number of the step, no offset, the layer the
+    # solver has always defaulted to
+    op = FDTD1D.Yee1D(; Δx, Δt, source = NO_PULSE)
+    @test op isa FDTD1D.Yee1D{Float64}
+    @test op.cfl == Δt/Δx
+    @test op.x_min === 0.0
+    @test op.pml.N == 10 && op.pml.σ_max == 1e3
+    @test op.pml.r₂ == pml.r₂
+    # an integer x_min, as every caller passed before, is a coordinate
+    @test FDTD1D.Yee1D(; Δx, Δt, source = NO_PULSE, x_min = 0).x_min === 0.0
+    # cfl is kept as given, not recomputed: Δt/Δx need not round back to it
+    @test FDTD1D.Yee1D(; Δx, Δt, cfl = 0.8, source = NO_PULSE).cfl === 0.8
+
+    # The step works in the type of Δx and Δt. A Float64 literal cfl, the
+    # default layer's Float64 σ_max and a Float64 layer passed in are rounded
+    # to it; cfl is checked there, where Δt/Δx is one ulp off 0.8.
+    Δx32 = 0.01f0; Δt32 = 0.008f0
+    @test Δt32/Δx32 != 0.8f0
+    for kw in ((;), (cfl = 0.8,), (cfl = 0.8f0,), (pml = pml,))
+        op32 = FDTD1D.Yee1D(; Δx = Δx32, Δt = Δt32, source = NO_PULSE, kw...)
+        @test op32 isa FDTD1D.Yee1D{Float32}
+        @test op32.pml isa FDTD1D.PML{Float32}
+    end
+    @test FDTD1D.Yee1D(; Δx = Δx32, Δt = Δt32, cfl = 0.8, source = NO_PULSE).cfl === 0.8f0
+    @test_throws ArgumentError FDTD1D.Yee1D(; Δx = Δx32, Δt = Δt32, cfl = 0.8001,
+                                             source = NO_PULSE)
+    # the layer is rounded once, from the coefficients computed in Float64
+    @test FDTD1D.Yee1D(; Δx = Δx32, Δt = Δt32, source = NO_PULSE).pml.r₁ ==
+          Float32.(FDTD1D.PML(; N = 10, σ_max = 1e3, Δx = Δx32, Δt = Δt32).r₁)
+    # x_min is a coordinate and keeps its type: the source sees x_min + Δx in
+    # Float64, as it did before the step had a type
+    xs = Float64[]
+    probe = (y = (t, x) -> (push!(xs, x); 0.0), z = (t, x) -> 0.0)
+    op32 = FDTD1D.Yee1D(; Δx = Δx32, Δt = Δt32, x_min = -5*2π, source = probe)
+    @test op32.x_min === -5*2π
+    FDTD1D.advance!(FDTD1D.YeeMesh1D{Float32}(50), op32, 0.0f0,
+                    (y = zeros(Float32, 51), z = zeros(Float32, 51)))
+    @test xs == [-5*2π + Δx32, -5*2π + 1.5*Δx32]
+
+    # no scratch, whatever generic code passes along
+    @test workspace(op) === nothing
+    @test workspace(op, 50) === nothing
+
+    # a step returns the mesh it advanced, as `advect!` and `solve!` return
+    # their destinations, and infers
+    j = zero_current(51)
+    @test FDTD1D.advance!(m, op, 0.0, j) === m
+    @test (@inferred FDTD1D.advance!(m, op, 0.0, j)) === m
 end
 
 @testset "Both polarisations are launched rightwards" begin
@@ -256,9 +343,11 @@ end
     # asserted it, and every index expression in the module depends on it.
     for T in (Float64, Float32)
         m = FDTD1D.YeeMesh1D{T}(7)
+        @test typeof(m) === FDTD1D.YeeMesh1D{T}    # one parameter: N is an Int
         @test length(m.ey) == length(m.ez) == 8
         @test length(m.hy) == length(m.hz) == 7
         @test m.N == 7
+        @test FDTD1D.YeeMesh1D{T}(Int32(7)).N === 7
         @test eltype(m.ey) === eltype(m.hz) === T
         @test all(iszero, m.ey) && all(iszero, m.ez)
         @test all(iszero, m.hy) && all(iszero, m.hz)
@@ -288,13 +377,13 @@ end
         for i = 0:N
             m.ey[i+1] = exp(-((i - 200)/20)^2)*sin(2π*i/25)
         end
-        advance! = FDTD1D.make_advance_fields(m, cfl, NO_PULSE, Δt, Δx, 0, no_pml(Δx, Δt))
+        op = FDTD1D.Yee1D(; Δx, Δt, cfl, source = NO_PULSE, pml = no_pml(Δx, Δt))
         j = zero_current(N + 1)
 
         staggered = Float64[]; equivalent = Float64[]; naive = Float64[]
         for s = 1:2000
             e_pre = copy(m.ey); h_pre = copy(m.hz)
-            advance!(s*Δt, j)
+            FDTD1D.advance!(m, op, s*Δt, j)
             push!(naive,      sum(abs2, e_pre) + sum(abs2, h_pre))
             push!(staggered,  sum(abs2, m.ey) + sum(h_pre .* m.hz))
             push!(equivalent, sum(e_pre .* m.ey) + sum(abs2, h_pre))
@@ -331,10 +420,10 @@ end
             i + 1 ≤ N && (m.hz[i+1] = direction*exp(-((i + 0.5 - 150 - 0.5*cfl)/12)^2))
         end
         incident = maximum(abs, m.ey)
-        advance! = FDTD1D.make_advance_fields(m, cfl, NO_PULSE, Δt, Δx, 0, pml)
+        op = FDTD1D.Yee1D(; Δx, Δt, cfl, source = NO_PULSE, pml)
         j = zero_current(N + 1)
         for s = 1:600
-            advance!(s*Δt, j)
+            FDTD1D.advance!(m, op, s*Δt, j)
         end
         return maximum(abs, m.ey[NP+2:N-NP])/incident
     end
@@ -364,10 +453,10 @@ end
         for i = 0:N
             m.ey[i+1] = exp(-((i - 100)/12)^2)
         end
-        advance! = FDTD1D.make_advance_fields(m, cfl, NO_PULSE, Δt, Δx, 0, pml)
+        op = FDTD1D.Yee1D(; Δx, Δt, cfl, source = NO_PULSE, pml)
         j = zero_current(N + 1)
         for s = 1:50
-            advance!(s*Δt, j)
+            FDTD1D.advance!(m, op, s*Δt, j)
         end
         return m
     end
@@ -384,7 +473,7 @@ end
     # `pml.N+2 : Nx-pml.N` and the two absorbing-layer loops stop short of both
     # ends, so `ey[1]` and `ey[end]` hold the zero `YeeMesh1D` gives them.
     #
-    # They are not dead storage -- `update_hz!` reads `ey[end]` -- so this is
+    # They are not dead storage -- `_update_hz!` reads `ey[end]` -- so this is
     # the boundary condition rather than an accident of the loop bounds, and it
     # is what makes the staggered energy above exactly conserved: the discrete
     # curls are adjoint only because the boundary terms vanish.
@@ -398,9 +487,8 @@ end
 
     @testset "a current drives the interior only, PML N = $NP" for NP in (0, 5)
         m = FDTD1D.YeeMesh1D{Float64}(N)
-        advance! = FDTD1D.make_advance_fields(m, cfl, NO_PULSE, Δt, Δx, 0,
-                                              FDTD1D.PML(NP, 1e3, Δx, Δt))
-        advance!(0.0, (y = fill(1.0, N+1), z = fill(1.0, N+1)))
+        op = FDTD1D.Yee1D(; Δx, Δt, cfl, source = NO_PULSE, pml = FDTD1D.PML(NP, 1e3, Δx, Δt))
+        FDTD1D.advance!(m, op, 0.0, (y = fill(1.0, N+1), z = fill(1.0, N+1)))
         @test length(m.ey) == N + 1
         @test m.ey[1] == 0.0                 # PEC: not driven
         @test m.ey[N+1] == 0.0               # PEC: not driven
@@ -414,11 +502,10 @@ end
         for i = 1:120
             m.ey[i+40] = exp(-((i - 60)/12)^2)     # seeded in the interior
         end
-        advance! = FDTD1D.make_advance_fields(m, cfl, NO_PULSE, Δt, Δx, 0,
-                                              FDTD1D.PML(NP, 1e3, Δx, Δt))
+        op = FDTD1D.Yee1D(; Δx, Δt, cfl, source = NO_PULSE, pml = FDTD1D.PML(NP, 1e3, Δx, Δt))
         j = (y = fill(1e-3, 201), z = fill(1e-3, 201))
         for s = 1:300
-            advance!(s*Δt, j)
+            FDTD1D.advance!(m, op, s*Δt, j)
         end
         @test m.ey[1] == 0.0
         @test m.ey[end] == 0.0
@@ -439,10 +526,10 @@ end
             i + 1 ≤ N && (m.hz[i+1] = exp(-((i + 0.5 - 300 - 0.5*cfl)/12)^2))
         end
         incident = maximum(m.ey)
-        advance! = FDTD1D.make_advance_fields(m, cfl, NO_PULSE, Δt, Δx, 0, no_pml(Δx, Δt))
+        op = FDTD1D.Yee1D(; Δx, Δt, cfl, source = NO_PULSE, pml = no_pml(Δx, Δt))
         j = zero_current(N + 1)
         for s = 1:250                        # out to the wall and part way back
-            advance!(s*Δt, j)
+            FDTD1D.advance!(m, op, s*Δt, j)
         end
         println("  PEC reflection: incident ", incident, ", reflected ", minimum(m.ey),
                 ", ratio ", minimum(m.ey)/incident)
@@ -486,12 +573,11 @@ end
         mesh = FDTD1D.YeeMesh1D{Float64}(N)
         shape = [sin(k*i*Δx) for i = 0:N]
         mesh.ey .= shape
-        advance! = FDTD1D.make_advance_fields(mesh, cfl, NO_PULSE, Δt, Δx, 0,
-                                              no_pml(Δx, Δt))
+        op = FDTD1D.Yee1D(; Δx, Δt, cfl, source = NO_PULSE, pml = no_pml(Δx, Δt))
         j = zero_current(N + 1)
         amplitude = Float64[]
         for s = 1:4000
-            advance!(s*Δt, j)
+            FDTD1D.advance!(mesh, op, s*Δt, j)
             push!(amplitude, sum(mesh.ey .* shape))
         end
 
@@ -559,11 +645,10 @@ end
             i + 1 ≤ N && (m.hz[i+1] = exp(-((i + 0.5 - 200 - 0.5*cfl)/12)^2))
         end
         incident = maximum(abs, m.ey)
-        advance! = FDTD1D.make_advance_fields(m, cfl, NO_PULSE, Δt, Δx, 0,
-                                              FDTD1D.PML(NP, 1e3, Δx, Δt))
+        op = FDTD1D.Yee1D(; Δx, Δt, cfl, source = NO_PULSE, pml = FDTD1D.PML(NP, 1e3, Δx, Δt))
         j = zero_current(N + 1)
         for s = 1:800
-            advance!(s*Δt, j)
+            FDTD1D.advance!(m, op, s*Δt, j)
         end
         return maximum(abs, m.ey[NP+2:N-NP])/incident
     end

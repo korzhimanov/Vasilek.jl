@@ -21,11 +21,11 @@ for N in SIZES
 
     mesh = FDTD1D.YeeMesh1D{Float64}(N)
     pulse = (y = (t, x) -> 0.0, z = (t, x) -> 0.0)
-    advance! = FDTD1D.make_advance_fields(mesh, Δt/Δx, pulse, Δt, Δx, 0.0,
-                                          FDTD1D.PML(; N = 0, σ_max = 1.0, Δx = Δx, Δt = Δt))
+    op = FDTD1D.Yee1D(; Δx, Δt, source = pulse,
+                      pml = FDTD1D.PML(; N = 0, σ_max = 1.0, Δx = Δx, Δt = Δt))
     j = (y = zeros(N + 1), z = zeros(N + 1))
     t = 0.0
-    SUITE["fdtd"]["advance $N"] = @benchmarkable $advance!($t, $j)
+    SUITE["fdtd"]["advance $N"] = @benchmarkable FDTD1D.advance!($mesh, $op, $t, $j)
 end
 
 end # module

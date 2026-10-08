@@ -101,15 +101,16 @@ end
             return @allocated PoissonFourier1D.solve!(e, ρ, p, ws)
         end
 
-        function fdtd_bytes(n)
-            Δx = 0.01; Δt = 0.8*Δx
-            mesh = FDTD1D.YeeMesh1D{Float64}(n)
-            pulse = (y = (t,x) -> 0.0, z = (t,x) -> 0.0)
-            advance! = FDTD1D.make_advance_fields(mesh, Δt/Δx, pulse, Δt, Δx, 0.0,
-                                                  FDTD1D.PML(; N = 0, σ_max = 1.0, Δx = Δx, Δt = Δt))
-            j = (y = zeros(n + 1), z = zeros(n + 1))
-            advance!(0.0, j); advance!(0.0, j)
-            return @allocated advance!(0.0, j)
+        function fdtd_bytes(n, ::Type{T} = Float64) where {T}
+            Δx = T(0.01); Δt = T(0.8)*Δx
+            mesh = FDTD1D.YeeMesh1D{T}(n)
+            pulse = (y = (t,x) -> zero(T), z = (t,x) -> zero(T))
+            # a layer built from a Float64 σ_max, which Yee1D rounds to T
+            op = FDTD1D.Yee1D(; Δx, Δt, source = pulse,
+                              pml = FDTD1D.PML(; N = 0, σ_max = 1.0, Δx = Δx, Δt = Δt))
+            j = (y = zeros(T, n + 1), z = zeros(T, n + 1))
+            FDTD1D.advance!(mesh, op, zero(T), j); FDTD1D.advance!(mesh, op, zero(T), j)
+            return @allocated FDTD1D.advance!(mesh, op, zero(T), j)
         end
 
         function collision_bytes(op, n)
@@ -124,6 +125,7 @@ end
         assert_constant("PFCNonUniform", nonuniform_bytes)
         assert_constant("PoissonFourier1D", poisson_bytes)
         assert_constant("FDTD1D", fdtd_bytes)
+        assert_constant("FDTD1D, Float32", n -> fdtd_bytes(n, Float32))
         assert_constant("BGK", n -> collision_bytes(BGK(1e-2), n))
         # Landau1P is O(N^2) in time; a smaller pair keeps the test quick.
         assert_constant("Landau1P", n -> collision_bytes(Landau1P(1e-2), n ÷ 10))

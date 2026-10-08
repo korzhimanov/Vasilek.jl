@@ -116,20 +116,4 @@ function solve!(e::AbstractVector, ρ::AbstractVector, p::PoissonFFT1D, ws::Pois
     return e
 end
 
-"""
-    generate_solver(ρ₀, Δx)
-
-The 0.1 closure form, kept as a wrapper: `solve!(e, ρ)` over a
-[`PoissonFFT1D`](@ref) with the centred derivative and one captured workspace,
-so the closure is not safe to share between tasks. Deprecated; use
-`PoissonFFT1D` with a `workspace` per task.
-"""
-function generate_solver(ρ₀, Δx)
-    Base.depwarn("PoissonFourier1D.generate_solver is deprecated; use " *
-                 "PoissonFFT1D(n, Δx) with workspace and solve!", :generate_solver)
-    p = PoissonFFT1D(length(ρ₀), Δx)
-    ws = workspace(p)
-    return (e, ρ) -> solve!(e, ρ, p, ws)
-end
-
 end

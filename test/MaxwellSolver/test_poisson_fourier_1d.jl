@@ -150,10 +150,6 @@ end
     PoissonFourier1D.solve!(view(E, :, 2), view(A, :, 2), p, workspace(p))
     @test E[:, 2] == ref
 
-    # the 0.1 closure is a wrapper with the same answer, deprecated
-    old = @test_deprecated PoissonFourier1D.generate_solver(ρ, Δx)
-    @test old(similar(ρ), ρ) == ref
-
     # many tasks, one solver value, a workspace each: every answer is the
     # serial one. The 0.1 closure shared its buffers and could not do this.
     ρs = [sin.(2π*j*x/(N*Δx)) for j in 1:16]
