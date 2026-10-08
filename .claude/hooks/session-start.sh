@@ -32,7 +32,8 @@ fi
 
 echo "export PATH=\"$HOME/.juliaup/bin:\$PATH\"" >> "${CLAUDE_ENV_FILE:-/dev/null}"
 
-cd "$CLAUDE_PROJECT_DIR"
+# The repository root, also when the hook is run by hand to debug it.
+cd "${CLAUDE_PROJECT_DIR:-$(dirname "$0")/../..}"
 
 # The package and its test-only dependencies ([extras] are not in the
 # environment itself, so they are added to the depot by name), then the

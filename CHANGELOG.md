@@ -57,6 +57,20 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 ### Added
 
+- **`CLAUDE.md` and a SessionStart hook for Claude Code cloud sessions**
+  (`.claude/hooks/session-start.sh`, `.claude/settings.json`). `CLAUDE.md`
+  holds the commands and the rules for changes (checks are run, not read; the
+  1.10 floor; a step allocates nothing; a changelog entry per PR). The hook
+  installs the latest stable Julia through `juliaup` and instantiates the
+  package, its test extras, `verification/` and `docs/`, so that tests run at
+  once; it does nothing outside the cloud. Measured in a cloud container:
+  5 min 7 s on a fresh one (Julia 1.13.1), 12.6 s once it is set up, after
+  which `Pkg.test()` passes (2503 pass, 3 broken) in 3 min 41 s. With the
+  network blocked it exits 0 and says which hosts it needs: on a fresh
+  container it leaves Julia uninstalled, and where Julia is already installed
+  it keeps it and instantiates from the depot. Its stdout is empty, since a
+  SessionStart hook's stdout is added to the session's context.
+
 - **`OnGrid(scheme, Δz)`, exported: a scheme on its grid.** Its fourth
   `advect!` argument is a displacement whatever the scheme takes: divided by
   the spacing for a uniform-grid scheme, which a non-uniform grid refuses, and
