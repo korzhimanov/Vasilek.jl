@@ -166,11 +166,11 @@ that by never writing to either end node: the interior loop runs
 so `ey[1]`, `ez[1]`, `ey[end]` and `ez[end]` hold the zero `YeeMesh1D` gives
 them, for all time.
 
-They are not dead storage. `_update_hz!` reads `ey[end]`, which is how the
-condition enters the solution, and a pulse reaching either wall comes back with
-its sign inverted — measured reflection coefficient −0.9998. It is also what
-makes the staggered energy exactly conserved: the discrete curls are adjoint
-only because the boundary terms vanish.
+They are not dead storage. The `hz` update (`_update_h!`) reads `ey[end]`,
+which is how the condition enters the solution, and a pulse reaching either
+wall comes back with its sign inverted — measured reflection coefficient
+−0.9998. It is also what makes the staggered energy exactly conserved: the
+discrete curls are adjoint only because the boundary terms vanish.
 
 Two consequences for callers:
 
