@@ -197,7 +197,7 @@ end
     end
 
     @testset "a workspace of the wrong size is rejected" begin
-        # Oversized was the dangerous one: `interpolate!` prefilters the whole
+        # Oversized was the dangerous one: the prefilter runs over the whole
         # buffer, so a SemiLagrangian handed a longer workspace returned
         # garbage (max|Δ| ≈ 0.4) without complaint. Undersized already threw
         # BoundsError, which is loud but from the wrong place.
@@ -241,7 +241,7 @@ end
         for spline in (LinearSpline(), CubicSpline())
             s = SemiLagrangian(spline)
             ws = workspace(s, N)
-            buf = view(ws.buffer, 1:N)
+            buf = view(ws.coefficients, 1:N)
             copyto!(buf, f)
             @test_throws ArgumentError advect!(buf, f, s, 0.4, ws)
             @test_throws ArgumentError advect!(similar(f), buf, s, 0.4, ws)
@@ -431,8 +431,8 @@ end
         @test eltype(advect!(similar(g), g, scheme, c)) === Float32
     end
 
-    @test workspace(SemiLagrangian(CubicSpline()), N, Float32).buffer isa Vector{Float32}
-    @test workspace(SemiLagrangian(CubicSpline()), N).buffer isa Vector{Float64}
+    @test workspace(SemiLagrangian(CubicSpline()), N, Float32).coefficients isa Vector{Float32}
+    @test workspace(SemiLagrangian(CubicSpline()), N).coefficients isa Vector{Float64}
     s32 = PFCNonUniform(fill(0.05f0, N); fmin = 0.0f0, fmax = 2.0f0)
     @test workspace(s32, N).accumulator isa Vector{Float32}
 
