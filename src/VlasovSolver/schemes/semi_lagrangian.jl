@@ -53,23 +53,18 @@ end
 """
     _prefilter!(ws, spline, src)
 
-The B-spline coefficients of `src`, written into `ws.coefficients`.
+The B-spline coefficients of `src`, into `ws.coefficients`. The linear spline's
+are the data, and the first point again at `n + 1`.
 
-The linear spline interpolates its data as they are, and gets the first point
-again at `n + 1`, so that its last cell needs no wrapped index.
-
-A quadratic or cubic spline interpolates the coefficients `c` that solve the
-periodic system `M c = src`, `M` tridiagonal with `a` on the diagonal, `b` off
-it and `b` in its corners `M[1,n]` and `M[n,1]` ([`_diagonals`](@ref)). With
-`u = e₁ + eₙ`, `M = A + b·u·uᵀ`, where `A` is tridiagonal with `a − b` in its
-two corners; `A` is strictly diagonally dominant, so needs no pivoting, and by
-Sherman–Morrison
+The quadratic and cubic splines' coefficients solve `M c = src`, `M`
+tridiagonal with `a` on the diagonal and `b` off it and in the corners
+`M[1,n]`, `M[n,1]`. With `u = e₁ + eₙ`, `M = A + b·u·uᵀ`, `A` tridiagonal with
+`a − b` in its corners and strictly diagonally dominant, and by Sherman–Morrison
 
     c = y − b(y₁ + yₙ)·z,    y = A⁻¹src,    z = A⁻¹u/(1 + b·uᵀA⁻¹u).
 
-The workspace holds `A`'s factorisation and `z`, so a step is a forward and a
-backward sweep and one axpy, O(n), allocating nothing. Interpolations solves the
-same system by a Woodbury update of an LU factorisation, rebuilt every step.
+The workspace holds `A`'s factorisation (`rdiag`, reciprocal pivots) and `z`,
+so a step is two sweeps and an axpy.
 """
 function _prefilter!(ws::SplineWorkspace, ::LinearSpline, src)
     buf = ws.coefficients
@@ -113,14 +108,10 @@ _periodic(x, l, n) = mod(x - l, oftype(x, n)) + l
 _knot(j, n, ::Val{true}) = ifelse(j < 1, j + n, ifelse(j > n, j - n, j))
 _knot(j, n, ::Val{false}) = j
 
-"""
-    _evaluate(coefficients, n, spline, x, wrap)
-
-The spline with the given coefficients at `x`, which lies in
-`[_lower, _upper]`, by Interpolations' `value_weights` and summed as its
-`interp_getindex` sums, the last weight first. `wrap` is `Val(false)` only
-where the stencil is known to lie inside `1:n`.
-"""
+# The spline with the given coefficients at `x`, which lies in
+# `[_lower, _upper]`: Interpolations' `value_weights`, summed as its
+# `interp_getindex` sums, the last weight first. `wrap` is `Val(false)` only
+# where the stencil is known to lie inside `1:n`.
 @inline function _evaluate(buf, n, ::LinearSpline, x, wrap)
     f = floor(x)
     f = ifelse(x == n + 1, f - 1, f)    # x = n + 1 is in the last cell
@@ -140,7 +131,8 @@ end
     w₁ = ((δ - h)*(δ - h))/2
     w₂ = (one(x)*3)/4 - δ*δ
     w₃ = ((δ + h)*(δ + h))/2
-    @inbounds return w₃*c[_knot(k + 1, n, wrap)] + (w₂*c[_knot(k, n, wrap)] + w₁*c[_knot(k - 1, n, wrap)])
+    @inbounds return w₃*c[_knot(k + 1, n, wrap)] +
+                     (w₂*c[_knot(k, n, wrap)] + w₁*c[_knot(k - 1, n, wrap)])
 end
 
 @inline function _evaluate(c, n, ::CubicSpline, x, wrap)

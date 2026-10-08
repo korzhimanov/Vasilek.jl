@@ -76,13 +76,9 @@ struct QuadraticSpline <: AbstractSpline end
 """Cubic B-spline with periodic boundaries."""
 struct CubicSpline <: AbstractSpline end
 
-"""
-    _diagonals(T, spline)
-
-The diagonal and off-diagonal `(a, b)` of the periodic prefilter matrix of a
-quadratic or cubic B-spline: the spline's weights on a node and on each of its
-neighbours, evaluated at that node. `(3/4, 1/8)` and `(2/3, 1/6)`, in `T`.
-"""
+# The diagonal and off-diagonal `(a, b)` of a quadratic or cubic B-spline's
+# periodic prefilter, in `T`: the spline's weights on a knot and on each of its
+# neighbours, evaluated at that knot.
 _diagonals(::Type{T}, ::QuadraticSpline) where {T} = (T(3)/T(4), T(1)/T(8))
 _diagonals(::Type{T}, ::CubicSpline) where {T} = (T(2)/T(3), T(1)/T(6))
 
@@ -167,10 +163,7 @@ end
 
 Backward characteristic tracing with B-spline interpolation. Needs a
 [`workspace`](@ref). Global order equals the spline degree.
-
-The quadratic and cubic splines interpolate through the periodic prefilter of
-[`_prefilter!`](@ref), one O(n) solve a step against a factorisation the
-workspace holds; the linear spline needs none.
+The quadratic and cubic splines prefilter their data, [`_prefilter!`](@ref).
 """
 struct SemiLagrangian{S<:AbstractSpline} <: AbstractAdvection1D
     spline::S
@@ -306,18 +299,11 @@ concurrently over the lines of a multidimensional sweep.
 """
 workspace(::AbstractAdvection1D, ::Integer, ::Type = Float64) = nothing
 
-"""
-    SplineWorkspace{T, S}
-
-Scratch for `SemiLagrangian{S}`. `coefficients` holds the line's B-spline
-coefficients and is overwritten every step: for `LinearSpline` the data and
-its first point again, `n + 1` values; for the quadratic and cubic splines the
-solution of the periodic prefilter, [`_prefilter!`](@ref). `rdiag` and `z`
-factorise that prefilter once, when the workspace is built, and are only read
-afterwards: `rdiag` holds the reciprocal pivots of the tridiagonal part and `z`
-its Sherman–Morrison correction. They belong to one spline and one `n`, hence
-the `S` in the type, and are empty for `LinearSpline`.
-"""
+# Scratch for `SemiLagrangian{S}`: the line's spline `coefficients`, rewritten
+# every step (`n + 1` of them for `LinearSpline`, the data and the first point
+# again), and the prefilter's factorisation `rdiag` and `z`, built with the
+# workspace and only read after, empty for `LinearSpline`; see `_prefilter!`.
+# They belong to one spline, hence the `S`.
 struct SplineWorkspace{T, S<:AbstractSpline}
     coefficients::Vector{T}
     rdiag::Vector{T}
@@ -342,16 +328,12 @@ function workspace(s::SemiLagrangian{S}, n::Integer, ::Type{T} = Float64) where 
     return SplineWorkspace{T, S}(Vector{T}(undef, n), rdiag, z)
 end
 
-"""
-    _factorise!(rdiag, a, b)
-
-The reciprocal pivots of the Thomas factorisation of the tridiagonal `A` with
-`a` on the diagonal, `b` off it, and `a − b` in its two corners, as
-[`_prefilter!`](@ref) splits the periodic matrix. Reciprocals, so that a solve
-multiplies where it would divide: both of its sweeps are serial recurrences,
-whose cost is the latency of the chain, and a division on it is several times a
-multiplication.
-"""
+# The reciprocal pivots of the Thomas factorisation of the tridiagonal `A` with
+# `a` on the diagonal, `b` off it and `a − b` in its two corners, as
+# `_prefilter!` splits the periodic matrix. Reciprocals, so that a solve
+# multiplies where it would divide: both of its sweeps are serial recurrences,
+# whose cost is the latency of the chain, and a division costs several times
+# what a multiplication does.
 function _factorise!(rdiag, a, b)
     n = length(rdiag)
     d = a - b
@@ -363,13 +345,9 @@ function _factorise!(rdiag, a, b)
     return rdiag
 end
 
-"""
-    _thomas!(y, rdiag, b)
-
-Solve `A y = y` in place, `A` the tridiagonal whose reciprocal pivots
-[`_factorise!`](@ref) put in `rdiag`. `length(rdiag) == length(y)`, which
-`_validate_workspace` checks before every step.
-"""
+# Solve `A y = y` in place, `A` the tridiagonal whose reciprocal pivots
+# `_factorise!` put in `rdiag`. Needs `length(rdiag) == length(y)`, which
+# `_validate_workspace` checks before every step.
 function _thomas!(y, rdiag, b)
     n = length(y)
     n ≥ 1 || return y
