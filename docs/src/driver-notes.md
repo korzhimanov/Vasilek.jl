@@ -120,6 +120,31 @@ always were: summed over `f[x, v]` the same terms round differently, and the
 bits of `ε`, `mass` and `l2` move. Folding the last half step into that
 transpose is left for later.
 
+**A step allocates nothing.** `vlasov_poisson` is `setup`, which checks the
+arguments and allocates every buffer the run uses, then `step!` and `record!`
+for each step, and the time loop sits behind a function barrier, since what
+`setup` returns has types that depend on the keywords' values. The state is
+`f` twice, as `f[v, x]` for the sums and `f[x, v]` for the step, with the x
+displacements, one scratch matrix the size of `f` that the density and the
+diagnostics take in turn, the quadrature weights `Δv .* Δx'` and the
+splitting's workspace. The field solve is a value, the `cv` that `strang_step!`
+calls, owning the density, the charge, the field and the kick's displacements;
+only its `Δt` changes, once a step. The step used to allocate 84 KiB at
+64 × 161, more than `f`'s 80.5 KiB: the density was `sum(ft .* Δv, dims = 1)`, a
+temporary the size of `f`, and `v .* Δt`, `nₖ - nᵢ` and `e .* Δt` a line each.
+
+The density is summed by `sum!` into `nₖ` seen as a `1 × Nx` matrix, after
+`tmp .= ft .* Δv` into the scratch. `sum!` sums each column in the order
+`sum(…, dims = 1)` does, pairwise, and gives the same bits on every shape
+tried, on Julia 1.10 and 1.13. A loop down the column, or `Δv` against `ft` as
+a matrix-vector product, adds the same terms in another order and moves the
+last bits of the field, and through it every history; so does summing over
+`f[x, v]`, which is why the sums stay on `f[v, x]`. Every Float64 result is
+the same to the bit as before, and `test/test_allocations.jl` measures a step at
+the 80 bytes the histories grow by. The kinetic energy is summed over
+`f*(v*v)*wt` rather than `f*v^2*wt`, the same bits: on Julia 1.10 under
+`--check-bounds=yes` the literal power boxed a value every step.
+
 ## `vlasov_poisson`
 
     vlasov_poisson(x, v, f₀, t; scheme_x, scheme_v, invariants = false, modes = (),
@@ -317,6 +342,36 @@ Float32. A Rational v grid gave Rational widths, which no `PFCNonUniform`
 takes. A Float32 problem still has Float32 widths and Float32 `f`; its defaults
 compute in Float64 and round into the line once, as they did before the widths
 kept the grid's type.
+
+**The run is in the data's type, `T = float(eltype(f₀))`, but for its lines.**
+The field and every history are `T`, and `E_modes` is `Complex{T}`; the
+density, the ions and the charge are in the cell widths' type, `T` or a grid's
+wider one. They followed the grids and the times: under Float32 `f` the
+default ions, and the charge with them, were Float64, the field was Float64 on
+a Float64 grid, `E_modes` was always `ComplexF64`, and the histories were
+`similar(t)`, Float64 for Float32 data stepped through Float64 times. The
+lines are the exception, still worked in Float64 under Float32 data and
+rounded into `f` once a step. The rounding that once stopped
+Float32 runs is gone from a constant line, now that `PFCNonUniform` takes the
+difference of its fluxes, but not from the edge of a plateau: worked in
+Float32, a plateau with smooth sides over |v| < 2 and an edge down to 0
+stopped with a `DomainError` in 13 of 24 runs of 40 steps, each on a cell
+rounded to −1.0e-45, one subnormal below the defaults' `fmin = 0`. Worked in
+Float64, none of 240 runs over five profiles, with and without `BGK`,
+stopped. The all-Float32 Landau run of
+`test_driver.jl` matches the Float64 one to 7.7e-7 of the peak in `f` and
+6.9e-6 in `ε_e` on Julia 1.13, 1.2e-6 and 3.3e-6 on 1.10.
+
+The density is the exception the other way. Float32 data on Float64 grids
+sums `Σ f Δv` in Float64 and cancels it against Float64 ions, as
+`sum(ft .* Δv, dims = 1)` always did: the charge of a Landau run is a
+difference of two numbers near 1, and rounding the sum and the ions to Float32
+first loses as many digits as the perturbation is small. Summed and cancelled
+in Float32, a Float32 Landau run (`Nx = 64`, `Nv = 128`, a 1% perturbation, to
+`t = 20`) put `ε_e` 1.2e-5 of its peak from the Float64 run's and the mode
+amplitude 3.0e-5, where they had been 8.6e-7 and 1.8e-6; summed in Float64,
+they are 9.0e-7 and 2.0e-6. The cost is a Float64 matrix the size of `f` for
+the products `f Δv`, held by the field solve beside the Float32 scratch.
 
 ### `keeps_bounds`
 

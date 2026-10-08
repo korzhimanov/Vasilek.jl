@@ -128,4 +128,41 @@ end
         # Landau1P is O(N^2) in time; a smaller pair keeps the test quick.
         assert_constant("Landau1P", n -> collision_bytes(Landau1P(1e-2), n ÷ 10))
     end
+
+    @testset "the driver's step is O(1)" begin
+        # `vlasov_poisson` allocates its buffers once, before the first step. A
+        # step is the difference between a 12-step and a 2-step run, over 10,
+        # which cancels the setup; what remains is the histories' growth, eight
+        # entries and one mode, 80 bytes a step in Float64, and anything the step
+        # itself allocates. Measured 80 on Julia 1.10 and 1.13 at both sizes:
+        # the step allocates nothing. It allocated 84 KiB a step at 64 × 161,
+        # more than `f`'s 80.5 KiB, for the density summed from a temporary.
+        function driver_bytes(Nx, Nv, steps; kw...)
+            k = 0.5
+            x = collect(range(2π/k/Nx; step = 2π/k/Nx, length = Nx))
+            v = collect(range(-6.0, 6.0; length = Nv))
+            f₀ = [exp(-u^2/2)/sqrt(2π)*(1 + 0.01cos(k*y)) for u in v, y in x]
+            t = collect(0.0:0.05:0.05*steps)
+            vlasov_poisson(x, v, f₀, t; modes = (k,), invariants = true, kw...)
+            return @allocated vlasov_poisson(x, v, f₀, t; modes = (k,), invariants = true, kw...)
+        end
+        per_step(Nx, Nv; kw...) = (driver_bytes(Nx, Nv, 12; kw...) - driver_bytes(Nx, Nv, 2; kw...))/10
+
+        small, large = per_step(64, 81), per_step(128, 161)
+        println("  ", rpad("vlasov_poisson step", 32), "64 × 81: ", small, "   128 × 161: ", large)
+        # Independent of the grid to four 16-byte boxes, and at most 112 bytes
+        # above the histories' 80: a temporary the size of a line is 648 bytes
+        # here, one the size of `f` 40.5 KiB.
+        @test abs(large - small) ≤ 64
+        @test small ≤ 192
+
+        # With `BGK` the step is not held to that: on the Windows runner under
+        # Julia 1.10 `collide!` leaves its 16-byte box (see the top of this
+        # file), twice a line. It is held to a few boxes a line, at a fixed
+        # number of lines, whatever the length of each.
+        c81, c161 = per_step(64, 81; collisions = BGK(1.0)), per_step(64, 161; collisions = BGK(1.0))
+        println("  ", rpad("vlasov_poisson step, BGK", 32), "64 × 81: ", c81, "   64 × 161: ", c161)
+        @test abs(c161 - c81) ≤ 64
+        @test c81 ≤ 192 + 64*64
+    end
 end
