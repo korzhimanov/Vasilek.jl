@@ -69,7 +69,8 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
   network blocked it exits 0 and says which hosts it needs: on a fresh
   container it leaves Julia uninstalled, and where Julia is already installed
   it keeps it and instantiates from the depot. Its stdout is empty, since a
-  SessionStart hook's stdout is added to the session's context.
+  SessionStart hook's stdout is added to the session's context. Its timeout is
+  900 s, where the default of 600 s left less than twice the fresh install.
 
 - **`OnGrid(scheme, Δz)`, exported: a scheme on its grid.** Its fourth
   `advect!` argument is a displacement whatever the scheme takes: divided by
