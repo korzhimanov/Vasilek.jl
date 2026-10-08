@@ -10,14 +10,25 @@ fi
 
 export PATH="$HOME/.juliaup/bin:$PATH"
 
-if ! command -v juliaup >/dev/null 2>&1; then
-  curl -fsSL https://install.julialang.org | sh -s -- --yes --add-to-path=no
-fi
-
 # `release` is the current stable; `update` moves it to a newer one if there is.
-juliaup add release
-juliaup update release
-juliaup default release
+# The steps are chained with `&&` because `set -e` does not apply inside a
+# function called as an `if` condition. Their output goes to stderr: a
+# SessionStart hook's stdout lands in the session's context.
+install_julia() {
+  { command -v juliaup >/dev/null 2>&1 ||
+    curl -fsSL https://install.julialang.org | sh -s -- --yes --add-to-path=no; } &&
+  juliaup add release &&
+  juliaup update release &&
+  juliaup default release
+}
+# A failed update leaves an installed Julia usable, so only its absence stops
+# the hook; either way the session starts.
+if ! install_julia >&2; then
+  echo "session-start: Julia could not be installed or updated (are" \
+       "install.julialang.org and julialang-s3.julialang.org allowed by the" \
+       "network policy?)" >&2
+  command -v julia >/dev/null 2>&1 || exit 0
+fi
 
 echo "export PATH=\"$HOME/.juliaup/bin:\$PATH\"" >> "${CLAUDE_ENV_FILE:-/dev/null}"
 
