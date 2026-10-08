@@ -1228,6 +1228,22 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 ### Changed
 
+- **The two polarisations of the FDTD step share one update.** The
+  copy-paste pairs `_update_ey!`/`_update_ez!` and `_update_hz!`/`_update_hy!`
+  are `_update_e!(e, h, j, ±, …)` and `_update_h!(h, e, ±, …)`, called with
+  `-` for (ey, hz) and `+` for (ez, hy). `±` is the operator itself, not a
+  factor of ±1, so each line performs the operation the hand-written copy did,
+  and a fix to the layer's indexing is made once. Twelve runs of 400 steps on
+  300 cells — `Float64` and `Float32`, no layer and layers of 5, 10 and 20
+  cells, `cfl` 0.5 to 1, either polarisation and both, with currents and a
+  nonzero `x_min` — give `ey`, `ez`, `hy` and `hz` identical in every byte to
+  `master`; golden data are unchanged. The step is also faster, since the
+  loops now take the field vectors as arguments and LLVM vectorises more of
+  them (47 vector instructions in the electric update against 16): minimum
+  time per step, three runs each, `master` → this change, `Float64` 535 →
+  267 ns at N = 100, 4.7 → 1.3 µs at 1000, 48.6 → 19.7 µs at 10 000;
+  `Float32` 515 → 267 ns, 4.5 → 0.71 µs, 45.4 → 9.9 µs. Still 0 bytes.
+
 - **A step of `vlasov_poisson` allocates nothing.** It allocated 84 KiB a
   step at 64 × 161, more than `f`'s 80.5 KiB: the density was summed as
   `sum(ft .* Δv, dims = 1)`, a temporary the size of `f`, and `v .* Δt`,

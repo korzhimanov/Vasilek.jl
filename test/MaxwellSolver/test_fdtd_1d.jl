@@ -473,10 +473,11 @@ end
     # `pml.N+2 : Nx-pml.N` and the two absorbing-layer loops stop short of both
     # ends, so `ey[1]` and `ey[end]` hold the zero `YeeMesh1D` gives them.
     #
-    # They are not dead storage -- `_update_hz!` reads `ey[end]` -- so this is
-    # the boundary condition rather than an accident of the loop bounds, and it
-    # is what makes the staggered energy above exactly conserved: the discrete
-    # curls are adjoint only because the boundary terms vanish.
+    # They are not dead storage -- the `hz` update (`_update_h!`) reads
+    # `ey[end]` -- so this is the boundary condition rather than an accident of
+    # the loop bounds, and it is what makes the staggered energy above exactly
+    # conserved: the discrete curls are adjoint only because the boundary terms
+    # vanish.
     #
     # The current used to be added over `1:Nx`, which drove node 1 while node
     # `Nx+1` was left alone. Injecting a current into a perfect conductor is

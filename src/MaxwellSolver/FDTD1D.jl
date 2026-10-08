@@ -25,7 +25,7 @@ The two end nodes, `ey[1]`/`ez[1]` and `ey[end]`/`ez[end]`, are **perfect
 electric conductor boundaries**. No update touches them — the interior loop
 runs `pml.N+2 : Nx-pml.N` and the two absorbing-layer loops stop short of both
 ends — so they hold the zero they are constructed with, for all time. They are
-not dead storage: `_update_hz!` reads `ey[end]`, which is how the boundary
+not dead storage: the `hz` update reads `ey[end]`, which is how the boundary
 condition enters the solution.
 
 Writing a nonzero value into either end node therefore does not seed a wave,
@@ -181,15 +181,16 @@ function advance!(mesh::YeeMesh1D, op::Yee1D, t, j)
     mesh.N ≥ 2*op.pml.N + 2 || _err_fit(mesh.N, op.pml.N)
     length(j.y) == length(j.z) == mesh.N + 1 || _err_current(mesh.N, length(j.y), length(j.z))
     _inject!(mesh, op, t)
-    _update_ey!(mesh, op, j.y)
-    _update_ez!(mesh, op, j.z)
-    _update_hz!(mesh, op)
-    _update_hy!(mesh, op)
+    cfl = op.cfl; pml = op.pml; Nx = mesh.N
+    _update_e!(mesh.ey, mesh.hz, j.y, -, cfl, pml, Nx)
+    _update_e!(mesh.ez, mesh.hy, j.z, +, cfl, pml, Nx)
+    _update_h!(mesh.hz, mesh.ey, -, cfl, pml, Nx)
+    _update_h!(mesh.hy, mesh.ez, +, cfl, pml, Nx)
     return mesh
 end
 
-# The five steps of `advance!`. Each binds the names the update was written in
-# -- `f` the mesh, `Nx` its cells -- so that the loops read as they always have.
+# The steps of `advance!`. The source is injected first, then each
+# polarisation's electric field and, after both, each one's magnetic field.
 
 function _inject!(mesh, op, t)
     f = mesh; cfl = op.cfl; Δt = op.Δt; Δx = op.Δx; x_min = op.x_min
@@ -205,64 +206,42 @@ function _inject!(mesh, op, t)
     return nothing
 end
 
-function _update_ey!(mesh, op, jy)
-    f = mesh; cfl = op.cfl; pml = op.pml; Nx = mesh.N
+# One polarisation's update: `e` on the nodes, `h` on the cells, and `±` the
+# sign the curl enters with -- `-` for (ey, hz) and `+` for (ez, hy), the pair
+# (ez, hy) being (ey, -hz). `±` is `+` or `-` itself, not a factor of ±1, so
+# `e ± cfl*d` is the same operation the two hand-written copies performed.
+
+# `e` on the interior nodes 2:Nx, then the current. The end nodes are PEC.
+function _update_e!(e, h, j, ±, cfl, pml, Nx)
     for i = 2:pml.N+1
-        f.ey[i] = pml.r₁[1+2*(pml.N-i+1)]*f.ey[i] - pml.r₂[1+2*(pml.N-i+1)]*(f.hz[i] - f.hz[i-1])
+        k = 1 + 2*(pml.N-i+1)
+        e[i] = pml.r₁[k]*e[i] ± pml.r₂[k]*(h[i] - h[i-1])
     end
     for i = pml.N+2:Nx-pml.N
-        f.ey[i] -= cfl*(f.hz[i] - f.hz[i-1])
+        e[i] = e[i] ± cfl*(h[i] - h[i-1])
     end
     for i = Nx-pml.N+1:Nx
-        f.ey[i] = pml.r₁[1+2*(i-Nx+pml.N-1)]*f.ey[i] - pml.r₂[1+2*(i-Nx+pml.N-1)]*(f.hz[i] - f.hz[i-1])
+        k = 1 + 2*(i-Nx+pml.N-1)
+        e[i] = pml.r₁[k]*e[i] ± pml.r₂[k]*(h[i] - h[i-1])
     end
     for i = 2:Nx
-        f.ey[i] += jy[i]
+        e[i] += j[i]
     end
     return nothing
 end
 
-function _update_ez!(mesh, op, jz)
-    f = mesh; cfl = op.cfl; pml = op.pml; Nx = mesh.N
-    for i = 2:pml.N+1
-        f.ez[i] = pml.r₁[1+2*(pml.N-i+1)]*f.ez[i] + pml.r₂[1+2*(pml.N-i+1)]*(f.hy[i] - f.hy[i-1])
-    end
-    for i = pml.N+2:Nx-pml.N
-        f.ez[i] += cfl*(f.hy[i] - f.hy[i-1])
-    end
-    for i = Nx-pml.N+1:Nx
-        f.ez[i] = pml.r₁[1+2*(i-Nx+pml.N-1)]*f.ez[i] + pml.r₂[1+2*(i-Nx+pml.N-1)]*(f.hy[i] - f.hy[i-1])
-    end
-    for i = 2:Nx
-        f.ez[i] += jz[i]
-    end
-    return nothing
-end
-
-function _update_hy!(mesh, op)
-    f = mesh; cfl = op.cfl; pml = op.pml; Nx = mesh.N
+# `h` on all Nx cells. The last reads `e[end]`, the right-hand PEC node.
+function _update_h!(h, e, ±, cfl, pml, Nx)
     for i = 1:pml.N
-        f.hy[i] = pml.r₁[2*(pml.N-i+1)]*f.hy[i] + pml.r₂[2*(pml.N-i+1)]*(f.ez[i+1] - f.ez[i])
+        k = 2*(pml.N-i+1)
+        h[i] = pml.r₁[k]*h[i] ± pml.r₂[k]*(e[i+1] - e[i])
     end
     for i = pml.N+1:Nx-pml.N
-        f.hy[i] += cfl*(f.ez[i+1] - f.ez[i])
+        h[i] = h[i] ± cfl*(e[i+1] - e[i])
     end
     for i = Nx-pml.N+1:Nx
-        f.hy[i] = pml.r₁[2*(i-Nx+pml.N)]*f.hy[i] + pml.r₂[2*(i-Nx+pml.N)]*(f.ez[i+1] - f.ez[i])
-    end
-    return nothing
-end
-
-function _update_hz!(mesh, op)
-    f = mesh; cfl = op.cfl; pml = op.pml; Nx = mesh.N
-    for i = 1:pml.N
-        f.hz[i] = pml.r₁[2*(pml.N-i+1)]*f.hz[i] - pml.r₂[2*(pml.N-i+1)]*(f.ey[i+1] - f.ey[i])
-    end
-    for i = pml.N+1:Nx-pml.N
-        f.hz[i] -= cfl*(f.ey[i+1] - f.ey[i])
-    end
-    for i = Nx-pml.N+1:Nx
-        f.hz[i] = pml.r₁[2*(i-Nx+pml.N)]*f.hz[i] - pml.r₂[2*(i-Nx+pml.N)]*(f.ey[i+1] - f.ey[i])
+        k = 2*(i-Nx+pml.N)
+        h[i] = pml.r₁[k]*h[i] ± pml.r₂[k]*(e[i+1] - e[i])
     end
     return nothing
 end
