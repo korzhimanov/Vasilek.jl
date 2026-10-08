@@ -286,10 +286,11 @@ function ddx!(d, u, Δx)
 end
 
 """
-    transverse_step!(advance_fields!, em, pʸ, pᶻ, density, t, Δt)
+    transverse_step!(em, op, pʸ, pᶻ, density, t, Δt)
 
 One step of the transverse half of the reduced model: accumulate the canonical
-`p⊥ = -A⊥` from `E⊥`, then advance `em` with the current that momentum carries.
+`p⊥ = -A⊥` from `E⊥`, then advance `em` under the `FDTD1D.Yee1D` operator `op`
+with the current that momentum carries.
 
 Three lines, and every one of them has been wrong at some point, which is why
 they are a function rather than a passage inside [`wakefield`](@ref):
@@ -297,7 +298,7 @@ they are a function rather than a passage inside [`wakefield`](@ref):
 * the accumulation is `p⊥ += E⊥Δt`, which is the invariant `p⊥ = -A⊥` and not a
   force integral -- see the `wakefield` docstring;
 * the current argument is `-J Δt` rather than `J`, because
-  `make_advance_fields` adds it straight into the field. Without the `Δt` the
+  `FDTD1D.advance!` adds it straight into the field. Without the `Δt` the
   wakefield study reached a peak field of 1.0e22;
 * the sign pairs `∂p/∂t = +e` with `∂e/∂t = -n·p` into an oscillation. The
   other way round it is exponential growth, measured at 44 rather than 1.
@@ -307,10 +308,10 @@ they are a function rather than a passage inside [`wakefield`](@ref):
 lets the dispersion relation asserted there be a statement about the code the
 wakefield study runs, rather than about a second copy of it.
 """
-function transverse_step!(advance_fields!, em, pʸ, pᶻ, density, t, Δt)
+function transverse_step!(em, op, pʸ, pᶻ, density, t, Δt)
     pʸ .= pʸ .+ em.ey.*Δt
     pᶻ .= pᶻ .+ em.ez.*Δt
-    advance_fields!(t, (y = -pʸ.*density.*Δt, z = -pᶻ.*density.*Δt))
+    FDTD1D.advance!(em, op, t, (y = -pʸ.*density.*Δt, z = -pᶻ.*density.*Δt))
     return nothing
 end
 
@@ -512,9 +513,8 @@ function wakefield(; Δx = 0.05*2π,
     ξ(t, x) = x - t - (x_min + Δx - laser_delay)
     pulse_shape = (y = (t, x) -> laser_amplitude*exp(-(ξ(t, x)/laser_duration)^2)*sin(ξ(t, x)),
                    z = (t, x) -> 0.0)
-    advance_fields! = FDTD1D.make_advance_fields(
-        em, Δt/Δx, pulse_shape, Δt, Δx, x_min,
-        FDTD1D.PML(; N = 0, σ_max = 1.0, Δx = Δx, Δt = Δt))
+    transverse = FDTD1D.Yee1D(; Δx, Δt, source = pulse_shape, x_min,
+                              pml = FDTD1D.PML(; N = 0, σ_max = 1.0, Δx = Δx, Δt = Δt))
 
     t = collect(0.0:Δt:total_time)
     Nt = length(t)
@@ -561,7 +561,7 @@ function wakefield(; Δx = 0.05*2π,
         # Step k ends at t[k] = (k − 1)Δt, and the source is evaluated at the
         # end of its step, as `test_fdtd_1d.jl` drives it; `k*Δt` ran the laser
         # one step ahead of the run's own clock.
-        transverse_step!(advance_fields!, em, pʸ, pᶻ, view(n, k, :), (k - 1)*Δt, Δt)
+        transverse_step!(em, transverse, pʸ, pᶻ, view(n, k, :), (k - 1)*Δt, Δt)
 
         @. ϕ = 0.5*(pʸ^2 + pᶻ^2)
         ddx!(∂ϕ, ϕ, Δx)

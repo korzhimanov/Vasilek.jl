@@ -87,6 +87,11 @@ r.ε_e        # electric energy per step; r.E_modes[:, 1] the k = 0.5 field
 The schemes default to `PFCNonUniform` bounded by `f₀`; `scheme_x`, `scheme_v`,
 `collisions = BGK(τ)` and the diagnostics are in its docstring.
 
+The public API is the top-level `export` list plus the two named submodules,
+`Vasilek.FDTD1D` (`YeeMesh1D`, `PML`, `Yee1D`, `advance!`) and
+`Vasilek.PoissonFourier1D` (`PoissonFFT1D`, `solve!`), which are not
+re-exported.
+
 These blocks are executed by the test suite, so they cannot drift from the API.
 
 ## Development

@@ -1,11 +1,18 @@
 # Migrating to 0.2
 
-Schemes are values now, and `advect!` dispatches on them. The advection
-`generate_solver`s are gone, with no compatibility shim (the Poisson one is
-deprecated rather than removed; see below): the module names it lived under (`Upwind`,
-`PFC`, …) are the new type names, so the old and new API cannot coexist in one
-namespace. This was the one point where the plan for this change had to give
-way to the language.
+Schemes are values now, and `advect!` dispatches on them. The 0.1 closure
+factories are gone, with no compatibility shim: the advection and collision
+`generate_solver`s, the Poisson one, and `FDTD1D.make_advance_fields`. For the
+advection schemes there was no choice: the module names `generate_solver` lived
+under (`Upwind`, `PFC`, …) are the new type names, so the old and new API cannot
+coexist in one namespace. This was the one point where the plan for this change
+had to give way to the language. The others follow them so that 0.2 has one
+shape throughout, and since no release carries them, a shim would have
+preserved nothing.
+
+The public API is what `Vasilek` exports, plus the two named submodules
+`Vasilek.FDTD1D` and `Vasilek.PoissonFourier1D`, which are not re-exported:
+write `using Vasilek.FDTD1D` for their names, or qualify them.
 
 ## Advection
 
@@ -154,7 +161,7 @@ with its second array and its per-line closures.
 
 ```julia
 # 0.1
-solve! = PoissonFourier1D.generate_solver(ρ₀, Δx)   # still works, deprecated
+solve! = PoissonFourier1D.generate_solver(ρ₀, Δx)   # removed, with no shim
 solve!(e, ρ)
 
 # 0.2
@@ -163,6 +170,46 @@ p = PoissonFFT1D(length(ρ), Δx)          # derivative = :spectral for the exac
 ws = workspace(p)                        # one per task
 solve!(e, ρ, p, ws)
 ```
+
+## FDTD
+
+```julia
+# 0.1
+mesh = FDTD1D.YeeMesh1D{Float64}(200)
+advance_fields! = FDTD1D.make_advance_fields(mesh, Δt/Δx, pulse, Δt, Δx, x_min,
+                                             FDTD1D.PML(10, 1e3, Δx, Δt))
+advance_fields!(t, j)
+
+# 0.2
+using Vasilek.FDTD1D
+mesh = YeeMesh1D{Float64}(200)
+pulse = (y = (t, x) -> exp(-(x - t + 3)^2), z = (t, x) -> 0.0)   # (t, x) -> amplitude
+op = Yee1D(; Δx, Δt, source = pulse)    # cfl = Δt/Δx, x_min = 0.0, pml = PML(; N = 10, σ_max = 1e3, Δx, Δt)
+j = (y = zeros(201), z = zeros(201))    # −J·Δt on the N + 1 electric nodes
+for s in 1:nsteps
+    advance!(mesh, op, s*Δt, j)
+end
+```
+
+| 0.1 | 0.2 |
+|---|---|
+| `make_advance_fields(f, cfl, pulse, Δt, Δx, x_min, pml)` | `op = Yee1D(; Δx, Δt, cfl, source = pulse, x_min, pml)` |
+| `advance_fields!(t, j)` | `advance!(f, op, t, j)`, which returns `f` |
+| `YeeMesh1D{T, S}`, `S` the type of `N` | `YeeMesh1D{T}`, `N` an `Int` |
+| `PML{I, T}`, `I` the type of `N`; a `MethodError` for an integer `σ_max` | `PML{T}`; `PML(10, 1000, Δx, Δt)` is `PML(10, 1e3, Δx, Δt)` |
+
+`Yee1D` holds the step's constants, the absorbing layers and the source, and no
+fields, so one value steps any number of meshes from any number of tasks, and
+`workspace(op)` is `nothing`. The closure captured its mesh; the operator does
+not, so the check that the mesh holds both layers and an interior moved from
+construction to every `advance!` call. `cfl` still has to equal `Δt/Δx`, and is
+checked when the operator is built. It is a keyword of its own because a caller
+that sets the Courant number wants exactly that number in the interior, and
+`cfl*Δx/Δx` need not round back to it.
+
+`FDTD1D` exports `PML` now, beside `YeeMesh1D`, `Yee1D` and `advance!`. The
+update is the closure's, moved: every field comes out bit-for-bit as
+`make_advance_fields` left it.
 
 ## Collisions
 

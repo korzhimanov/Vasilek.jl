@@ -54,19 +54,18 @@ function em_plasma_mode(; density, cfl, m, steps = EMP_STEPS, current_sign = -1.
     em = FDTD1D.YeeMesh1D{Float64}(N)
     shape = [sin(k*i*Δx) for i = 0:N]
     em.ey .= shape
-    advance! = FDTD1D.make_advance_fields(em, cfl, EMP_NO_PULSE, Δt, Δx, 0.0,
-                                          FDTD1D.PML(0, 1.0, Δx, Δt))
+    op = FDTD1D.Yee1D(; Δx, Δt, cfl, source = EMP_NO_PULSE, pml = FDTD1D.PML(0, 1.0, Δx, Δt))
     n = fill(density, N + 1)
     pʸ, pᶻ = zeros(N + 1), zeros(N + 1)
     projection = Vector{Float64}(undef, steps)
     for s in 1:steps
         if current_sign < 0
-            transverse_step!(advance!, em, pʸ, pᶻ, n, s*Δt, Δt)
+            transverse_step!(em, op, pʸ, pᶻ, n, s*Δt, Δt)
         else
             # The same three lines with the current the other way round.
             pʸ .= pʸ .+ em.ey.*Δt
             pᶻ .= pᶻ .+ em.ez.*Δt
-            advance!(s*Δt, (y = pʸ.*n.*Δt, z = pᶻ.*n.*Δt))
+            FDTD1D.advance!(em, op, s*Δt, (y = pʸ.*n.*Δt, z = pᶻ.*n.*Δt))
         end
         projection[s] = sum(em.ey .* shape)
     end

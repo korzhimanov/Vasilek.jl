@@ -105,11 +105,11 @@ end
             Δx = 0.01; Δt = 0.8*Δx
             mesh = FDTD1D.YeeMesh1D{Float64}(n)
             pulse = (y = (t,x) -> 0.0, z = (t,x) -> 0.0)
-            advance! = FDTD1D.make_advance_fields(mesh, Δt/Δx, pulse, Δt, Δx, 0.0,
-                                                  FDTD1D.PML(; N = 0, σ_max = 1.0, Δx = Δx, Δt = Δt))
+            op = FDTD1D.Yee1D(; Δx, Δt, source = pulse,
+                              pml = FDTD1D.PML(; N = 0, σ_max = 1.0, Δx = Δx, Δt = Δt))
             j = (y = zeros(n + 1), z = zeros(n + 1))
-            advance!(0.0, j); advance!(0.0, j)
-            return @allocated advance!(0.0, j)
+            FDTD1D.advance!(mesh, op, 0.0, j); FDTD1D.advance!(mesh, op, 0.0, j)
+            return @allocated FDTD1D.advance!(mesh, op, 0.0, j)
         end
 
         function collision_bytes(op, n)

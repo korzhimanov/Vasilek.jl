@@ -104,7 +104,7 @@ advect!(similar(line), line, og, 2.5Δx, workspace(og, 64))  # three steps of c 
 
 ## Currents in the FDTD solver
 
-`make_advance_fields` adds its current argument **straight into the field**:
+`FDTD1D.advance!` adds its current argument **straight into the field**:
 
 ```
 f.ey[i] += jy[i]        # an excerpt of FDTD1D, not an example
@@ -166,7 +166,7 @@ that by never writing to either end node: the interior loop runs
 so `ey[1]`, `ez[1]`, `ey[end]` and `ez[end]` hold the zero `YeeMesh1D` gives
 them, for all time.
 
-They are not dead storage. `update_hz!` reads `ey[end]`, which is how the
+They are not dead storage. `_update_hz!` reads `ey[end]`, which is how the
 condition enters the solution, and a pulse reaching either wall comes back with
 its sign inverted — measured reflection coefficient −0.9998. It is also what
 makes the staggered energy exactly conserved: the discrete curls are adjoint

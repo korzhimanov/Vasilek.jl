@@ -13,6 +13,47 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 ### Breaking
 
+- **The FDTD solver is a type, and `make_advance_fields` is gone.**
+  `FDTD1D.Yee1D(; Δx, Δt, cfl = Δt/Δx, source, x_min = 0.0, pml)` holds the
+  step's constants, the absorbing layers and the source, and
+  `advance!(mesh, op, t, j)` takes the leapfrog step on a `YeeMesh1D` and
+  returns it. The operator holds no fields, so one value steps any number of
+  meshes from any number of tasks, and `workspace(op)` is `nothing`. It was
+  the last 0.1 closure factory in the package. See the migration guide's
+  "FDTD".
+  * **The same update, moved.** The four update loops and the source injection
+    are methods now, their bodies copied verbatim and called in the same
+    order. Measured against `make_advance_fields` over eight runs (no layer, a
+    layer of 5 and of 10 cells, either polarisation, `cfl` 0.8, 0.99 and 1,
+    a current, a nonzero `x_min`, an integer time), every one of `ey`, `ez`,
+    `hy` and `hz` agrees in every bit after 200 steps. So does the harness's
+    `wakefield()`, which drives the solver through `transverse_step!` with a
+    nonzero `x_min`: its density, both fields, the ponderomotive potential and
+    both energies, over 8800 steps on 401 nodes. The suite's own identities
+    hold unchanged: `fz.ez == fy.ey`, the magic step at 1.1e-19, the staggered
+    energy at 2.3e-15, the PML's `R` at 6.25e-9.
+  * **`cfl` stays a keyword**, defaulting to `Δt/Δx` and checked against it as
+    before, because a caller that sets the Courant number wants exactly that
+    number in the interior: `0.8*Δx/Δx` need not round back to 0.8.
+  * **The mesh-holds-both-layers check moved** from construction, where the
+    closure had its mesh, to every `advance!` call, since the operator has
+    none. It throws before writing anything.
+  * **`PML{T}` has one parameter, the float type**, and `N` is an `Int`. An
+    integer `σ_max` was a `MethodError`, the type taking its float parameter
+    from `σ_max` alone; `PML(10, 1000, Δx, Δt)` is now `PML(10, 1e3, Δx, Δt)`
+    to the bit. `FDTD1D` exports `PML`.
+  * **`YeeMesh1D{T}` has one parameter too**: the second was the integer type
+    of `N`, which is an `Int` now.
+  * `FDTD1D` is still not re-exported from `Vasilek`, and neither is
+    `PoissonFourier1D`: the public API is the top-level `export` list plus
+    those two named submodules, which the README and the migration guide now
+    say.
+- **`PoissonFourier1D.generate_solver` is gone.** It was kept as a deprecated
+  wrapper (the `PoissonFFT1D` entry under Changed); 0.2 is unreleased, so
+  nothing depends on it, and it goes the way of the other closure factories.
+  The test that held `PoissonFFT1D`'s centred form to 0.1 bit for bit
+  reimplements 0.1 and does not need it.
+
 - **`StrangSplitting.make_time_step_2d!` is gone; `strang_step!` is the split
   step.** `strang_step!(f, scheme_x, scheme_v, cx, cv, ws[, hook])` steps one
   matrix, `f[x, v]`, with no second array and no per-line closures: the
