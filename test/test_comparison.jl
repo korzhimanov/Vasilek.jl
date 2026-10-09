@@ -196,11 +196,11 @@ cmp_schemes() = [
     end
 
     @testset "PFC beats the quadratic spline where it is not a tie" begin
-        # More accurate on both smooth profiles *and* an order of magnitude
-        # cheaper -- 3.5 ns per cell per step against 65 to 85, the spline
-        # prefilter allocating where PFC does not (`test_allocations` pins
-        # both). The work-precision report has the quadratic spline dominated on
-        # all three profiles once cost is counted.
+        # More accurate on both smooth profiles *and* cheaper -- 2.3 ns per cell
+        # per step against 9 at N = 512 in `benchmark/workprecision.jl`, where it
+        # was 65 to 85 while the spline's prefilter was Interpolations', rebuilt
+        # and allocated every step. The work-precision report has the quadratic
+        # spline dominated on all three profiles once cost is counted.
         #
         # Only the two smooth ratios are asserted. On the square pulse the two
         # are within 2.6% of each other at this resolution -- 2.646e-2 against

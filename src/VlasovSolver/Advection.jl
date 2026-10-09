@@ -12,7 +12,6 @@ it is written. Boundaries are periodic.
 """
 module Advection
 
-using Interpolations
 import ..workspace
 
 export AbstractAdvection1D, advect!, workspace,
@@ -77,9 +76,11 @@ struct QuadraticSpline <: AbstractSpline end
 """Cubic B-spline with periodic boundaries."""
 struct CubicSpline <: AbstractSpline end
 
-_bspline(::LinearSpline) = BSpline(Linear())
-_bspline(::QuadraticSpline) = BSpline(Quadratic(Periodic(OnCell())))
-_bspline(::CubicSpline) = BSpline(Cubic(Periodic(OnCell())))
+# The diagonal and off-diagonal `(a, b)` of a quadratic or cubic B-spline's
+# periodic prefilter, in `T`: the spline's weights on a knot and on each of its
+# neighbours, evaluated at that knot.
+_diagonals(::Type{T}, ::QuadraticSpline) where {T} = (T(3)/T(4), T(1)/T(8))
+_diagonals(::Type{T}, ::CubicSpline) where {T} = (T(2)/T(3), T(1)/T(6))
 
 # --------------------------------------------------------------- scheme types
 
@@ -162,6 +163,7 @@ end
 
 Backward characteristic tracing with B-spline interpolation. Needs a
 [`workspace`](@ref). Global order equals the spline degree.
+The quadratic and cubic splines prefilter their data, [`_prefilter!`](@ref).
 """
 struct SemiLagrangian{S<:AbstractSpline} <: AbstractAdvection1D
     spline::S
@@ -297,13 +299,83 @@ concurrently over the lines of a multidimensional sweep.
 """
 workspace(::AbstractAdvection1D, ::Integer, ::Type = Float64) = nothing
 
-struct SplineWorkspace{T}
-    buffer::Vector{T}
+# Scratch for `SemiLagrangian{S}`: the line's spline `coefficients`, rewritten
+# every step (`n + 1` of them for `LinearSpline`, the data and the first point
+# again), and the prefilter's factorisation `rdiag` and `z`, built with the
+# workspace and only read after, empty for `LinearSpline`; see `_prefilter!`.
+# They belong to one spline, hence the `S`, the spline's own type whatever the
+# scheme's parameter says. `T` is a float, `float(T)` for any other: the step
+# computes in it, and the factorisation holds reciprocals.
+struct SplineWorkspace{T, S<:AbstractSpline}
+    coefficients::Vector{T}
+    rdiag::Vector{T}
+    z::Vector{T}
 end
-workspace(::SemiLagrangian{LinearSpline}, n::Integer, ::Type{T} = Float64) where {T} =
-    SplineWorkspace(Vector{T}(undef, n + 1))
-workspace(::SemiLagrangian, n::Integer, ::Type{T} = Float64) where {T} =
-    SplineWorkspace(Vector{T}(undef, n))
+
+workspace(s::SemiLagrangian, n::Integer, ::Type{T} = Float64) where {T} =
+    _spline_workspace(s.spline, n, float(T))
+
+_spline_workspace(::LinearSpline, n, ::Type{T}) where {T} =
+    SplineWorkspace{T, LinearSpline}(Vector{T}(undef, n + 1), T[], T[])
+
+function _spline_workspace(spline::AbstractSpline, n, ::Type{T}) where {T}
+    a, b = _diagonals(T, spline)
+    rdiag = zeros(T, n)
+    z = zeros(T, n)
+    # `A + b·uuᵀ` is the periodic matrix only from three nodes up, and advect!
+    # refuses fewer; the workspace is still built, for it to refuse.
+    if n ≥ 3
+        _factorise!(rdiag, a, b)
+        z[1] = z[n] = 1
+        _thomas!(z, z, rdiag, b)
+        z ./= 1 + b*(z[1] + z[n])
+    end
+    return SplineWorkspace{T, typeof(spline)}(Vector{T}(undef, n), rdiag, z)
+end
+
+# The reciprocal pivots of the Thomas factorisation of the tridiagonal `A` with
+# `a` on the diagonal, `b` off it and `a − b` in its two corners, as
+# `_prefilter!` splits the periodic matrix. Reciprocals, so that a solve
+# multiplies where it would divide: both of its sweeps are serial recurrences,
+# whose cost is the latency of the chain, and a division costs several times
+# what a multiplication does.
+function _factorise!(rdiag, a, b)
+    n = length(rdiag)
+    d = a - b
+    rdiag[1] = 1/d
+    for i = 2:n
+        d = (i == n ? a - b : a) - b*(b*rdiag[i-1])
+        rdiag[i] = 1/d
+    end
+    return rdiag
+end
+
+# Solve `A y = x` into `y`, `A` the tridiagonal whose reciprocal pivots
+# `_factorise!` put in `rdiag`; `x` may be `y` itself. The forward sweep reads
+# `x` and writes `y`, so the prefilter needs no copy of the data first. Needs
+# `x`, `y` and `rdiag` one-based and of one length, which `_validate` and
+# `_validate_workspace` check before every step.
+function _thomas!(y, x, rdiag, b)
+    n = length(y)
+    n ≥ 1 || return y
+    @inbounds begin
+        yᵢ = convert(eltype(y), x[1])
+        y[1] = yᵢ
+        for i = 2:n
+            yᵢ = x[i] - (b*rdiag[i-1])*yᵢ
+            y[i] = yᵢ
+        end
+        yᵢ *= rdiag[n]
+        y[n] = yᵢ
+        # `y[i]*rdiag[i] - (b*rdiag[i])*yᵢ₊₁` rather than `(y[i] - b*yᵢ₊₁)*rdiag[i]`:
+        # a multiplication and a subtraction on the chain, not three operations
+        for i = n-1:-1:1
+            yᵢ = y[i]*rdiag[i] - (b*rdiag[i])*yᵢ
+            y[i] = yᵢ
+        end
+    end
+    return y
+end
 
 struct PFCWorkspace{T}
     accumulator::Vector{T}
@@ -341,12 +413,13 @@ give a plausible wrong answer instead of an error:
   * unequal lengths, fewer than three cells, or non-one-based indexing;
   * a workspace not exactly the one `workspace(scheme, length(src))` returns
     (the spline prefilter runs over the whole buffer, so a longer one is as
-    wrong as a shorter one). A scheme that takes none now refuses any other,
-    which it used to accept and ignore; see [`_validate_workspace`](@ref);
-  * a workspace whose buffer shares memory with `dest` or `src`
-    (`Base.mightalias` again): the spline prefilter overwrites its buffer,
-    which `dest` is then sampled from, and `PFCNonUniform` accumulates into
-    its own while it still reads `src`;
+    wrong as a shorter one, and a workspace built for another spline holds
+    another spline's factorisation). A scheme that takes none now refuses any
+    other, which it used to accept and ignore; see [`_validate_workspace`](@ref);
+  * a workspace whose buffers share memory with `dest` or `src`
+    (`Base.mightalias` again): the spline prefilter overwrites its
+    coefficients, which `dest` is then sampled from, and `PFCNonUniform`
+    accumulates into its own while it still reads `src`;
   * a step the scheme cannot take; see [`_validate_courant`](@ref).
 
 The checks are comparisons outside the loop and allocate nothing; the error
@@ -358,6 +431,7 @@ paths are `@noinline`.
     length(dest) == length(src) || _err_length(length(dest), length(src))
     length(src) ≥ 3 || _err_short(length(src))
     _validate_workspace(scheme, ws, length(src))
+    _validate_eltype(ws, src)
     _scratch_aliases(ws, dest, src) && _err_alias(ws)
     _validate_courant(scheme, c)
     return nothing
@@ -380,13 +454,27 @@ end
 @noinline _err_workspace(got, want) = throw(DimensionMismatch(
     "workspace has length $got but this call needs $want; build it with " *
     "workspace(scheme, length(src))"))
+@noinline _err_narrow(T, S) = throw(ArgumentError(
+    "the workspace is $T, narrower than the $S data: the step computes in the " *
+    "workspace's type and would round the data to it; build it with " *
+    "workspace(scheme, length(src), $S)"))
+@noinline _err_knots(T, n) = throw(ArgumentError(
+    "a SemiLagrangian step on $n cells computes its points in $T, which does not " *
+    "hold every knot up to $(n + 1) exactly; build the workspace in a wider type, " *
+    "workspace(scheme, $n, $(T === Float16 ? Float32 : Float64))"))
+@noinline _err_courant_type(T, c) = throw(DomainError(c,
+    "the Courant number overflows $T, the type SemiLagrangian computes in"))
+@noinline _err_spline(want, S) = throw(ArgumentError(
+    "the workspace was built for SemiLagrangian($(nameof(S))()), but this call is " *
+    "SemiLagrangian($(nameof(typeof(want)))()); build it with workspace(scheme, length(src))"))
 
 """
     _validate_workspace(scheme, ws, n)
 
 Check that `ws` is what `workspace(scheme, n)` would have returned. Exact
 equality, not a lower bound: the spline prefilter runs over the whole buffer,
-so a longer one is as wrong as a shorter one.
+so a longer one is as wrong as a shorter one. A spline's workspace also has to
+be its own spline's, since it holds that spline's factorisation.
 
 A scheme takes `nothing` unless it has a method here for its own workspace, so
 a scheme that needs none refuses whatever else it is given: `Upwind` took
@@ -397,14 +485,47 @@ or is refused loudly.
 """
 _validate_workspace(::AbstractAdvection1D, ::Nothing, ::Integer) = nothing
 _validate_workspace(scheme::AbstractAdvection1D, ws, ::Integer) = _err_foreign_workspace(scheme, ws)
-_validate_workspace(::SemiLagrangian{LinearSpline}, ws::SplineWorkspace, n::Integer) =
-    length(ws.buffer) == n + 1 ? nothing : _err_workspace(length(ws.buffer), n + 1)
-_validate_workspace(::SemiLagrangian, ws::SplineWorkspace, n::Integer) =
-    length(ws.buffer) == n ? nothing : _err_workspace(length(ws.buffer), n)
+function _validate_workspace(s::SemiLagrangian, ws::SplineWorkspace, n::Integer)
+    # Another spline's workspace has the length and holds a factorisation, of
+    # the wrong matrix: the answer it gives looks right and is not. A comparison
+    # of types, decided when the method compiles. (A method for the matching
+    # pair instead, `SemiLagrangian{S}` with `SplineWorkspace{<:Any, S}`, is not
+    # more specific than this one to Julia's dispatch.)
+    _spline_of(ws) === typeof(s.spline) || _err_spline(s.spline, _spline_of(ws))
+    # `_interior` and `_periodic` need `i - c` and the period exact at every
+    # knot: Float16 holds the integers only up to 2048. The comparison is in
+    # `T`, which holds `maxintfloat(T)`.
+    n + 1 ≤ maxintfloat(_eltype(ws)) || _err_knots(_eltype(ws), n)
+    if s.spline isa LinearSpline
+        length(ws.coefficients) == n + 1 || _err_workspace(length(ws.coefficients), n + 1)
+    else
+        length(ws.coefficients) == n || _err_workspace(length(ws.coefficients), n)
+        # the prefilter's sweeps index these at the coefficients' length, unchecked
+        length(ws.rdiag) == n || _err_workspace(length(ws.rdiag), n)
+        length(ws.z) == n || _err_workspace(length(ws.z), n)
+    end
+    return nothing
+end
+_spline_of(::SplineWorkspace{<:Any, S}) where {S} = S
+_eltype(::SplineWorkspace{T}) where {T} = T
 function _validate_workspace(p::PFCNonUniform, ws::PFCWorkspace, n::Integer)
     length(p.Δx) == n || _err_length(n, length(p.Δx))
     length(ws.accumulator) == n || _err_workspace(length(ws.accumulator), n)
     return nothing
+end
+
+# A workspace narrower than the data would round it on the way in: the spline
+# step computes in its workspace's type. A wider one is a choice, and allowed.
+_validate_eltype(ws, src) = nothing
+_validate_eltype(ws::SplineWorkspace{T}, src) where {T} =
+    promote_type(T, float(eltype(src))) === T ? nothing : _err_narrow(T, float(eltype(src)))
+
+# `c` in the type a spline step computes in. `_validate_courant` has refused a
+# non-finite one; one finite in its own type can still overflow a narrower `T`.
+function _courant(::Type{T}, c) where {T}
+    cT = convert(T, c)
+    isfinite(cT) || _err_courant_type(T, c)
+    return cT
 end
 
 # Whether the buffer a workspace writes shares memory with `dest` or `src`, for
@@ -412,10 +533,15 @@ end
 # `_validate_workspace`: a workspace type without one is a MethodError, rather
 # than taken as sharing nothing.
 _scratch_aliases(::Nothing, dest, src) = false
+# All three of a spline's vectors: its factorisation is only read during a step,
+# but a `dest` on top of it would leave every later step wrong. The linear
+# spline has no factorisation, and its two empty vectors nothing to share.
 _scratch_aliases(ws::SplineWorkspace, dest, src) =
-    Base.mightalias(ws.buffer, dest) || Base.mightalias(ws.buffer, src)
-_scratch_aliases(ws::PFCWorkspace, dest, src) =
-    Base.mightalias(ws.accumulator, dest) || Base.mightalias(ws.accumulator, src)
+    _shares(ws.coefficients, dest, src) || _shares(ws.rdiag, dest, src) || _shares(ws.z, dest, src)
+_scratch_aliases(ws::SplineWorkspace{<:Any, LinearSpline}, dest, src) =
+    _shares(ws.coefficients, dest, src)
+_scratch_aliases(ws::PFCWorkspace, dest, src) = _shares(ws.accumulator, dest, src)
+_shares(a, dest, src) = Base.mightalias(a, dest) || Base.mightalias(a, src)
 
 """
     _check_bounds(src, fmin, fmax)
@@ -627,8 +753,7 @@ function advect!(dest, src, og::OnGrid, α, ws::OnGridWorkspace)
 end
 
 # The sub-step line only; the scheme's own `advect!` checks its own scratch.
-_scratch_aliases(ws::OnGridWorkspace, dest, src) =
-    Base.mightalias(ws.buffer, dest) || Base.mightalias(ws.buffer, src)
+_scratch_aliases(ws::OnGridWorkspace, dest, src) = _shares(ws.buffer, dest, src)
 
 include(joinpath("schemes", "upwind.jl"))
 include(joinpath("schemes", "lax_wendroff.jl"))

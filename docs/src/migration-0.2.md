@@ -90,7 +90,12 @@ elements requires, and both a shorter and a longer buffer are rejected. A
 longer one is not merely wasteful — the spline prefilter runs over the whole
 buffer, so a `SemiLagrangian` handed a workspace built for a longer line used
 to return garbage silently. Allocate one per line length, not one big one for
-all of them.
+all of them. A `SemiLagrangian` workspace also belongs to its spline: it holds
+that spline's prefilter, factorised when it is built, and one built for another
+spline is refused. Its element type is the type the step computes in, whatever
+the type of `c`: it may be wider than the data, not narrower, and it has to hold
+every knot exactly, so `Float16` data on more than 2047 cells needs
+`workspace(scheme, n, Float32)`.
 
 `advect!` also requires that `dest` and `src` share no memory (a view of `src`
 counts) and at least three cells. Both used to be quietly wrong rather than an
@@ -248,6 +253,10 @@ to 0.1. Several fixes made since do move numbers, on purpose:
   * `Godunov(PiecewiseLinear(), …)`, the `:Riemann_linear` rows above, carries
     the `(1 − |c|)` factor and is a different, second-order scheme;
   * `BGK` relaxes to the discrete Maxwellian by default;
-  * the z-polarised source of `FDTD1D` launches its pulse the other way.
+  * the z-polarised source of `FDTD1D` launches its pulse the other way;
+  * the quadratic and cubic `SemiLagrangian` solve their periodic prefilter
+    themselves rather than through Interpolations.jl, and move in the last bits
+    only: 1.2e-15 relative at most over the golden run, under 5e-15 of the
+    data's maximum in a wider comparison. The linear spline is unchanged.
 
 The CHANGELOG lists each with what it changes.

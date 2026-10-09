@@ -3,7 +3,9 @@ name: CompatHelper
 # Opens a pull request when a dependency releases a version outside the
 # [compat] bounds. Dependabot covers only the GitHub Actions here; without this
 # nothing watches the Julia dependencies, of which NumericalIntegration's cap
-# on Interpolations is the live example.
+# on Interpolations is the live example. Both are test dependencies: the
+# package dropped Interpolations, which the tests keep to cross-check the
+# semi-Lagrangian splines against.
 #
 # Two things this file cannot do on its own:
 # - The repository setting "Allow GitHub Actions to create and approve pull

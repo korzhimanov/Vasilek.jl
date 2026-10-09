@@ -27,7 +27,7 @@ operands in the same order, so the identity holds bit-for-bit. `LaxWendroff`
 evaluates `f[i⁺] - 2f[i] + f[i⁻]` left to right, and mirroring exchanges `f[i⁺]`
 with `f[i⁻]`, which reassociates the sum — hence two ULP. The semi-Lagrangian
 family goes through a global periodic prefilter, where a ULP at one end reaches
-the other, hence 4.5e-14.
+the other, hence 2.3e-14.
 
 Measured over five datasets × four Courant numbers.
 """
@@ -60,7 +60,7 @@ const SYM_EXACT = ("Upwind", "Godunov_constant", "Godunov_linear",
                    "Godunov_linear_VanLeer", "Godunov_linear_Superbee")
 
 sym_tol(name) = name in SYM_EXACT           ? 0.0   :   # measured 0.0
-                startswith(name, "SemiLag") ? 1e-12 :   # measured 4.5e-14
+                startswith(name, "SemiLag") ? 1e-12 :   # measured 2.3e-14
                                               1e-14     # measured 4.4e-16
 
 step1(f, scheme, c) = march!(f, scheme, c, 1)
@@ -102,7 +102,7 @@ end
 @testset "c = 0 is the identity" begin
     # Note this runs the *negative* branch of every scheme that has one:
     # `c > 0` is false at zero. Exact everywhere except the quadratic and cubic
-    # splines, where the prefilter round-trip costs 4.4e-16 and 7.8e-16.
+    # splines, where the prefilter round-trip costs 4.4e-16 for both.
     for (label, f) in sym_data()
         for (name, scheme) in sym_schemes(f)
             out = step1(f, scheme, 0.0)
@@ -115,11 +115,11 @@ end
 
 @testset "SemiLagrangian is periodic in the Courant number" begin
     # Backward characteristic tracing on a periodic grid cannot distinguish a
-    # displacement of c from one of c ± N, so the two must agree. This is the
-    # only test of the `extrapolate(itp, Periodic(OnCell()))` path in
-    # `_sample!`, which the interior branch of the loop never reaches.
+    # displacement of c from one of c ± N, so the two must agree. At c ± N
+    # every point goes through the periodic map in `_sample!`, which a step
+    # inside the cells takes only the end cells through.
     #
-    # Measured worst: 6.4e-14.
+    # Measured worst: 9.1e-14.
     splines = [("linear", LinearSpline()), ("quadratic", QuadraticSpline()),
                ("cubic", CubicSpline())]
     worst = 0.0

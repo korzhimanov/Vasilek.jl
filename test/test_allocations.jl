@@ -64,23 +64,19 @@ end
             ("Godunov Superbee",      Godunov(PiecewiseLinear(), Superbee())),
             ("PFC",                   PFC(fmin = 0.0, fmax = 2.0)),
             ("SemiLagrangian linear", SemiLagrangian(LinearSpline())),
+            # The quadratic and cubic splines allocated about 100 bytes a cell
+            # while their prefilter was Interpolations', which rebuilt its
+            # factorisation every step; the workspace holds it now.
+            ("SemiLagrangian quadratic", SemiLagrangian(QuadraticSpline())),
+            ("SemiLagrangian cubic",  SemiLagrangian(CubicSpline())),
         ]
         for (name, scheme) in cases
             assert_constant(name, n -> step_bytes(scheme, n, 0.4))
         end
-    end
-
-    @testset "SemiLagrangian spline prefilter" begin
-        # These genuinely scale with N: the allocation is inside the periodic
-        # prefilter in Interpolations, not in this package. copyto! into the
-        # preallocated buffer is free, and `extrapolate` and the evaluation loop
-        # add nothing; `interpolate!` accounts for all of it. About 100 bytes
-        # per element. Bounded so a regression is still visible.
-        for spline in (QuadraticSpline(), CubicSpline())
-            bytes = step_bytes(SemiLagrangian(spline), ALLOC_N, 0.4)
-            println("  ", rpad("SemiLagrangian $(typeof(spline).name.name)", 32), bytes)
-            @test bytes < 110*ALLOC_N
-        end
+        # and with every point through the periodic map, which c = 0.4 takes
+        # one cell through
+        assert_constant("SemiLagrangian cubic, c > N",
+                        n -> step_bytes(SemiLagrangian(CubicSpline()), n, n + 0.4))
     end
 
     @testset "non-uniform advection, fields and collisions are O(1)" begin

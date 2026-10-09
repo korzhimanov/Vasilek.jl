@@ -1228,6 +1228,75 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 ### Changed
 
+- **The quadratic and cubic `SemiLagrangian` prefilter in the package, and a
+  step that allocates nothing** (`src/VlasovSolver/schemes/semi_lagrangian.jl`,
+  `SplineWorkspace` in `src/VlasovSolver/Advection.jl`,
+  `test/VlasovSolver/test_spline.jl`). Every step called Interpolations'
+  `interpolate!`, which rebuilt its periodic Woodbury prefilter: 88
+  allocations and 100 kB at N = 1000, and 77 to 105 ns per cell. The periodic
+  system `M c = f`, `M` cyclic tridiagonal `(b, a, b)`, is now split as
+  `A + b·uuᵀ`, `u = e₁ + eₙ`, `A` tridiagonal with `a − b` in its corners; the
+  workspace factorises `A` once, as reciprocal pivots, and holds the
+  Sherman–Morrison vector, so a step is a forward and a backward sweep and an
+  axpy. The evaluation follows Interpolations 0.16 as written: its knots, its
+  `value_weights` in its order of operations, its `roundbounds`, its periodic
+  image of a point, its summation order. The cells whose stencil lies inside
+  the knots go through a loop with no periodic map and no wrapped index, the
+  edges through the general one, with the same arithmetic.
+  * **Cost.** `benchmark/workprecision.jl`, Julia 1.13.1 on a 2.1 GHz Xeon,
+    `master` → this change, ns per cell per step at N = 64 … 512: quadratic
+    82–99 → 8.8–9.8, cubic 77–105 → 8.8–10.2, and linear, which no longer
+    goes through Interpolations either, 3.1–3.4 → 2.1–2.6. A traversal of the
+    cubic spline at N = 512 takes 5.8 ms where it took 51.9; it is still on
+    the efficiency frontier of the smooth profiles, and the quadratic spline
+    still dominated by `PFC` (2.3 ns). `@allocated` is 0 for all three, at
+    N = 1000 and 4000, and with every point through the periodic map: the
+    splines join the O(1) list in `test/test_allocations.jl`, whose separate
+    `< 110·N` bound for them is gone.
+  * **What moved, and by how much.** The linear spline is identical in every
+    bit, the periodic map included. The quadratic and cubic splines solve the
+    same system by another factorisation, so they move in the last bits: at
+    most 4.4e-15 of the data's maximum against the old kernel, reproduced in
+    `test_spline.jl` with Interpolations over five data sets, thirteen Courant
+    numbers (the seams of the periodic map among them) and three sizes, and
+    held there to 1e-13. Given Interpolations' own coefficients, the
+    evaluation is identical in every bit. The golden rows passed their old
+    rtol = 1e-13 before being regenerated: `SemiLagrangian_quadratic` moves by
+    up to 8 ulp in 49 of its 64 cells (9.9e-16 relative), `SemiLagrangian_cubic`
+    by up to 7 ulp in 50 (1.2e-15); the other eight rows are unchanged, and all
+    ten are now held to `==`, `GOLDEN_UPSTREAM_ROUNDING` gone. The suite's own
+    figures barely move: `c = 0` costs 4.4e-16 for both splines (the cubic
+    was 6.7e-16), the mirror identity 2.3e-14, `A(c)` against `A(c ± N)`
+    9.1e-14, and `max|f|` after 500 steps at `c = 3.7` agrees to 4e-14.
+  * **The workspace.** `SplineWorkspace{T, S}` holds `coefficients` (it was
+    `buffer`; `n`, or `n + 1` for the linear spline), `rdiag` and `z`, the last
+    two empty for the linear spline. A workspace built for another spline has
+    the right length and another matrix's factorisation, and is refused with an
+    `ArgumentError`; none of the three vectors may share memory with `dest` or
+    `src`.
+  * **The step computes in the data's type, the workspace's.** `c` is converted
+    to it before any point is computed; it used to set the type of every point
+    and weight (`c = float(c)`). A `Float16` `c` on `Float64` data rounded
+    `i − c` past the interior's last cell at n = 5000, and the period
+    `Float16(2051) == 2052` past the last knot at n = 2051, and the stencil read
+    beyond the coefficients under `@inbounds`: a `BoundsError` with
+    `--check-bounds=yes`, garbage without. Both now give what `Float64(c)` gives,
+    to the bit. BigFloat data with a `Float64` `c` was only Float64-accurate in
+    its weights: 1.7e-15 away from `c = big"0.4"`, now 2.7e-17, the gap between
+    the two Courant numbers. `Float64` data with a `Float64` `c` is unchanged in
+    every bit, golden rows included. A workspace type that cannot hold every
+    knot exactly (`Float16` past 2047 cells) is refused with an `ArgumentError`
+    naming a wider one; so is a workspace narrower than the data, which rounded
+    it on the way in, and a `c` that overflows the type, a `DomainError`.
+  * **The workspace is the spline's own, in a float type.** It is labelled with
+    `typeof(scheme.spline)`, so `SemiLagrangian{AbstractSpline}(CubicSpline())`
+    no longer refuses its own workspace; `workspace(scheme, n, Int)` builds a
+    `Float64` one, where it threw an `InexactError` on its first reciprocal
+    pivot. The prefilter's forward sweep reads `src` directly instead of a copy
+    of it, one pass fewer, with the same arithmetic: 12.5–13.5 against
+    12.4–14.2 ns per cell for the quadratic and cubic splines at N = 64, 512 and
+    4000, within the noise of the machine.
+
 - **The two polarisations of the FDTD step share one update.** The
   copy-paste pairs `_update_ey!`/`_update_ez!`, `_update_hz!`/`_update_hy!`
   and the y/z halves of `_inject!` are `_update_e!(e, h, j, ±, …)`,
@@ -1673,6 +1742,10 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 ### Removed
 
+- **Interpolations as a dependency of the package.** It moves to the test
+  extras, for `test/VlasovSolver/test_spline.jl` to hold the semi-Lagrangian
+  splines to the kernel they replaced. The package's dependencies are `FFTW`
+  and `LinearAlgebra`.
 - `StrangSplitting.make_time_step_2d!`, `VlasovPoisson1D1V.line_advector` and
   `VlasovPoisson1D1V.substeps` (now `Advection.substeps`); see Breaking.
 - Five files containing a single no-op function each (`Maxwell1D`, `Maxwell2D`,
