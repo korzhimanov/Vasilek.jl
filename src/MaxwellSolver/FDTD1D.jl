@@ -25,8 +25,8 @@ The two end nodes, `ey[1]`/`ez[1]` and `ey[end]`/`ez[end]`, are **perfect
 electric conductor boundaries**. No update touches them — the interior loop
 runs `pml.N+2 : Nx-pml.N` and the two absorbing-layer loops stop short of both
 ends — so they hold the zero they are constructed with, for all time. They are
-not dead storage: the `hz` update reads `ey[end]`, which is how the boundary
-condition enters the solution.
+not dead storage: the magnetic update reads both, `ey[1]` in its first cell and
+`ey[end]` in its last, which is how the boundary condition enters the solution.
 
 Writing a nonzero value into either end node therefore does not seed a wave,
 it silently changes the boundary condition to `E = const`. Seed the interior
@@ -63,9 +63,12 @@ struct PML{T<:AbstractFloat}
         N ≥ 0 || throw(ArgumentError("PML needs N ≥ 0 cells, got $N"))
         σ_max ≥ 0 || throw(ArgumentError("PML needs σ_max ≥ 0, got $σ_max"))
         T = float(promote_type(typeof(σ_max), typeof(Δx), typeof(Δt)))
-        # On the arguments as given, as before the element type was computed:
-        # `new` converts what comes out, which for Float64 arguments is nothing.
-        σ = [σ_max*(i/2N)^3 for i = 1:2N]
+        # On the arguments as given, as before the element type was computed,
+        # and the depth profile in `T` or `Float64`, whichever is wider, so a
+        # BigFloat layer is BigFloat-accurate: `new` converts what comes out,
+        # which for Float64 arguments is nothing.
+        P = promote_type(T, Float64)
+        σ = [σ_max*(P(i)/2N)^3 for i = 1:2N]
         r₁ = exp.(-Δt.*σ)
         # (1 - exp(-Δtσ))/(Δxσ), through `expm1` so that it does not cancel as
         # Δtσ → 0, and at σ = 0 its limit Δt/Δx, the interior coefficient.
@@ -74,8 +77,11 @@ struct PML{T<:AbstractFloat}
     end
     # The same layer with its constants rounded to `T`, for an operator whose
     # step works in `T`. From the coefficients, not from `σ_max`, so that a
-    # layer computed in a wider type is rounded once.
-    PML{T}(p::PML) where {T<:AbstractFloat} = new{T}(p.N, p.σ_max, p.r₁, p.r₂)
+    # layer computed in a wider type is rounded once. Copies, even in the same
+    # type, so that an operator shares no mutable state with the layer it was
+    # given.
+    PML{T}(p::PML) where {T<:AbstractFloat} =
+        new{T}(p.N, p.σ_max, Vector{T}(p.r₁), Vector{T}(p.r₂))
 end
 
 """
@@ -100,9 +106,9 @@ floating-point type `T`, `float` of the promotion of `Δx` and `Δt`: `cfl`, `Δ
 written in. `x_min` is only a coordinate for the source and keeps its own
 floating-point type, so the `x` the source sees is computed as before.
 
-`cfl` must equal `Δt/Δx`: the interior update uses `cfl` and the absorbing
-layer `Δt/Δx`, so two different values would put an impedance step at the edge
-of the layer. It is checked in `T`, to a relative `max(1e-12, 4eps(T))`, by
+`Δx` and `Δt` must be finite and positive, `cfl` equal to `Δt/Δx` and `pml`
+built for them: the interior uses `cfl`, the layer `Δt/Δx`, and a mismatch is
+an impedance step at the layer's edge. It is checked in `T`, to a relative `max(1e-12, 4eps(T))`, by
 every constructor, the positional `Yee1D(cfl, Δx, Δt, x_min, pml, source)`
 included. It is a keyword of its own because `cfl*Δx/Δx` need not round back
 to `cfl`, and a caller that sets the Courant number gets exactly that number,
@@ -128,9 +134,15 @@ struct Yee1D{T<:AbstractFloat, X<:AbstractFloat, S}
     function Yee1D(cfl::Real, Δx::Real, Δt::Real, x_min::Real, pml::PML, source)
         T = float(promote_type(typeof(Δx), typeof(Δt)))
         c, h, τ = T(cfl), T(Δx), T(Δt)
+        isfinite(h) && h > 0 && isfinite(τ) && τ > 0 || throw(ArgumentError(
+            "Yee1D needs finite, positive steps; got Δx = $Δx, Δt = $Δt"))
         isapprox(c, τ/h; rtol = max(1e-12, 4eps(T))) || throw(ArgumentError(
             "cfl = $cfl but Δt/Δx = $(τ/h): the interior and the absorbing " *
             "layer would use different Courant numbers"))
+        _layer_matches(pml, Δx, Δt, T) || throw(ArgumentError(
+            "the absorbing layer was not built for Δx = $Δx and Δt = $Δt (were they " *
+            "swapped?): its edge would not match the interior; build it with " *
+            "PML(; N, σ_max, Δx, Δt)"))
         x₀ = float(x_min)
         return new{T, typeof(x₀), typeof(source)}(c, h, τ, x₀, PML{T}(pml), source)
     end
@@ -139,6 +151,16 @@ end
 Yee1D(; Δx, Δt, cfl = Δt/Δx, source, x_min = 0.0,
         pml = PML(; N = 10, σ_max = 1e3, Δx = Δx, Δt = Δt)) =
     Yee1D(cfl, Δx, Δt, x_min, pml, source)
+
+# Whether `pml` holds the coefficients a layer of its depth and `σ_max` has for
+# these steps, to a relative `max(1e-5, √eps(T))`. Loose enough for a layer built in another float type than the
+# operator's, tight enough to see `Δx` and `Δt` swapped, which changes `r₂` by
+# the factor `(Δt/Δx)²` at the layer's edge.
+function _layer_matches(pml, Δx, Δt, ::Type{T}) where {T}
+    want = PML(pml.N, pml.σ_max, Δx, Δt)
+    rtol = max(1e-5, sqrt(eps(T)))
+    return isapprox(pml.r₁, want.r₁; rtol) && isapprox(pml.r₂, want.r₂; rtol)
+end
 
 """
     workspace(op::Yee1D, args...)
@@ -152,9 +174,9 @@ workspace(::Yee1D, args...) = nothing
     "a mesh of $Nx cells cannot hold two absorbing layers of $NP cells " *
     "and an interior; need N ≥ $(2*NP + 2)"))
 
-@noinline _err_current(Nx, ny, nz) = throw(DimensionMismatch(
-    "a mesh of $Nx cells needs currents on its $(Nx + 1) electric nodes; " *
-    "got length(j.y) = $ny and length(j.z) = $nz"))
+@noinline _err_current(Nx, ay, az) = throw(DimensionMismatch(
+    "a mesh of $Nx cells needs currents on its $(Nx + 1) electric nodes, " *
+    "indexed 1:$(Nx + 1); got axes(j.y) = $ay and axes(j.z) = $az"))
 
 """
     advance!(mesh::YeeMesh1D, op::Yee1D, t, j)
@@ -169,20 +191,24 @@ is `-J Δt`, not `J`. See `docs/src/normalization.md`.
 
 Only the interior nodes `2:N` are driven. The two end nodes are PEC boundaries
 (see [`YeeMesh1D`](@ref)), so `j.y[1]`, `j.z[1]` and the last entry of each are
-ignored -- a current cannot be injected into a perfect conductor. The arrays
-still span the full `N+1` nodes so that they index alongside `mesh.ey`.
+ignored -- a current cannot be injected into a perfect conductor.
 
 The mesh must hold both absorbing layers of `op` and an interior,
-`mesh.N ≥ 2*op.pml.N + 2`, and `j.y` and `j.z` must have the `N+1` entries
-of `mesh.ey`; both are checked here, on every call and before anything is
+`mesh.N ≥ 2*op.pml.N + 2`, and `j.y` and `j.z` must have the axes of
+`mesh.ey`, `1:N+1`; both are checked here, on every call and before anything is
 written, since the operator is built without a mesh.
 """
 function advance!(mesh::YeeMesh1D, op::Yee1D, t, j)
     mesh.N ≥ 2*op.pml.N + 2 || _err_fit(mesh.N, op.pml.N)
-    length(j.y) == length(j.z) == mesh.N + 1 || _err_current(mesh.N, length(j.y), length(j.z))
-    _inject!(mesh.ey, mesh.hz, op.source.y, -, op, t)
-    _inject!(mesh.ez, mesh.hy, op.source.z, +, op, t)
+    axes(j.y) == axes(j.z) == axes(mesh.ey) || _err_current(mesh.N, axes(j.y), axes(j.z))
     cfl = op.cfl; pml = op.pml; Nx = mesh.N
+    # The source's times and places. `t + Δt/2` stays in the type of `t` and
+    # `Δt`, as `t` does; `x` is computed in `x_min`'s type, as it always was.
+    i = pml.N + 2
+    tₑ, xₑ = t, op.x_min + op.Δx
+    tₕ, xₕ = t + op.Δt/2, op.x_min + 1.5*op.Δx
+    _inject!(mesh.ey, mesh.hz, op.source.y, -, cfl, i, tₑ, xₑ, tₕ, xₕ)
+    _inject!(mesh.ez, mesh.hy, op.source.z, +, cfl, i, tₑ, xₑ, tₕ, xₕ)
     _update_e!(mesh.ey, mesh.hz, j.y, -, cfl, pml, Nx)
     _update_e!(mesh.ez, mesh.hy, j.z, +, cfl, pml, Nx)
     _update_h!(mesh.hz, mesh.ey, -, cfl, pml, Nx)
@@ -202,18 +228,22 @@ end
 # `s` is the source's component for this polarisation. The magnetic field takes
 # it with `±`: with `-=` for both pairs the z source launched its pulse to the
 # left, into the absorbing layer.
-function _inject!(e, h, s, ±, op, t)
-    i = op.pml.N + 2; cfl = op.cfl; Δt = op.Δt; Δx = op.Δx; x_min = op.x_min
-    e[i] -= cfl*s(t, x_min + Δx)
-    h[i] = h[i] ± cfl*s(t + 0.5*Δt, x_min + 1.5*Δx)
+# Both at node and cell `i`, the first interior node, the electric field at
+# `(tₑ, xₑ)` and the magnetic one at `(tₕ, xₕ)`.
+function _inject!(e, h, s, ±, cfl, i, tₑ, xₑ, tₕ, xₕ)
+    e[i] -= cfl*s(tₑ, xₑ)
+    h[i] = h[i] ± cfl*s(tₕ, xₕ)
     return nothing
 end
 
-# The layer coefficients are tabulated every half cell, `k = 1 + 2d` at depth
-# `d` cells into the layer, measured from the interior's edge: node `pml.N+1`
-# on the left, node `Nx-pml.N+1` on the right. The functions take the position
-# in half cells, `_node(i)` or `_cell(i)`, so each side's formula is written
-# once for both fields.
+# The layer coefficients are tabulated every half cell: entry `k` is at depth
+# `k/2` cells into the layer, where `σ = σ_max*(k/2N)^3`, the depth measured
+# from half a cell outside the interior's outermost node (`pml.N+2` on the left,
+# `Nx-pml.N` on the right). So `k = 1` is node `pml.N+1` or `Nx-pml.N+1`, at
+# depth 1/2 with a σ that is small but not zero, and `k = 2N` the outermost
+# cell, at depth `N`. The functions take the position in half cells,
+# `_node(i)` or `_cell(i)`, so each side's formula is written once for both
+# fields.
 _node(i) = 2*(i - 1)
 _cell(i) = 2*i - 1
 _k_left(p, pml) = 1 + 2*pml.N - p
@@ -238,7 +268,8 @@ function _update_e!(e, h, j, ±, cfl, pml, Nx)
     return nothing
 end
 
-# `h` on all Nx cells. The last reads `e[end]`, the right-hand PEC node.
+# `h` on all Nx cells. The first reads `e[1]` and the last `e[end]`, the two
+# PEC nodes.
 function _update_h!(h, e, ±, cfl, pml, Nx)
     for i = 1:pml.N
         k = _k_left(_cell(i), pml)

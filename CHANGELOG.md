@@ -13,6 +13,40 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 ### Breaking
 
+- **`Yee1D` refuses what would run wrong, and its source sees one time type**
+  (`src/MaxwellSolver/FDTD1D.jl`, after the review of the FDTD rewrite).
+  * **Refused when the operator is built:** `Δx` or `Δt` zero, negative or not
+    finite, which gave `cfl = Inf` and a mesh of `Inf`/`NaN` after one step, or
+    a scheme running backwards in time; and a `pml` built for other steps, such
+    as `PML(10, 1e3, Δt, Δx)`, whose `r₂` tends to `Δx/Δt = 1.25` against an
+    interior at 0.8, the reflecting edge the `cfl` check exists to prevent. The
+    layer is compared with `PML(pml.N, pml.σ_max, Δx, Δt)` to a relative
+    `max(1e-5, √eps(T))`, so a `Float64` layer still serves a `Float32`
+    operator.
+  * **`advance!` checks `axes`, not `length`,** of `j.y` and `j.z`: a current
+    indexed `0:N` passed and threw on `j[N]` with the source already injected.
+  * **The magnetic source is called at `t + Δt/2`,** in the type of `t` and
+    `Δt`; `t + 0.5*Δt` widened a `Float32` time to `Float64`, so one source
+    saw two time types in one step. For a `Float64` time nothing changes: 27
+    runs of 400 steps on 300 cells (`Float64` and `Float32` steps with a
+    `Float64` time, layers of 0, 5 and 10 cells, `cfl` 0.5, 0.8 and 1, both
+    polarisations, a source, a current and `x_min = 0.37`) give `ey`, `ez`,
+    `hy` and `hz` identical in every bit to `master`. With a `Float32` time
+    the fields move by 1.2e-7 to 5.4e-7, a few ulp of the unit pulse.
+  * **The operator copies its layer.** `PML{T}(p)` shared `p.r₁` and `p.r₂`
+    when `T` matched, so a change to the caller's layer changed every operator
+    built from it.
+  * **A layer wider than `Float64` is as accurate as its type:** the depth
+    profile `(i/2N)^3` is computed in the wider of `T` and `Float64`, where it
+    was always `Float64`. `Float64` and `Float32` layers are unchanged to the
+    bit.
+  * Comments: the magnetic update reads both PEC nodes, `ey[1]` as well as
+    `ey[end]` (also in the `YeeMesh1D` docstring); entry `k` of the layer
+    table sits at depth `k/2` cells, so `k = 1` has a small nonzero σ; and
+    `_inject!` takes the times and places it needs instead of the operator,
+    like the two updates. `docs/src/normalization.md` quotes the current's
+    line as it now reads, `e[i] += j[i]`.
+
 - **The FDTD solver is a type, and `make_advance_fields` is gone.**
   `FDTD1D.Yee1D(; Δx, Δt, cfl = Δt/Δx, source, x_min = 0.0, pml)` holds the
   step's constants, the absorbing layers and the source, and

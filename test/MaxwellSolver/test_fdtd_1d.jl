@@ -117,6 +117,13 @@ end
     @test whole.r₂ == positional.r₂
     @test FDTD1D.PML(; N = 10, σ_max = 1000, Δx, Δt).r₂ == positional.r₂
     @test FDTD1D.PML(0, 1, Δx, Δt) isa FDTD1D.PML{Float64}
+
+    # A wider type than Float64 computes its depth profile in that type, so
+    # the layer is as accurate as its type: (i/2N)^3 was always Float64.
+    wider = FDTD1D.PML(3, big"1e3", big"0.01", big"0.008")
+    σ = [big"1e3"*(BigFloat(i)/6)^3 for i = 1:6]
+    @test wider isa FDTD1D.PML{BigFloat}
+    @test maximum(abs, wider.r₁ .- exp.(-big"0.008" .* σ)) < 1e-70
 end
 
 @testset "Yee1D checks its arguments" begin
@@ -156,6 +163,10 @@ end
     @test refuses_untouched(m, driven, zero_current(26)) isa DimensionMismatch
     @test refuses_untouched(m, driven, (y = zeros(51), z = zeros(26))) isa DimensionMismatch
     @test refuses_untouched(m, driven, zero_current(52)) isa DimensionMismatch
+    # the axes, not the length: a vector of 51 entries indexed from 0 passed
+    # the length check and threw on `j[51]` with the source already injected
+    shifted = (y = Base.IdentityUnitRange(0:50), z = Base.IdentityUnitRange(0:50))
+    @test refuses_untouched(m, driven, shifted) isa DimensionMismatch
     fill!(m.ey, 0); fill!(m.ez, 0); fill!(m.hy, 0); fill!(m.hz, 0)
 
     # the defaults: the Courant number of the step, no offset, the layer the
@@ -196,6 +207,33 @@ end
     FDTD1D.advance!(FDTD1D.YeeMesh1D{Float32}(50), op32, 0.0f0,
                     (y = zeros(Float32, 51), z = zeros(Float32, 51)))
     @test xs == [-5*2π + Δx32, -5*2π + 1.5*Δx32]
+
+    # Both injections call the source with a time in the step's type: the
+    # magnetic one was `t + 0.5*Δt`, which the literal widened to Float64.
+    ts = DataType[]
+    timed = (y = (t, x) -> (push!(ts, typeof(t)); 0.0f0), z = (t, x) -> 0.0f0)
+    FDTD1D.advance!(FDTD1D.YeeMesh1D{Float32}(50),
+                    FDTD1D.Yee1D(; Δx = Δx32, Δt = Δt32, source = timed), 0.0f0,
+                    (y = zeros(Float32, 51), z = zeros(Float32, 51)))
+    @test ts == [Float32, Float32]
+
+    # Steps that are not finite and positive gave Inf, NaN or a scheme running
+    # backwards in time; a layer built for Δt and Δx swapped, an edge that
+    # reflects. Both used to be accepted.
+    for (h, τ) in ((0.0, 0.008), (-0.01, -0.008), (Inf, Inf), (0.01, NaN))
+        @test_throws ArgumentError FDTD1D.Yee1D(; Δx = h, Δt = τ, source = NO_PULSE,
+                                                 pml = no_pml(0.01, 0.008))
+    end
+    @test_throws ArgumentError FDTD1D.Yee1D(; Δx, Δt, source = NO_PULSE,
+                                             pml = FDTD1D.PML(10, 1e3, Δt, Δx))
+    # with σ_max = 0 the layer's r₂ is Δt/Δx itself, and swapped it is not
+    @test_throws ArgumentError FDTD1D.Yee1D(; Δx, Δt, source = NO_PULSE,
+                                             pml = FDTD1D.PML(10, 0.0, Δt, Δx))
+    # The operator copies the layer: it is an immutable value, and shared
+    # coefficients would change under it with the caller's.
+    @test op.pml.r₁ !== pml.r₁ && op.pml.r₁ == pml.r₁
+    shared = FDTD1D.Yee1D(; Δx, Δt, source = NO_PULSE, pml)
+    @test shared.pml.r₁ !== pml.r₁ && shared.pml.r₂ !== pml.r₂
 
     # no scratch, whatever generic code passes along
     @test workspace(op) === nothing

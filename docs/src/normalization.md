@@ -107,7 +107,7 @@ advect!(similar(line), line, og, 2.5Δx, workspace(og, 64))  # three steps of c 
 `FDTD1D.advance!` adds its current argument **straight into the field**:
 
 ```
-f.ey[i] += jy[i]        # an excerpt of FDTD1D, not an example
+e[i] += j[i]        # an excerpt of FDTD1D._update_e!, not an example
 ```
 
 so the caller owes it the time step. The argument is `-J Δt`, not `J`. Getting
