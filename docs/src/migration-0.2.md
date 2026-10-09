@@ -92,7 +92,10 @@ buffer, so a `SemiLagrangian` handed a workspace built for a longer line used
 to return garbage silently. Allocate one per line length, not one big one for
 all of them. A `SemiLagrangian` workspace also belongs to its spline: it holds
 that spline's prefilter, factorised when it is built, and one built for another
-spline is refused.
+spline is refused. Its element type is the type the step computes in, whatever
+the type of `c`: it may be wider than the data, not narrower, and it has to hold
+every knot exactly, so `Float16` data on more than 2047 cells needs
+`workspace(scheme, n, Float32)`.
 
 `advect!` also requires that `dest` and `src` share no memory (a view of `src`
 counts) and at least three cells. Both used to be quietly wrong rather than an

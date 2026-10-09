@@ -7,12 +7,15 @@
 # last bits and the linear one not at all. `test/VlasovSolver/test_spline.jl`
 # holds the two to each other.
 
-function advect!(dest, src, s::SemiLagrangian, c, ws::SplineWorkspace)
+function advect!(dest, src, s::SemiLagrangian, c, ws::SplineWorkspace{T}) where {T}
     _validate(dest, src, s, c, ws)
     n = length(src)
     spline = s.spline
+    # The points and the weights are computed in the data's type, the
+    # workspace's, whatever the type of `c`; `_validate_workspace` has checked
+    # that it holds every knot exactly, which `_interior` and `_periodic` rely on.
+    c = _courant(T, c)
     coefficients = _prefilter!(ws, spline, src)
-    c = float(c)
     # The cells whose point and stencil lie inside the knots go through a loop
     # with neither the periodic map nor a wrapped index, and the few at either
     # end through the general one. The arithmetic is the same in both.
@@ -41,8 +44,9 @@ end
 
 # The cells `i₀:i₁` whose `x = i - c` surely lies in `[3, n - 2]`, where every
 # spline's stencil is inside `1:n` and no point needs mapping: `i - c` is then
-# above 3 and at most `n - 2` before rounding, which cannot cross either. Empty,
-# as `(n + 1, n)`, when `c` takes every point outside.
+# above 3 and at most `n - 2` before rounding, which cannot cross either as long
+# as both are exact in `c`'s type -- hence the workspace's check that the type
+# holds every knot. Empty, as `(n + 1, n)`, when `c` takes every point outside.
 function _interior(c, n)
     abs(c) < n || return (n + 1, n)
     fc = unsafe_trunc(Int, floor(c))
@@ -81,8 +85,7 @@ function _prefilter!(ws::SplineWorkspace{T}, spline::Union{QuadraticSpline, Cubi
     c = ws.coefficients
     z = ws.z
     _, b = _diagonals(T, spline)
-    copyto!(c, src)
-    _thomas!(c, ws.rdiag, b)
+    _thomas!(c, src, ws.rdiag, b)
     s = b*(c[1] + c[end])
     @inbounds @simd for i in eachindex(c, z)
         c[i] -= s*z[i]
@@ -99,7 +102,9 @@ _upper(::AbstractSpline, n) = n
 _lower(::LinearSpline, x) = one(x)
 _lower(::AbstractSpline, x) = one(x)/2
 
-# Interpolations' `periodic(x, l, u)`.
+# Interpolations' `periodic(x, l, u)`. The period `n` is exact in `x`'s type,
+# as the workspace's check makes sure; rounded, it would map a point past the
+# knots.
 _periodic(x, l, n) = mod(x - l, oftype(x, n)) + l
 
 # A knot index `1 - n ≤ j ≤ 2n`, taken back into `1:n`: Interpolations'

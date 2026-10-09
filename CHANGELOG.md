@@ -1274,6 +1274,28 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
     the right length and another matrix's factorisation, and is refused with an
     `ArgumentError`; none of the three vectors may share memory with `dest` or
     `src`.
+  * **The step computes in the data's type, the workspace's.** `c` is converted
+    to it before any point is computed; it used to set the type of every point
+    and weight (`c = float(c)`). A `Float16` `c` on `Float64` data rounded
+    `i − c` past the interior's last cell at n = 5000, and the period
+    `Float16(2051) == 2052` past the last knot at n = 2051, and the stencil read
+    beyond the coefficients under `@inbounds`: a `BoundsError` with
+    `--check-bounds=yes`, garbage without. Both now give what `Float64(c)` gives,
+    to the bit. BigFloat data with a `Float64` `c` was only Float64-accurate in
+    its weights: 1.7e-15 away from `c = big"0.4"`, now 2.7e-17, the gap between
+    the two Courant numbers. `Float64` data with a `Float64` `c` is unchanged in
+    every bit, golden rows included. A workspace type that cannot hold every
+    knot exactly (`Float16` past 2047 cells) is refused with an `ArgumentError`
+    naming a wider one; so is a workspace narrower than the data, which rounded
+    it on the way in, and a `c` that overflows the type, a `DomainError`.
+  * **The workspace is the spline's own, in a float type.** It is labelled with
+    `typeof(scheme.spline)`, so `SemiLagrangian{AbstractSpline}(CubicSpline())`
+    no longer refuses its own workspace; `workspace(scheme, n, Int)` builds a
+    `Float64` one, where it threw an `InexactError` on its first reciprocal
+    pivot. The prefilter's forward sweep reads `src` directly instead of a copy
+    of it, one pass fewer, with the same arithmetic: 12.5–13.5 against
+    12.4–14.2 ns per cell for the quadratic and cubic splines at N = 64, 512 and
+    4000, within the noise of the machine.
 
 - **The two polarisations of the FDTD step share one update.** The
   copy-paste pairs `_update_ey!`/`_update_ez!`, `_update_hz!`/`_update_hy!`

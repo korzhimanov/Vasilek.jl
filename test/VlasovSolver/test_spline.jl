@@ -137,4 +137,57 @@ const SPLINES = (("linear", LinearSpline()), ("quadratic", QuadraticSpline()),
         @test (@inferred advect!(dst, g, s, 0.4f0, workspace(s, n, Float32))) === dst
         @test maximum(abs, dst .- advect!(similar(g, Float64), Float64.(g), s, 0.4)) < 1e-5
     end
+
+    @testset "a step computes in the data's type" begin
+        # Whatever the type of `c`: it used to set the type of every point and
+        # weight. A Float16 `c` rounded `i - c` past the interior's last cell
+        # (n = 5000) and the period past the last knot (n = 2051), and the
+        # stencil read beyond the coefficients under @inbounds; a Float64 `c`
+        # left BigFloat data with Float64-accurate weights.
+        for (_, sp) in SPLINES
+            s = SemiLagrangian(sp)
+            for n in (2051, 5000)
+                f = [1 + 0.5sin(2π*i/n) + 0.1cos(6π*i/n) for i = 1:n]
+                c = Float16(0.4)
+                @test advect!(similar(f), f, s, c) == advect!(similar(f), f, s, Float64(c))
+            end
+            g = Float32[1 + 0.5sin(2π*i/64) for i = 1:64]
+            @test advect!(similar(g), g, s, 0.4) == advect!(similar(g), g, s, 0.4f0)
+            gb = big.(g)
+            # 2.7e-17 for the cubic spline, the gap between 0.4 and big"0.4";
+            # 1.7e-15 when the weights were Float64
+            @test maximum(abs, advect!(similar(gb), gb, s, 0.4) .-
+                               advect!(similar(gb), gb, s, big"0.4")) < 1e-16
+        end
+    end
+
+    @testset "a type that cannot hold the step is refused" begin
+        s = SemiLagrangian(CubicSpline())
+        # Float16 holds the integers only up to 2048, and the points and the
+        # period need every knot exact; a wider workspace takes the data.
+        h = Float16[1 + 0.5sin(2π*i/5000) for i = 1:5000]
+        @test_throws ArgumentError advect!(similar(h), h, s, 0.4)
+        @test all(isfinite, advect!(similar(h), h, s, 0.4, workspace(s, 5000, Float32)))
+        h = Float16[1 + 0.5sin(2π*i/64) for i = 1:64]
+        @test_throws DomainError advect!(similar(h), h, s, 1e6)
+        # A narrower workspace would round the data on the way in.
+        f = [1 + 0.5sin(2π*i/64) for i = 1:64]
+        @test_throws ArgumentError advect!(similar(f), f, s, 0.4, workspace(s, 64, Float32))
+    end
+
+    @testset "the workspace is the spline's, in a float type" begin
+        # A scheme with an abstract parameter labelled its workspace with it
+        # and then refused it; an Int workspace threw on its reciprocal pivots.
+        f = [1 + 0.5sin(2π*i/64) for i = 1:64]
+        for (_, sp) in SPLINES
+            s = SemiLagrangian{Vasilek.Advection.AbstractSpline}(sp)
+            @test advect!(similar(f), f, s, 0.4, workspace(s, 64)) ==
+                  advect!(similar(f), f, SemiLagrangian(sp), 0.4)
+            ws = workspace(SemiLagrangian(sp), 64, Int)
+            @test ws isa Vasilek.Advection.SplineWorkspace{Float64, typeof(sp)}
+            k = collect(1:64)
+            @test advect!(similar(f), k, SemiLagrangian(sp), 0.4, ws) ==
+                  advect!(similar(f), float.(k), SemiLagrangian(sp), 0.4)
+        end
+    end
 end
