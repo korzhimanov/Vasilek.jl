@@ -48,7 +48,8 @@ end
 
 Two absorbing layers of `N` cells each, one at either end of the grid, with the
 conductivity rising as the cube of the depth to `σ_max` at the wall. `N = 0`
-gives no layer at all. `N ≥ 0` and `σ_max ≥ 0` are checked.
+gives no layer at all. `N ≥ 0`, `σ_max ≥ 0` and finite, positive steps are
+checked; the layer keeps its `Δx` and `Δt`.
 
 The element type is `float` of the arguments' promoted type, so an integer
 `σ_max` is accepted: `PML(10, 1000, Δx, Δt)` is `PML(10, 1e3, Δx, Δt)`, to the
@@ -57,11 +58,14 @@ bit. Prefer the keyword form, [`PML(; N, σ_max, Δx, Δt)`](@ref PML).
 struct PML{T<:AbstractFloat}
     N::Int
     σ_max::T
+    Δx::T
+    Δt::T
     r₁::Vector{T}
     r₂::Vector{T}
     function PML(N::Integer, σ_max::Real, Δx::Real, Δt::Real)
         N ≥ 0 || throw(ArgumentError("PML needs N ≥ 0 cells, got $N"))
         σ_max ≥ 0 || throw(ArgumentError("PML needs σ_max ≥ 0, got $σ_max"))
+        _check_steps(PML, Δx, Δt)
         T = float(promote_type(typeof(σ_max), typeof(Δx), typeof(Δt)))
         # On the arguments as given, as before the element type was computed,
         # and the depth profile in `T` or `Float64`, whichever is wider, so a
@@ -73,7 +77,7 @@ struct PML{T<:AbstractFloat}
         # (1 - exp(-Δtσ))/(Δxσ), through `expm1` so that it does not cancel as
         # Δtσ → 0, and at σ = 0 its limit Δt/Δx, the interior coefficient.
         r₂ = [iszero(s) ? Δt/Δx : -expm1(-Δt*s)/(Δx*s) for s in σ]
-        new{T}(N, σ_max, r₁, r₂)
+        new{T}(N, σ_max, Δx, Δt, r₁, r₂)
     end
     # The same layer with its constants rounded to `T`, for an operator whose
     # step works in `T`. From the coefficients, not from `σ_max`, so that a
@@ -81,8 +85,12 @@ struct PML{T<:AbstractFloat}
     # type, so that an operator shares no mutable state with the layer it was
     # given.
     PML{T}(p::PML) where {T<:AbstractFloat} =
-        new{T}(p.N, p.σ_max, Vector{T}(p.r₁), Vector{T}(p.r₂))
+        new{T}(p.N, p.σ_max, p.Δx, p.Δt, Vector{T}(p.r₁), Vector{T}(p.r₂))
 end
+
+_check_steps(who, Δx, Δt) =
+    isfinite(Δx) && Δx > 0 && isfinite(Δt) && Δt > 0 || throw(ArgumentError(
+        "$(nameof(who)) needs finite, positive steps; got Δx = $Δx, Δt = $Δt"))
 
 """
     PML(; N, σ_max, Δx, Δt)
@@ -106,13 +114,10 @@ floating-point type `T`, `float` of the promotion of `Δx` and `Δt`: `cfl`, `Δ
 written in. `x_min` is only a coordinate for the source and keeps its own
 floating-point type, so the `x` the source sees is computed as before.
 
-`Δx` and `Δt` must be finite and positive, `cfl` equal to `Δt/Δx` and `pml`
-built for them: the interior uses `cfl`, the layer `Δt/Δx`, and a mismatch is
-an impedance step at the layer's edge. It is checked in `T`, to a relative `max(1e-12, 4eps(T))`, by
-every constructor, the positional `Yee1D(cfl, Δx, Δt, x_min, pml, source)`
-included. It is a keyword of its own because `cfl*Δx/Δx` need not round back
-to `cfl`, and a caller that sets the Courant number gets exactly that number,
-rounded to `T`, in the interior.
+`Δx` and `Δt` must be finite and positive, `cfl` equal to `Δt/Δx`, and `pml`
+built for the same steps, or the layer's edge reflects. The equalities are
+checked in `T`, to a relative `max(1e-12, 4eps(T))`, by every constructor.
+`cfl` is a keyword because `cfl*Δx/Δx` need not round back to it.
 
 `source` is a named tuple `(y, z)` of functions `(t, x) -> amplitude`,
 injected one-way (rightwards) at the first interior node `pml.N + 2`. Their
@@ -134,15 +139,14 @@ struct Yee1D{T<:AbstractFloat, X<:AbstractFloat, S}
     function Yee1D(cfl::Real, Δx::Real, Δt::Real, x_min::Real, pml::PML, source)
         T = float(promote_type(typeof(Δx), typeof(Δt)))
         c, h, τ = T(cfl), T(Δx), T(Δt)
-        isfinite(h) && h > 0 && isfinite(τ) && τ > 0 || throw(ArgumentError(
-            "Yee1D needs finite, positive steps; got Δx = $Δx, Δt = $Δt"))
-        isapprox(c, τ/h; rtol = max(1e-12, 4eps(T))) || throw(ArgumentError(
+        _check_steps(Yee1D, h, τ)
+        rtol = max(1e-12, 4eps(T))
+        isapprox(c, τ/h; rtol) || throw(ArgumentError(
             "cfl = $cfl but Δt/Δx = $(τ/h): the interior and the absorbing " *
             "layer would use different Courant numbers"))
-        _layer_matches(pml, Δx, Δt, T) || throw(ArgumentError(
-            "the absorbing layer was not built for Δx = $Δx and Δt = $Δt (were they " *
-            "swapped?): its edge would not match the interior; build it with " *
-            "PML(; N, σ_max, Δx, Δt)"))
+        lh, lτ = T(pml.Δx), T(pml.Δt)
+        isapprox(lh, h; rtol) && isapprox(lτ, τ; rtol) || _err_layer(pml, Δx, Δt,
+            isapprox(lh, τ; rtol) && isapprox(lτ, h; rtol))
         x₀ = float(x_min)
         return new{T, typeof(x₀), typeof(source)}(c, h, τ, x₀, PML{T}(pml), source)
     end
@@ -152,15 +156,11 @@ Yee1D(; Δx, Δt, cfl = Δt/Δx, source, x_min = 0.0,
         pml = PML(; N = 10, σ_max = 1e3, Δx = Δx, Δt = Δt)) =
     Yee1D(cfl, Δx, Δt, x_min, pml, source)
 
-# Whether `pml` holds the coefficients a layer of its depth and `σ_max` has for
-# these steps, to a relative `max(1e-5, √eps(T))`. Loose enough for a layer built in another float type than the
-# operator's, tight enough to see `Δx` and `Δt` swapped, which changes `r₂` by
-# the factor `(Δt/Δx)²` at the layer's edge.
-function _layer_matches(pml, Δx, Δt, ::Type{T}) where {T}
-    want = PML(pml.N, pml.σ_max, Δx, Δt)
-    rtol = max(1e-5, sqrt(eps(T)))
-    return isapprox(pml.r₁, want.r₁; rtol) && isapprox(pml.r₂, want.r₂; rtol)
-end
+@noinline _err_layer(pml, Δx, Δt, swapped) = throw(ArgumentError(
+    "the absorbing layer was built for Δx = $(pml.Δx), Δt = $(pml.Δt), but the " *
+    "operator steps Δx = $Δx, Δt = $Δt" * (swapped ? ", the two swapped" : "") *
+    ": the layer's edge would not match the interior; build it with " *
+    "PML(; N, σ_max, Δx, Δt)"))
 
 """
     workspace(op::Yee1D, args...)
@@ -202,11 +202,13 @@ function advance!(mesh::YeeMesh1D, op::Yee1D, t, j)
     mesh.N ≥ 2*op.pml.N + 2 || _err_fit(mesh.N, op.pml.N)
     axes(j.y) == axes(j.z) == axes(mesh.ey) || _err_current(mesh.N, axes(j.y), axes(j.z))
     cfl = op.cfl; pml = op.pml; Nx = mesh.N
-    # The source's times and places. `t + Δt/2` stays in the type of `t` and
-    # `Δt`, as `t` does; `x` is computed in `x_min`'s type, as it always was.
+    # The source's times and places, each pair in one type: the times in the
+    # promotion of `t` and the step's type, the places in that of `x_min` and
+    # the step's. `3h/2` is `1.5h` to the bit, without a Float64 literal.
     i = pml.N + 2
-    tₑ, xₑ = t, op.x_min + op.Δx
-    tₕ, xₕ = t + op.Δt/2, op.x_min + 1.5*op.Δx
+    tₑ, tₕ = t + zero(op.Δt), t + op.Δt/2
+    h = convert(promote_type(typeof(op.x_min), typeof(op.Δx)), op.Δx)
+    xₑ, xₕ = op.x_min + h, op.x_min + 3h/2
     _inject!(mesh.ey, mesh.hz, op.source.y, -, cfl, i, tₑ, xₑ, tₕ, xₕ)
     _inject!(mesh.ez, mesh.hy, op.source.z, +, cfl, i, tₑ, xₑ, tₕ, xₕ)
     _update_e!(mesh.ey, mesh.hz, j.y, -, cfl, pml, Nx)

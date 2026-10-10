@@ -208,32 +208,59 @@ end
                     (y = zeros(Float32, 51), z = zeros(Float32, 51)))
     @test xs == [-5*2π + Δx32, -5*2π + 1.5*Δx32]
 
-    # Both injections call the source with a time in the step's type: the
-    # magnetic one was `t + 0.5*Δt`, which the literal widened to Float64.
-    ts = DataType[]
-    timed = (y = (t, x) -> (push!(ts, typeof(t)); 0.0f0), z = (t, x) -> 0.0f0)
-    FDTD1D.advance!(FDTD1D.YeeMesh1D{Float32}(50),
-                    FDTD1D.Yee1D(; Δx = Δx32, Δt = Δt32, source = timed), 0.0f0,
-                    (y = zeros(Float32, 51), z = zeros(Float32, 51)))
-    @test ts == [Float32, Float32]
+    # Both injections call the source with one time type and one place type:
+    # the magnetic one was `t + 0.5*Δt` at `x_min + 1.5*Δx`, which the literal
+    # widened to Float64, and the electric one took `t` as given.
+    function seen(Δx, Δt, x_min, t)
+        ts = DataType[]; xs = DataType[]
+        timed = (y = (t, x) -> (push!(ts, typeof(t)); push!(xs, typeof(x)); 0.0),
+                 z = (t, x) -> 0.0)
+        T = typeof(Δx)
+        FDTD1D.advance!(FDTD1D.YeeMesh1D{T}(50), FDTD1D.Yee1D(; Δx, Δt, x_min, source = timed),
+                        t, (y = zeros(T, 51), z = zeros(T, 51)))
+        return ts, xs
+    end
+    @test seen(Δx32, Δt32, 0.0f0, 0.0f0) == ([Float32, Float32], [Float32, Float32])
+    @test seen(Δx, Δt, 0.0, 1) == ([Float64, Float64], [Float64, Float64])
+    @test seen(Δx, Δt, 0.0, 0.5f0) == ([Float64, Float64], [Float64, Float64])
+    @test seen(Δx32, Δt32, 0.0, 0.0f0) == ([Float32, Float32], [Float64, Float64])
 
     # Steps that are not finite and positive gave Inf, NaN or a scheme running
     # backwards in time; a layer built for Δt and Δx swapped, an edge that
     # reflects. Both used to be accepted.
+    # The layer refuses them too, rather than building Inf, NaN or growing
+    # coefficients that the operator would then report as another layer's.
     for (h, τ) in ((0.0, 0.008), (-0.01, -0.008), (Inf, Inf), (0.01, NaN))
-        @test_throws ArgumentError FDTD1D.Yee1D(; Δx = h, Δt = τ, source = NO_PULSE,
-                                                 pml = no_pml(0.01, 0.008))
+        @test_throws ArgumentError FDTD1D.Yee1D(h, h, τ, 0.0, no_pml(0.01, 0.008), NO_PULSE)
+        @test_throws ArgumentError FDTD1D.PML(10, 1e3, h, τ)
     end
-    @test_throws ArgumentError FDTD1D.Yee1D(; Δx, Δt, source = NO_PULSE,
-                                             pml = FDTD1D.PML(10, 1e3, Δt, Δx))
+    # The layer keeps its steps, and the operator compares them with its own
+    # to the tolerance of the cfl check.
+    @test (pml.Δx, pml.Δt) === (Δx, Δt)
+    swapped = try
+        FDTD1D.Yee1D(; Δx, Δt, source = NO_PULSE, pml = FDTD1D.PML(10, 1e3, Δt, Δx))
+    catch e
+        e
+    end
+    @test swapped isa ArgumentError && occursin("swapped", swapped.msg)
     # with σ_max = 0 the layer's r₂ is Δt/Δx itself, and swapped it is not
     @test_throws ArgumentError FDTD1D.Yee1D(; Δx, Δt, source = NO_PULSE,
                                              pml = FDTD1D.PML(10, 0.0, Δt, Δx))
+    off = try
+        FDTD1D.Yee1D(; Δx, Δt, source = NO_PULSE,
+                     pml = FDTD1D.PML(10, 1e3, Δx*(1 + 1e-6), Δt*(1 + 1e-6)))
+    catch e
+        e
+    end
+    @test off isa ArgumentError && !occursin("swapped", off.msg)
     # The operator copies the layer: it is an immutable value, and shared
     # coefficients would change under it with the caller's.
-    @test op.pml.r₁ !== pml.r₁ && op.pml.r₁ == pml.r₁
-    shared = FDTD1D.Yee1D(; Δx, Δt, source = NO_PULSE, pml)
-    @test shared.pml.r₁ !== pml.r₁ && shared.pml.r₂ !== pml.r₂
+    own = FDTD1D.PML(; N = 10, σ_max = 1e3, Δx = Δx, Δt = Δt)
+    shared = FDTD1D.Yee1D(; Δx, Δt, source = NO_PULSE, pml = own)
+    @test shared.pml.r₁ !== own.r₁ && shared.pml.r₂ !== own.r₂
+    before = copy(shared.pml.r₁)
+    own.r₁ .= 0
+    @test shared.pml.r₁ == before
 
     # no scratch, whatever generic code passes along
     @test workspace(op) === nothing

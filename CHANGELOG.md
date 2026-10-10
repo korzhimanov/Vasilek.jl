@@ -15,19 +15,25 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 - **`Yee1D` refuses what would run wrong, and its source sees one time type**
   (`src/MaxwellSolver/FDTD1D.jl`, after the review of the FDTD rewrite).
-  * **Refused when the operator is built:** `Δx` or `Δt` zero, negative or not
-    finite, which gave `cfl = Inf` and a mesh of `Inf`/`NaN` after one step, or
-    a scheme running backwards in time; and a `pml` built for other steps, such
-    as `PML(10, 1e3, Δt, Δx)`, whose `r₂` tends to `Δx/Δt = 1.25` against an
-    interior at 0.8, the reflecting edge the `cfl` check exists to prevent. The
-    layer is compared with `PML(pml.N, pml.σ_max, Δx, Δt)` to a relative
-    `max(1e-5, √eps(T))`, so a `Float64` layer still serves a `Float32`
-    operator.
+  * **Refused when the operator or the layer is built:** `Δx` or `Δt` zero,
+    negative or not finite, which gave `cfl = Inf` and a mesh of `Inf`/`NaN`
+    after one step, a scheme running backwards in time, or a layer of `Inf`
+    and growing coefficients. Refused when the operator is built: a `pml` built
+    for other steps, such as `PML(10, 1e3, Δt, Δx)`, whose `r₂` tends to
+    `Δx/Δt = 1.25` against an interior at 0.8, the reflecting edge the `cfl`
+    check exists to prevent. `PML` now keeps the `Δx` and `Δt` it was built
+    for, and `Yee1D` compares them with its own in `T`, to the `cfl` check's
+    relative `max(1e-12, 4eps(T))`; the error names both pairs and says when
+    they are swapped. A `Float64` layer still serves a `Float32` operator.
   * **`advance!` checks `axes`, not `length`,** of `j.y` and `j.z`: a current
     indexed `0:N` passed and threw on `j[N]` with the source already injected.
-  * **The magnetic source is called at `t + Δt/2`,** in the type of `t` and
-    `Δt`; `t + 0.5*Δt` widened a `Float32` time to `Float64`, so one source
-    saw two time types in one step. For a `Float64` time nothing changes: 27
+  * **Both injections call the source with one time type and one place
+    type.** The magnetic one is called at `t + Δt/2` and `x_min + 3Δx/2`;
+    `t + 0.5*Δt` and `x_min + 1.5*Δx` widened `Float32` to `Float64`, and the
+    electric one took `t` as given, so one source saw an `Int` or `Float32`
+    time beside a `Float64` one. The times are now the promotion of `t` and
+    the step's type, the places that of `x_min` and the step's type; `3h/2`
+    is `1.5h` to the bit. For a `Float64` time nothing changes: 27
     runs of 400 steps on 300 cells (`Float64` and `Float32` steps with a
     `Float64` time, layers of 0, 5 and 10 cells, `cfl` 0.5, 0.8 and 1, both
     polarisations, a source, a current and `x_min = 0.37`) give `ey`, `ez`,
