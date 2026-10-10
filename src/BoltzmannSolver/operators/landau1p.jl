@@ -31,33 +31,38 @@ end
     Landau1P(A; L = 20.0, Tₜ = 1.0)
 
 The Landau collision operator in one velocity dimension, the two transverse
-ones a Maxwellian bath at temperature `Tₜ`:
+ones a Maxwellian bath at temperature `Tₜ > 0`, by default the thermal one:
 
     ∂f/∂t = −∂F/∂v,  F(v) = L·A ∫ Φ(v − v′) [f ∂f′ − f′ ∂f − f f′ (v − v′)/Tₜ] dv′,
     Φ(u) = 2Tₜ/(u² + 2Tₜ)^(3/2),
 
 where `A = 4πe⁴N₀/(m²v₀³ω)` and `L` is the Coulomb logarithm. `Φ` closes the
 transverse `u⊥²` with `2Tₜ`; both particles' Maxwellians would give `4Tₜ`.
-That sets the kernel's width `√(2Tₜ)`, which the grid must resolve, but not
-the equilibrium: the Maxwellian at `Tₜ`, by default the thermal one, is
-stationary, any other temperature
-relaxes to it, density and momentum are conserved, and the entropy relative to
-that Maxwellian does not increase.
+That sets the kernel's width, not the equilibrium: the Maxwellian at `Tₜ` is
+stationary, other temperatures relax to it, density and momentum are
+conserved, and the entropy relative to that Maxwellian does not increase.
 
 On the grid `F` is taken at the half-points from `f½ = (fᵢ + fᵢ₊₁)/2`,
 `f′½ = (fᵢ₊₁ − fᵢ)/(vᵢ₊₁ − vᵢ)` and the nodal `fⱼ`, `f′ⱼ` weighted by the cell
-widths `wⱼ`. It is zero at the window's ends, and
-`destᵢ = srcᵢ − Δt (Fᵢ₊½ − Fᵢ₋½)/wᵢ`. So `Σ w f` is conserved to round-off;
-momentum to second order in the spacing, and exactly on a uniform grid while
-`f` vanishes at the ends; the Maxwellian at `Tₜ` is stationary to second
-order. Forward Euler is stable for `Δt ≲ Δv²/(4·L·A·max f)`. A step is O(n²).
-
-Not exported: reach it as `Vasilek.Collisions.Landau1P`.
+widths `wⱼ`, is zero at the ends, and `destᵢ = srcᵢ − Δt (Fᵢ₊½ − Fᵢ₋½)/wᵢ`.
+So `Σ w f` is conserved to round-off, momentum to O(Δv²) and exactly on a
+uniform grid while `f` vanishes at the ends; the Maxwellian at `Tₜ` is
+stationary to O(Δv²), and the relative entropy falls until `f` is that close.
+The grid must resolve the bath: `Tₜ < Δv²` is refused, and `f` stays positive
+from about `Tₜ ≥ 4Δv²`. Forward Euler is stable for `Δt ≲ Δv²/(4·L·A·max f)`,
+`max f` over the run. A step is O(n²). Not exported.
 """
 struct Landau1P{T<:AbstractFloat} <: AbstractCollisionOperator
     A::T
     L::T
     Tₜ::T
+    function Landau1P(A::T, L::T, Tₜ::T) where {T<:AbstractFloat}
+        # `Tₜ = 0` divided by zero and returned NaN, a negative one threw from
+        # `sqrt` halfway through a step.
+        0 < Tₜ < Inf || throw(ArgumentError(
+            "Landau1P needs a positive, finite Tₜ, the bath's temperature; got $Tₜ"))
+        return new{T}(A, L, Tₜ)
+    end
 end
 Landau1P(A; L = 20.0, Tₜ = 1.0) = Landau1P(promote(float(A), float(L), float(Tₜ))...)
 
@@ -72,14 +77,21 @@ workspace(::Landau1P{T}, n::Integer, ::Type{S} = T) where {T, S} =
     Landau1PWorkspace(Vector{S}(undef, n + 1), Vector{S}(undef, n))
 
 function collide!(dest, src, op::Landau1P, v, Δt, ws::Landau1PWorkspace)
+    Base.require_one_based_indexing(dest, src, v)
     n = length(src)
     length(dest) == n == length(v) || throw(DimensionMismatch(
         "collide! needs dest, src and v of one length, got $(length(dest)), " *
         "$n and $(length(v))"))
     F, df = ws.F, ws.df
-    # Both are written while `src` is still being read.
-    (Base.mightalias(src, F) || Base.mightalias(src, df)) && _err_landau_alias()
+    # Both are written while `src` is still being read, and `F` is read while
+    # `dest` is written.
+    (Base.mightalias(src, F) || Base.mightalias(src, df) || Base.mightalias(dest, F)) &&
+        _err_landau_alias()
     n < 2 && return copyto!(dest, src)       # no half-point, nothing can flow
+    # A bath narrower than a cell is one the grid cannot hold: the drag between
+    # neighbouring nodes then outruns the kernel's diffusion, and the line ends
+    # in NaN whatever the step. The same criterion `BGK` applies to a line.
+    op.Tₜ ≥ _coarsest(v)^2 || _err_landau_unresolved(op.Tₜ, _coarsest(v))
     # One type for the sum, the widest of the scratch's, the line's and the
     # grid's: an accumulator that widened on its first `+=` would be a Union.
     R = promote_type(eltype(F), float(eltype(src)), float(eltype(v)))
@@ -113,5 +125,10 @@ function collide!(dest, src, op::Landau1P, v, Δt, ws::Landau1PWorkspace)
 end
 
 @noinline _err_landau_alias() = throw(ArgumentError(
-    "collide! requires src not to share memory with the workspace: Landau1P " *
-    "writes the derivative and the fluxes there before it is done reading src"))
+    "collide! requires src and dest not to share memory with the workspace: " *
+    "Landau1P writes the derivative and the fluxes there while it reads src, " *
+    "and reads the fluxes while it writes dest"))
+
+@noinline _err_landau_unresolved(Tₜ, Δv) = throw(ArgumentError(
+    "Landau1P's bath, Tₜ = $Tₜ, is narrower than the grid's coarsest cell, " *
+    "Δv = $Δv: it needs Tₜ ≥ Δv²"))

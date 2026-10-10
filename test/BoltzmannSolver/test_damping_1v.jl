@@ -91,8 +91,10 @@ end
 
     # The derivative and the fluxes are complete before `dest` is written, so
     # the step can be taken in place; a `src` in the workspace is refused, as
-    # `BGK` refuses one; and a line of one node, with no half-point, is left
-    # alone where the old operator read past its end.
+    # `BGK` refuses one, and so is a `dest` over the fluxes, which the last
+    # loop reads while it writes: one a node out of step came back 0.053 off,
+    # without an error. A line of one node, with no half-point, is left alone
+    # where the old operator read past its end.
     let x = copy(g₀)
         @test collide!(x, x, op, v, Δt) == got
     end
@@ -100,7 +102,26 @@ end
     copyto!(ws.df, g₀)
     @test_throws ArgumentError collide!(similar(g₀), ws.df, op, v, Δt, ws)
     @test_throws ArgumentError collide!(similar(g₀), view(ws.F, 2:length(v)+1), op, v, Δt, ws)
+    @test_throws ArgumentError collide!(view(ws.F, 2:length(v)+1), g₀, op, v, Δt, ws)
     @test collide!([0.0], [0.7], op, [0.0], Δt) == [0.7]
+
+    # Tₜ is the bath's temperature, so it must be positive: Tₜ = 0 returned a
+    # line of NaN and Tₜ = −1 threw from `sqrt` halfway through a step.
+    for bad in (0.0, -1.0, Inf, NaN)
+        @test_throws ArgumentError Landau1P(1e-2; Tₜ = bad)
+    end
+
+    # and the grid must resolve it. A line relaxing towards a bath narrower
+    # than a cell ends in NaN whatever the step: measured on ±6 from the
+    # thermal line, √Tₜ/Δv = 0.22 to 0.5 at Δv = 0.1 and 0.2 ended in NaN by
+    # t = 0.34 to 1.4; 0.71 to 1.0 ran but went down to f = −0.06 to −0.7;
+    # 1.4 and more stayed positive. Tₜ < Δv² is refused, the criterion `BGK`
+    # applies to a line; on a dyadic grid the bound is exact.
+    let vv = collect(-4:0.125:4), gg = @. exp(-vv^2/2)
+        @test_throws ArgumentError collide!(similar(gg), gg, Landau1P(1e-2; Tₜ = 1e-3), vv, Δt)
+        @test_throws ArgumentError collide!(similar(gg), gg, Landau1P(1e-2; Tₜ = prevfloat(0.125^2)), vv, Δt)
+        @test all(isfinite, collide!(similar(gg), gg, Landau1P(1e-2; Tₜ = 0.125^2), vv, Δt))
+    end
 
     # and a symmetric line stays symmetric: F is odd in v, the drag included
     h₀ = @. exp(-v^2)*(1 + 0.3v^2)
@@ -258,11 +279,16 @@ end
     # sufficient with room to spare and not by much more: on h₀ at Δv = 0.1 it
     # is 0.0125, and 2000 steps stay positive and settle at a peak of 1.151,
     # the equilibrium's 1.150 to second order, up to 1.5 times it; at 1.6
-    # times they grow to 6e4, and at 2 end in NaN.
+    # times they grow to 6e4, and at 2 end in NaN. Only the sufficiency is
+    # asserted: a better scheme may well survive twice the bound. With a line
+    # cooling towards a narrow bath, `max f` is the bath's peak: from the
+    # thermal line at Tₜ = 0.01 and 0.04, Δv = 0.1, the bound at that peak
+    # held over t = 5, and 1.4 times it as well.
     bound = 0.1^2/(4*op.L*op.A*maximum(h₀))
     settled = relax(op, v, bound, h₀, 2000)
     @test minimum(settled) > 0 && maximum(settled) < 1.16
-    @test !all(isfinite, relax(op, v, 2bound, h₀, 2000))
+    println("  Landau1P at twice the time-step bound, finite: ",
+            all(isfinite, relax(op, v, 2bound, h₀, 2000)))
 end
 
 """

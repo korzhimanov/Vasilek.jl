@@ -13,6 +13,12 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 ### Breaking
 
+- **`Landau1P(A)` defaults to `Tₜ = 1`, where it was 1e-3, and `Tₜ` means
+  something else.** It was a factor on the collision rate; it is now the
+  temperature of the transverse bath the line relaxes to, and the width of
+  the kernel. A value that is not positive and finite is refused by the
+  constructor, and one below `Δv²` by `collide!`. See the `Landau1P` entry
+  under Changed for the measurements.
 - **`Yee1D` refuses what would run wrong, and its source sees one time type**
   (`src/MaxwellSolver/FDTD1D.jl`, after the review of the FDTD rewrite).
   * **Refused when the operator or the layer is built:** `Δx` or `Δt` zero,
@@ -1301,14 +1307,25 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
     `Δt ≲ Δv²/(4·L·A·max f)`, which the docstring now states. On the test line
     that is 0.0125 at Δv = 0.1; the run holds to 1.5 times it and ends in NaN
     at 2. The tests took Δt = 0.1, which the old operator survived and this
-    one does not; they take 0.005.
+    one does not; they take 0.005. For a line cooling towards a narrow bath,
+    `max f` is the bath's peak: from the thermal line at `Tₜ` = 0.01 and 0.04,
+    Δv = 0.1, the bound at that peak held over t = 5, and 1.4 times it too.
+  * **The bath must be resolved.** A line relaxing towards a bath narrower
+    than a cell ends in NaN whatever the step. From the thermal line on ±6,
+    √Tₜ/Δv = 0.22 to 0.5 ended in NaN by t = 0.34 to 1.4; 0.71 to 1.0 ran but
+    went down to f = −0.06 to −0.7; 1.4 and more stayed positive. `collide!`
+    refuses `Tₜ < Δv²` with an `ArgumentError`, the criterion `BGK` applies
+    to a line; the docstring says positivity takes about `4Δv²`.
   * **Cost.** The nodal derivative is taken once per call, not once per pair,
     which pays for the square root the kernel now needs: 1.95 ms a step at
     N = 800 under `--check-bounds=yes`, against 1.90 ms for the old kernel on
     the same machine. Still O(N²), exponent 2.003 to 2.030.
-  * A `src` sharing the workspace is refused with an `ArgumentError`, as
-    `BGK` refuses one, and a line of one node is returned unchanged where the
-    old operator read past its end.
+  * **Contracts.** A `src` sharing the workspace is refused with an
+    `ArgumentError`, as `BGK` refuses one, and so is a `dest` over the
+    fluxes, which a node out of step left 0.053 off without an error. `Tₜ`
+    must be positive and finite: 0 returned NaN, and −1 threw from `sqrt`
+    halfway through a step. Arrays must be one-based. A line of one node is
+    returned unchanged where the old operator read past its end.
   * **The default `Tₜ` is 1, the plasma's own temperature in thermal units,**
     where it was 1e-3. In the old kernel `Tₜ` only scaled the rate; in the new
     one it is the bath, and 1e-3 made it a thousand times colder than a
