@@ -116,11 +116,22 @@ end
     # thermal line, √Tₜ/Δv = 0.22 to 0.5 at Δv = 0.1 and 0.2 ended in NaN by
     # t = 0.34 to 1.4; 0.71 to 1.0 ran but went down to f = −0.06 to −0.7;
     # 1.4 and more stayed positive. Tₜ < Δv² is refused, the criterion `BGK`
-    # applies to a line; on a dyadic grid the bound is exact.
-    let vv = collect(-4:0.125:4), gg = @. exp(-vv^2/2)
+    # applies to a line. Tₜ = Δv² itself passes on an ordinary grid, whose
+    # coarsest spacing rounds to 0.10000000000000053 here.
+    let vv = collect(-6:0.1:6), gg = @. exp(-vv^2/2)
         @test_throws ArgumentError collide!(similar(gg), gg, Landau1P(1e-2; Tₜ = 1e-3), vv, Δt)
-        @test_throws ArgumentError collide!(similar(gg), gg, Landau1P(1e-2; Tₜ = prevfloat(0.125^2)), vv, Δt)
-        @test all(isfinite, collide!(similar(gg), gg, Landau1P(1e-2; Tₜ = 0.125^2), vv, Δt))
+        @test_throws ArgumentError collide!(similar(gg), gg, Landau1P(1e-2; Tₜ = 0.0099), vv, Δt)
+        @test all(isfinite, collide!(similar(gg), gg, Landau1P(1e-2; Tₜ = 0.01), vv, Δt))
+    end
+    # Δv is the widest cell anywhere on the grid, the tails' included, so this
+    # refuses some runs that would have gone well: on 8 sinh(3ξ)/sinh(3),
+    # N = 121, cells 0.040 to 0.392, Tₜ = 0.05 and 0.1 ran from the thermal
+    # line for t = 3 with f ≥ 2.8e-15 when nothing was checked. A test on where
+    # the line lives would depend on the data and could stop a run halfway.
+    let vv = (ξ = range(-1, 1; length = 121); collect(@. 8*sinh(3ξ)/sinh(3))),
+        gg = @. exp(-vv^2/2)
+        @test_throws ArgumentError collide!(similar(gg), gg, Landau1P(1e-2; Tₜ = 0.1), vv, Δt)
+        @test all(isfinite, collide!(similar(gg), gg, Landau1P(1e-2; Tₜ = 0.16), vv, Δt))
     end
 
     # and a symmetric line stays symmetric: F is odd in v, the drag included

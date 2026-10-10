@@ -1315,7 +1315,13 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
     √Tₜ/Δv = 0.22 to 0.5 ended in NaN by t = 0.34 to 1.4; 0.71 to 1.0 ran but
     went down to f = −0.06 to −0.7; 1.4 and more stayed positive. `collide!`
     refuses `Tₜ < Δv²` with an `ArgumentError`, the criterion `BGK` applies
-    to a line; the docstring says positivity takes about `4Δv²`.
+    to a line; the docstring says positivity takes about `4Δv²`. `Δv` is the
+    widest cell anywhere on the grid, up to the rounding of its values, so
+    `Tₜ = 0.01` passes on `collect(-6:0.1:6)`. That refuses some stretched
+    grids that would have run: on `8 sinh(3ξ)/sinh(3)`, N = 121, cells 0.040
+    to 0.392, `Tₜ` = 0.05 and 0.1 ran for t = 3 with f ≥ 2.8e-15 unchecked.
+    A test on where the line lives would depend on the data and could stop a
+    run halfway, which `BGK`'s docstring argues against.
   * **Cost.** The nodal derivative is taken once per call, not once per pair,
     which pays for the square root the kernel now needs: 1.95 ms a step at
     N = 800 under `--check-bounds=yes`, against 1.90 ms for the old kernel on

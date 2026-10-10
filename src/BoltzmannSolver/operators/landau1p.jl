@@ -48,8 +48,8 @@ widths `wⱼ`, is zero at the ends, and `destᵢ = srcᵢ − Δt (Fᵢ₊½ −
 So `Σ w f` is conserved to round-off, momentum to O(Δv²) and exactly on a
 uniform grid while `f` vanishes at the ends; the Maxwellian at `Tₜ` is
 stationary to O(Δv²), and the relative entropy falls until `f` is that close.
-The grid must resolve the bath: `Tₜ < Δv²` is refused, and `f` stays positive
-from about `Tₜ ≥ 4Δv²`. Forward Euler is stable for `Δt ≲ Δv²/(4·L·A·max f)`,
+The grid must resolve the bath: `Tₜ < Δv²` is refused, `Δv` the coarsest
+spacing, tails included, and `f` stays positive from about `Tₜ ≥ 4Δv²`. Forward Euler is stable for `Δt ≲ Δv²/(4·L·A·max f)`,
 `max f` over the run. A step is O(n²). Not exported.
 """
 struct Landau1P{T<:AbstractFloat} <: AbstractCollisionOperator
@@ -90,8 +90,14 @@ function collide!(dest, src, op::Landau1P, v, Δt, ws::Landau1PWorkspace)
     n < 2 && return copyto!(dest, src)       # no half-point, nothing can flow
     # A bath narrower than a cell is one the grid cannot hold: the drag between
     # neighbouring nodes then outruns the kernel's diffusion, and the line ends
-    # in NaN whatever the step. The same criterion `BGK` applies to a line.
-    op.Tₜ ≥ _coarsest(v)^2 || _err_landau_unresolved(op.Tₜ, _coarsest(v))
+    # in NaN whatever the step. The criterion `BGK` applies to a line, here to
+    # the whole grid, since a test on where the line lives would depend on the
+    # data and could stop a run halfway; so a stretched grid must resolve the
+    # bath in its tails as well. The slack is the rounding of the grid's
+    # values: `Tₜ = Δv²` passes on `collect(-6:0.1:6)`, whose coarsest
+    # spacing is 0.10000000000000053.
+    Δv = _coarsest(v) - 4*eps(float(eltype(v)))*max(abs(first(v)), abs(last(v)))
+    op.Tₜ ≥ Δv^2 || _err_landau_unresolved(op.Tₜ, _coarsest(v))
     # One type for the sum, the widest of the scratch's, the line's and the
     # grid's: an accumulator that widened on its first `+=` would be a Union.
     R = promote_type(eltype(F), float(eltype(src)), float(eltype(v)))
@@ -131,4 +137,5 @@ end
 
 @noinline _err_landau_unresolved(Tₜ, Δv) = throw(ArgumentError(
     "Landau1P's bath, Tₜ = $Tₜ, is narrower than the grid's coarsest cell, " *
-    "Δv = $Δv: it needs Tₜ ≥ Δv²"))
+    "Δv = $Δv: it needs Tₜ ≥ Δv², with Δv the widest cell anywhere on the " *
+    "grid, tails included. Refine the coarsest cells or raise Tₜ"))
