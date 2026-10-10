@@ -31,13 +31,18 @@ end
     println("  BGK, Maxwellian stays Maxwellian: ", norm(f - f₀))
     @test norm(f - f₀) ≈ 0 atol=1e-4
 
-    # The index bug is fixed, which halves the deviation (0.310 -> 0.160), but a
-    # Maxwellian still is not a stationary point. What remains is the closure
-    # inconsistency: the transversal estimate 2Tₜ in the numerator against the
-    # longitudinal |vᵢ-vⱼ|³ in the denominator. See the refinement test below.
-    f = relax(Landau1P(1e-2), v, Δt, f₀, 100)
-    println("  Landau1P, Maxwellian deviation: ", norm(f - f₀))
-    @test_broken norm(f - f₀) ≈ 0 atol=3e-3
+    # With its drag term `Landau1P` relaxes to the Maxwellian at Tₜ, and
+    # exp(-v²) is that Maxwellian at Tₜ = 0.5. It holds still to second order
+    # in Δv, the discrete residual "Landau1P invariants" measures: ‖f − f₀‖ =
+    # 1.2e-3 after 100 steps, t = 0.5. Before the drag and the regularised
+    # kernel no Maxwellian was stationary, and this was `@test_broken` at 0.160.
+    #
+    # The step is 0.005, not the BGK lines' 0.1: forward Euler on the
+    # operator's diffusion needs Δt ≲ Δv²/(4·L·A·max f), 0.0125 here, and 0.1
+    # ends in NaN.
+    f = relax(Landau1P(1e-2; Tₜ = 0.5), v, 0.005, f₀, 100)
+    println("  Landau1P, Maxwellian at Tₜ deviation: ", norm(f - f₀))
+    @test norm(f - f₀) ≈ 0 atol=3e-3
 
     a = 3e-1
     n = 0.5*sqrt(π)*(a + 2.0)
@@ -50,55 +55,190 @@ end
 end
 
 @testset "Landau1P invariants" begin
-    Δt = 0.1
-    v = collect(-4:0.1:4)
-    f₀ = @. exp(-v^2)
+    # Tₜ = 0.5 throughout: the kernel's width √(2Tₜ) = 1 spans ten nodes at
+    # Δv = 0.1, where the default Tₜ = 1e-3 (width 0.045) would fall between
+    # two. L·A = 0.2. Runs of many steps take Δt = 0.005, inside the stability
+    # bound tested at the end.
+    Tₜ = 0.5
+    op = Landau1P(1e-2; Tₜ)
     C = Vasilek.Collisions
+    widths(v) = [C._width(v, i) for i in eachindex(v)]
+    Δt = 0.005
+    v = collect(-4:0.1:4)
+    w = widths(v)
 
     # `collide!` against the operator written out from its docstring, on a
-    # skewed line where every index matters: the kernel
-    # K(i, j) = (fᵢ f′ⱼ − fⱼ f′ᵢ)·2Tₜ/|vᵢ − vⱼ|³, I = L·A·∫K dv, and the update
-    # f − Δt·∂I/∂v. The old index bug sat inside `collide!`, so it is
-    # `collide!` that is checked; this used to assert K(i, j) = −K(j, i) on a
-    # K defined in this file, which is zero by IEEE arithmetic whatever the
-    # operator does.
-    Tₜ = 1e-3
-    op = Landau1P(1e-2)
+    # skewed line where every index matters: the flux on the half-points
+    # F[i+½] = L·A Σⱼ wⱼ Φ(v½ − vⱼ)(f½ f′ⱼ − fⱼ f′½ − f½ fⱼ (v½ − vⱼ)/Tₜ), with
+    # Φ(u) = 2Tₜ/(u² + 2Tₜ)^(3/2), zero at the walls, and the update
+    # f − Δt (F[i+½] − F[i−½])/w. The old index bug sat inside `collide!`, so
+    # it is `collide!` that is checked, here with loops of its own and a `^`
+    # where the operator takes a square root.
     g₀ = @. exp(-(v - 0.3)^2)*(1 + 0.2v)
-    K(i, j) = i == j ? 0.0 :
-        (g₀[i]*C.∂f∂v(g₀, v, j) - g₀[j]*C.∂f∂v(g₀, v, i))*2Tₜ/abs(v[i]-v[j])^3
-    I = [op.L*op.A*C._trapezoid(v, [K(i, j) for j in eachindex(v)]) for i in eachindex(v)]
-    expected = [g₀[i] - Δt*C.∂f∂v(I, v, i) for i in eachindex(v)]
+    Φ(u) = 2Tₜ/(u^2 + 2Tₜ)^(3/2)
+    df = [C.∂f∂v(g₀, v, j) for j in eachindex(v)]
+    F = zeros(length(v) + 1)
+    for i in 1:length(v)-1
+        v½, f½ = (v[i] + v[i+1])/2, (g₀[i] + g₀[i+1])/2
+        f′½ = (g₀[i+1] - g₀[i])/(v[i+1] - v[i])
+        F[i+1] = op.L*op.A*sum(w[j]*Φ(v½ - v[j])*
+                               (f½*df[j] - g₀[j]*f′½ - f½*g₀[j]*(v½ - v[j])/Tₜ)
+                               for j in eachindex(v))
+    end
+    expected = [g₀[i] - Δt*(F[i+1] - F[i])/w[i] for i in eachindex(v)]
     got = collide!(similar(g₀), g₀, op, v, Δt)
     @test maximum(abs, got .- expected) ≤ 1e-14*maximum(abs, g₀)
 
-    # and a symmetric line stays symmetric: I is odd in v, its derivative even
+    # The derivative and the fluxes are complete before `dest` is written, so
+    # the step can be taken in place; a `src` in the workspace is refused, as
+    # `BGK` refuses one; and a line of one node, with no half-point, is left
+    # alone where the old operator read past its end.
+    let x = copy(g₀)
+        @test collide!(x, x, op, v, Δt) == got
+    end
+    ws = workspace(op, length(v), Float64)
+    copyto!(ws.df, g₀)
+    @test_throws ArgumentError collide!(similar(g₀), ws.df, op, v, Δt, ws)
+    @test_throws ArgumentError collide!(similar(g₀), view(ws.F, 2:length(v)+1), op, v, Δt, ws)
+    @test collide!([0.0], [0.7], op, [0.0], Δt) == [0.7]
+
+    # and a symmetric line stays symmetric: F is odd in v, the drag included
     h₀ = @. exp(-v^2)*(1 + 0.3v^2)
     h = collide!(similar(h₀), h₀, op, v, Δt)
     @test maximum(abs, h .- reverse(h)) ≤ 1e-14*maximum(h)
 
-    # Mass is not conserved to machine precision: the update differences a
-    # cell-centred I rather than staggered fluxes. Assert the drift actually
-    # achieved rather than an exactness the scheme does not have.
-    f = relax(Landau1P(1e-2), v, Δt, f₀, 100)
-    drift = abs(integrate(v, f) - integrate(v, f₀))/integrate(v, f₀)
+    # Mass is conserved to round-off: the update is a difference of fluxes on
+    # the half-points, divided by the cell widths, so Σ w f telescopes and the
+    # walls let nothing out. Measured 2.4e-16 over 100 steps, and 4.7e-16 over
+    # 1000. The old operator differenced a nodal integral and drifted by 2e-10.
+    g = relax(op, v, Δt, g₀, 100)
+    drift = abs(sum(w .* g) - sum(w .* g₀))/sum(w .* g₀)
     println("  Landau1P mass drift over 100 steps: ", drift)
-    @test drift < 1e-8
+    @test drift < 1e-14
 
-    # The collision integral must converge as the velocity grid is refined. It
-    # does not: with 2Tₜ in the numerator but |vᵢ-vⱼ|³ in the denominator the
-    # kernel is non-integrable at i ≈ j, and max|∂f/∂t| grows under refinement
-    # instead of settling (0.0023, 0.0053, 0.0080, 0.0104 at Δv = 0.4, 0.2,
-    # 0.1, 0.05).
+    # Momentum. On a uniform grid it is conserved exactly too, and not only to
+    # second order: Σ wᵢ vᵢ Δfᵢ = Δt Σ Δv F[i+½], and where the centred f′ⱼ is
+    # the mean of its two neighbouring f′½, summation by parts turns every term
+    # of that double sum into fⱼ fₖ times a function odd in vⱼ − vₖ, the drag's
+    # included, which cancels in pairs. What is left is the walls, where the
+    # derivative is one-sided: on ±6, where the line is 2e-14 there, the drift
+    # over 100 steps is 1.5e-16 to 4.5e-16 of P = 0.74, as the line's last
+    # bits fall; on ±4, where it is 2e-6, 2.2e-9.
+    let vv = collect(-6:0.1:6), ww = widths(vv), gg = @. exp(-(vv - 0.3)^2)*(1 + 0.2vv)
+        P₀ = sum(ww .* vv .* gg)
+        ΔP = abs(sum(ww .* vv .* relax(op, vv, Δt, gg, 100)) - P₀)/abs(P₀)
+        println("  Landau1P momentum drift, uniform grid: ", ΔP)
+        @test ΔP < 1e-14
+    end
+    # On a stretched grid the pairs no longer meet, and the drift is second
+    # order in the spacing: v = 6 sinh(1.5ξ)/sinh(1.5), 100 steps of 1e-4,
+    # 1.59e-6, 3.98e-7, 9.97e-8, 2.49e-8 at N = 61, 121, 241, 481, ratios 3.99,
+    # 4.00, 4.00.
+    stretched(N) = (ξ = range(-1, 1; length = N); @. 6*sinh(1.5ξ)/sinh(1.5))
+    function momentum_drift(N)
+        vv = stretched(N); ww = widths(vv); gg = @. exp(-(vv - 0.3)^2)*(1 + 0.2vv)
+        abs(sum(ww .* vv .* relax(op, vv, 1e-4, gg, 100)) - sum(ww .* vv .* gg))
+    end
+    coarse, fine = momentum_drift(121), momentum_drift(241)
+    println("  Landau1P momentum drift, stretched grid: $coarse -> $fine, ratio ", coarse/fine)
+    @test 3.9 < coarse/fine < 4.1
+
+    # The collision integral converges as the grid is refined, at second order:
+    # the kernel is bounded, and smooth on the scale √(2Tₜ) the grid resolves.
+    # max|∂f/∂t| one step from a line that is not a Maxwellian (exp(-v²) is
+    # the equilibrium here): 0.0663, 0.0818, 0.0861, 0.0872 at Δv = 0.4, 0.2,
+    # 0.1, 0.05, ratios 0.811, 0.950, 0.987, so the distance from 1 falls
+    # 3.8 and 3.9 times per halving. The old kernel 2Tₜ/|u|³ was not
+    # integrable at u = 0, and on exp(-v²) at its default Tₜ the rate grew
+    # under the same refinement instead: 0.0023, 0.0053, 0.0080, 0.0104.
     function rate(Δv)
         vv = collect(-4:Δv:4)
-        g₀ = @. exp(-vv^2)
-        g = relax(Landau1P(1e-2), vv, Δt, g₀, 1)
-        maximum(abs, (g .- g₀)./Δt)
+        gg = @. exp(-vv^2)*(1 + 0.3vv^2)
+        maximum(abs, collide!(similar(gg), gg, op, vv, Δt) .- gg)/Δt
     end
-    coarse, fine = rate(0.1), rate(0.05)
-    println("  Landau1P refinement: $coarse -> $fine")
-    @test_broken isapprox(fine, coarse; rtol = 0.1)
+    r = [rate(Δv) for Δv in (0.4, 0.2, 0.1, 0.05)]
+    println("  Landau1P refinement: ", r)
+    @test isapprox(r[4], r[3]; rtol = 0.1)                # measured 1.3%
+    @test abs(r[2]/r[3] - 1) < abs(r[1]/r[2] - 1)
+    @test abs(r[3]/r[4] - 1) < abs(r[2]/r[3] - 1)/3       # second order
+
+    # The H-theorem. With the drag the line relaxes to the Maxwellian at Tₜ
+    # rather than spreading without end, and what cannot rise is the relative
+    # entropy H = Σ w f ln(f/M), M = exp(-v²/2Tₜ): the free energy −S + E/Tₜ,
+    # up to the mass, which is conserved. The entropy S = −Σ w f ln f itself
+    # rises only on a line colder than Tₜ. A hotter one cools, and gives
+    # entropy to the transverse bath.
+    #
+    # On ±6, 100 steps. Two bumps at ±1, T = 1.5: H falls at every step, by
+    # 3.5e-3 at least and 0.39 in all, and S falls by 0.069. Two narrow bumps at
+    # ±0.5, T = 0.35: H falls at every step, 0.117 in all, and S rises at every
+    # step, by 6.0e-4 at least and 0.145 in all.
+    #
+    # On the grid the theorem holds until the line nears equilibrium: the
+    # stationary state of the scheme lies O(Δv²) from M (below), and continued
+    # for 4000 steps the hot line's H turns up by 2.4e-9 a step after 3831.
+    function entropy_changes(f₀)
+        vv = collect(-6:0.1:6); ww = widths(vv); M = @. exp(-vv^2/(2Tₜ))
+        H(f) = sum(ww[i]*(f[i] > 0 ? f[i]*log(f[i]/M[i]) : 0.0) for i in eachindex(f))
+        S(f) = -sum(ww[i]*(f[i] > 0 ? f[i]*log(f[i]) : 0.0) for i in eachindex(f))
+        src = f₀.(vv); dst = similar(src); ws = workspace(op, length(vv))
+        dH = Float64[]; dS = Float64[]; positive = true
+        for _ in 1:100
+            h, s = H(src), S(src)
+            collide!(dst, src, op, vv, Δt, ws); copyto!(src, dst)
+            push!(dH, H(src) - h); push!(dS, S(src) - s)
+            positive &= minimum(src) > 0
+        end
+        return dH, dS, positive
+    end
+    dH, dS, positive = entropy_changes(x -> exp(-(x - 1)^2) + exp(-(x + 1)^2))
+    println("  Landau1P, T = 1.5: largest step in H ", maximum(dH), ", ΔH = ", sum(dH), ", ΔS = ", sum(dS))
+    @test maximum(dH) < 1e-13 && sum(dH) < -0.1
+    @test sum(dS) < 0                     # the hot line's entropy falls
+    @test positive
+    dH, dS, positive = entropy_changes(x -> exp(-(x - 0.5)^2/0.2) + exp(-(x + 0.5)^2/0.2))
+    println("  Landau1P, T = 0.35: largest step in H ", maximum(dH), ", smallest in S ", minimum(dS))
+    @test maximum(dH) < 1e-13 && sum(dH) < -0.05
+    @test minimum(dS) > -1e-13 && sum(dS) > 0.1
+    @test positive
+
+    # The Maxwellian at Tₜ is stationary to second order in Δv: max|∂f/∂t| one
+    # step from exp(-v²/2Tₜ) on ±6 is 4.84e-3, 1.26e-3, 3.19e-4, 7.99e-5 at
+    # Δv = 0.2, 0.1, 0.05, 0.025, ratios 3.84, 3.96, 3.99.
+    function residual(Δv)
+        vv = collect(-6:Δv:6)
+        M = @. exp(-vv^2/(2Tₜ))
+        maximum(abs, collide!(similar(M), M, op, vv, Δt) .- M)/Δt
+    end
+    coarse, fine = residual(0.1), residual(0.05)
+    println("  Landau1P, Maxwellian at Tₜ: residual $coarse -> $fine, ratio ", coarse/fine)
+    @test 3.8 < coarse/fine < 4.2
+    @test fine < 4e-4
+
+    # and a Maxwellian at any other temperature relaxes towards Tₜ, the whole
+    # content of the drag: in 100 steps, t = 0.5, T = 1 falls to 0.939 and
+    # T = 0.25 rises to 0.288, in the cell-width moments.
+    let vv = collect(-6:0.1:6), ww = widths(vv)
+        temperature(f) = (n = sum(ww .* f); u = sum(ww .* vv .* f)/n;
+                          sum(ww .* (vv .- u).^2 .* f)/n)
+        for T₀ in (1.0, 0.25)
+            f₀ = @. exp(-vv^2/(2T₀))
+            T₁ = temperature(relax(op, vv, Δt, f₀, 100))
+            println("  Landau1P, T = ", temperature(f₀), " -> ", T₁)
+            @test sign(T₁ - temperature(f₀)) == sign(Tₜ - T₀)
+            @test abs(T₁ - Tₜ) < abs(T₀ - Tₜ)
+        end
+    end
+
+    # The time-step bound the docstring gives, Δt ≲ Δv²/(4·L·A·max f), is
+    # sufficient with room to spare and not by much more: on h₀ at Δv = 0.1 it
+    # is 0.0125, and 2000 steps stay positive and settle at a peak of 1.151,
+    # the equilibrium's 1.150 to second order, up to 1.5 times it; at 1.6
+    # times they grow to 6e4, and at 2 end in NaN.
+    bound = 0.1^2/(4*op.L*op.A*maximum(h₀))
+    settled = relax(op, v, bound, h₀, 2000)
+    @test minimum(settled) > 0 && maximum(settled) < 1.16
+    @test !all(isfinite, relax(op, v, 2bound, h₀, 2000))
 end
 
 """
@@ -241,7 +381,7 @@ end
             @test_throws ArgumentError collide!(similar(f₁), buf, op, v, 0.05, ws)
         end
     end
-    # Landau1P is experimental and exported from nowhere
+    # Landau1P is a model, exported from nowhere: reach it by its full name
     @test !(:Landau1P in names(Vasilek)) && !(:Landau1P in names(Vasilek.Collisions))
 end
 
