@@ -28,7 +28,7 @@ end
 # at `T` the bracket is `f f′ (v − v′)(1/T − 1/Tₜ)` under any closure, so the
 # equilibrium is the Maxwellian at `Tₜ` regardless.
 """
-    Landau1P(A; L = 20.0, Tₜ = 1e-3)
+    Landau1P(A; L = 20.0, Tₜ = 1.0)
 
 The Landau collision operator in one velocity dimension, the two transverse
 ones a Maxwellian bath at temperature `Tₜ`:
@@ -39,7 +39,8 @@ ones a Maxwellian bath at temperature `Tₜ`:
 where `A = 4πe⁴N₀/(m²v₀³ω)` and `L` is the Coulomb logarithm. `Φ` closes the
 transverse `u⊥²` with `2Tₜ`; both particles' Maxwellians would give `4Tₜ`.
 That sets the kernel's width `√(2Tₜ)`, which the grid must resolve, but not
-the equilibrium: the Maxwellian at `Tₜ` is stationary, any other temperature
+the equilibrium: the Maxwellian at `Tₜ`, by default the thermal one, is
+stationary, any other temperature
 relaxes to it, density and momentum are conserved, and the entropy relative to
 that Maxwellian does not increase.
 
@@ -58,7 +59,7 @@ struct Landau1P{T<:AbstractFloat} <: AbstractCollisionOperator
     L::T
     Tₜ::T
 end
-Landau1P(A; L = 20.0, Tₜ = 1e-3) = Landau1P(promote(float(A), float(L), float(Tₜ))...)
+Landau1P(A; L = 20.0, Tₜ = 1.0) = Landau1P(promote(float(A), float(L), float(Tₜ))...)
 
 # `F[k]` is the flux through the half-point between nodes k − 1 and k, so `F[1]`
 # and `F[n+1]` are the walls at the window's ends; `df` is the nodal derivative,

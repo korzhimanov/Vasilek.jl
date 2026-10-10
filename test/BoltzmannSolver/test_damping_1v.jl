@@ -55,10 +55,10 @@ end
 end
 
 @testset "Landau1P invariants" begin
-    # Tₜ = 0.5 throughout: the kernel's width √(2Tₜ) = 1 spans ten nodes at
-    # Δv = 0.1, where the default Tₜ = 1e-3 (width 0.045) would fall between
-    # two. L·A = 0.2. Runs of many steps take Δt = 0.005, inside the stability
-    # bound tested at the end.
+    # Tₜ = 0.5 throughout, so that exp(-v²) is the equilibrium; the default,
+    # the thermal Tₜ = 1, has its own test below. The kernel's width
+    # √(2Tₜ) = 1 spans ten nodes at Δv = 0.1. L·A = 0.2. Runs of many steps
+    # take Δt = 0.005, inside the stability bound tested at the end.
     Tₜ = 0.5
     op = Landau1P(1e-2; Tₜ)
     C = Vasilek.Collisions
@@ -149,8 +149,8 @@ end
     # the equilibrium here): 0.0663, 0.0818, 0.0861, 0.0872 at Δv = 0.4, 0.2,
     # 0.1, 0.05, ratios 0.811, 0.950, 0.987, so the distance from 1 falls
     # 3.8 and 3.9 times per halving. The old kernel 2Tₜ/|u|³ was not
-    # integrable at u = 0, and on exp(-v²) at its default Tₜ the rate grew
-    # under the same refinement instead: 0.0023, 0.0053, 0.0080, 0.0104.
+    # integrable at u = 0, and on exp(-v²) at its default Tₜ = 1e-3 the rate
+    # grew under the same refinement instead: 0.0023, 0.0053, 0.0080, 0.0104.
     function rate(Δv)
         vv = collect(-4:Δv:4)
         gg = @. exp(-vv^2)*(1 + 0.3vv^2)
@@ -228,6 +228,30 @@ end
             @test sign(T₁ - temperature(f₀)) == sign(Tₜ - T₀)
             @test abs(T₁ - Tₜ) < abs(T₀ - Tₜ)
         end
+    end
+
+    # The default bath is the plasma's own temperature, Tₜ = 1 in the thermal
+    # units of `docs/src/normalization.md`, so the thermal Maxwellian is the
+    # equilibrium of `Landau1P(A)`, to second order: max|∂f/∂t| one step from
+    # it on ±6 is 1.98e-4, 5.05e-5, 1.27e-5 at Δv = 0.2, 0.1, 0.05, and after
+    # 2000 steps of 0.005 at Δv = 0.1, t = 10, T = 0.9990.
+    #
+    # The default was 1e-3. In the old kernel 2Tₜ/|u|³ that only scaled the
+    # rate; in this one it is the bath, a thousand times colder than the line.
+    # One step from the thermal Maxwellian max|∂f/∂t| was 0.39, where the old
+    # operator's was 3.7e-4, and the line collapsed towards a Maxwellian 0.03
+    # wide. At Δv = 0.1 the drag between neighbouring nodes then concentrates
+    # the line faster than the kernel can spread it, and the run ended in NaN
+    # by t = 0.23 at Δt = 5e-3, 5e-4 and 5e-5 alike.
+    let vv = collect(-6:0.1:6), ww = widths(vv), thermal = Landau1P(1e-2)
+        @test thermal.Tₜ == 1
+        f₀ = @. exp(-vv^2/2)/sqrt(2π)
+        rate₀ = maximum(abs, collide!(similar(f₀), f₀, thermal, vv, Δt) .- f₀)/Δt
+        f = relax(thermal, vv, Δt, f₀, 2000)
+        T = sum(ww .* vv.^2 .* f)/sum(ww .* f)
+        println("  Landau1P default, thermal line: rate ", rate₀, ", T after t = 10: ", T)
+        @test rate₀ < 1e-4
+        @test abs(T - 1) < 2e-3 && minimum(f) > 0
     end
 
     # The time-step bound the docstring gives, Δt ≲ Δv²/(4·L·A·max f), is

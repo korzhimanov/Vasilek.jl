@@ -1309,11 +1309,17 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
   * A `src` sharing the workspace is refused with an `ArgumentError`, as
     `BGK` refuses one, and a line of one node is returned unchanged where the
     old operator read past its end.
+  * **The default `Tₜ` is 1, the plasma's own temperature in thermal units,**
+    where it was 1e-3. In the old kernel `Tₜ` only scaled the rate; in the new
+    one it is the bath, and 1e-3 made it a thousand times colder than a
+    thermal line. One step from the thermal Maxwellian max|∂f/∂t| was 0.39,
+    against the old operator's 3.7e-4; the line collapsed towards a Maxwellian
+    0.03 wide; and at Δv = 0.1 the run ended in NaN by t = 0.23 at Δt = 5e-3,
+    5e-4 and 5e-5 alike. With `Tₜ = 1` the thermal Maxwellian is the
+    equilibrium: max|∂f/∂t| one step from it is 1.98e-4, 5.05e-5, 1.27e-5 at
+    Δv = 0.2, 0.1, 0.05, and T = 0.9990 at t = 10.
   * **What moved.** `Landau1P`'s numbers, on purpose, and nothing else: `BGK`,
-    the advection schemes and the golden data are untouched. The default
-    `Tₜ = 1e-3` stays, and it is now also the bath's temperature: a line
-    relaxes towards a Maxwellian 0.03 wide, under a kernel 0.045 wide, which a
-    grid must be that fine to follow.
+    the advection schemes and the golden data are untouched.
 
 - **The quadratic and cubic `SemiLagrangian` prefilter in the package, and a
   step that allocates nothing** (`src/VlasovSolver/schemes/semi_lagrangian.jl`,

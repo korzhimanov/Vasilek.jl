@@ -249,7 +249,9 @@ operator whose transverse velocities are a bath at `Tₜ`. Its kernel
 collision integral converges under grid refinement; the bath's drag makes the
 Maxwellian at `Tₜ` its equilibrium; and the update is in flux form, so the
 density is conserved to round-off. The step is forward Euler on a diffusion:
-its docstring gives the time-step bound.
+its docstring gives the time-step bound. `Tₜ` defaults to 1, the plasma's own
+temperature in thermal units, where it was 1e-3: it no longer scales the rate,
+and a bath that cold collapses a thermal line below any practical grid.
 
 ## Numerics
 
