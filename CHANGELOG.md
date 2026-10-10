@@ -150,7 +150,7 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
   `CubicSpline()`. A typo is now a `MethodError` where it is written.
 - **Collision operators follow the same shape**: `BGK(τ)` and
   `collide!(dest, src, op, v, Δt, ws)` replace `BGK.generate_solver`, which
-  mutated its argument in place. `Landau1P` is unexported and experimental.
+  mutated its argument in place. `Landau1P` is unexported.
 - `Limiters` is gone; the limiters are callable types in `Advection`.
 
   Numerics are unchanged. Every scheme is bit-for-bit identical to 0.1 in
@@ -1268,6 +1268,53 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 ### Changed
 
+- **`Landau1P` is a consistent model: a regularised kernel, the transverse
+  bath's drag, and an update in flux form**
+  (`src/BoltzmannSolver/operators/landau1p.jl`,
+  `test/BoltzmannSolver/test_damping_1v.jl`). The two entries it had under
+  Known issues are closed, and its two `@test_broken` are `@test`.
+  * **The kernel.** `2Tₜ/|u|³`, zeroed at `u = 0`, was not integrable there,
+    and the collision integral grew under refinement: max|∂f/∂t| was 0.0023,
+    0.0053, 0.0080, 0.0104 at Δv = 0.4, 0.2, 0.1, 0.05. The kernel is now
+    `Φ(u) = 2Tₜ/(u² + 2Tₜ)^(3/2)`, the closure `u⊥² ≈ 2Tₜ` carried into the
+    denominator too, which gives the old kernel back for `|u| ≫ √(2Tₜ)`. On a
+    line the grid resolves, at `Tₜ = 0.5`, the integral converges at second
+    order: 0.0663, 0.0818, 0.0861, 0.0872 at the same Δv.
+  * **The drag.** The Landau tensor's `xy` and `xz` components, against
+    transverse Maxwellians at `Tₜ`, add `−f f′ (v − v′)/Tₜ` to the bracket
+    under the same kernel. Without it the only stationary lines of a scalar
+    kernel in one dimension are exponentials, and every Maxwellian spreads.
+    With it the Maxwellian at `Tₜ` is stationary, to second order on the grid
+    (residual 1.26e-3 and 3.19e-4 at Δv = 0.1 and 0.05), and a line at any
+    other temperature relaxes to `Tₜ`: 1 → 0.939 and 0.25 → 0.288 in t = 0.5.
+    Energy is exchanged with that bath. The relative entropy
+    `Σ w f ln(f/M_Tₜ)` falls at every step until the line nears the discrete
+    equilibrium, which lies O(Δv²) from `M_Tₜ`.
+  * **The update.** It differenced a nodal integral with the centred
+    derivative, and the density drifted by 2e-10 in 100 steps. The flux now
+    lives on the half-points and is differenced over the cell widths `BGK` and
+    the advection schemes conserve by, with walls at the window's ends: the
+    drift is 2.4e-16. Momentum is exact on a uniform grid while the line
+    vanishes at the walls, and second order on a stretched one, 3.98e-7 then
+    9.97e-8 at N = 121 and 241.
+  * **The time step.** Forward Euler on the operator's diffusion is stable for
+    `Δt ≲ Δv²/(4·L·A·max f)`, which the docstring now states. On the test line
+    that is 0.0125 at Δv = 0.1; the run holds to 1.5 times it and ends in NaN
+    at 2. The tests took Δt = 0.1, which the old operator survived and this
+    one does not; they take 0.005.
+  * **Cost.** The nodal derivative is taken once per call, not once per pair,
+    which pays for the square root the kernel now needs: 1.95 ms a step at
+    N = 800 under `--check-bounds=yes`, against 1.90 ms for the old kernel on
+    the same machine. Still O(N²), exponent 2.003 to 2.030.
+  * A `src` sharing the workspace is refused with an `ArgumentError`, as
+    `BGK` refuses one, and a line of one node is returned unchanged where the
+    old operator read past its end.
+  * **What moved.** `Landau1P`'s numbers, on purpose, and nothing else: `BGK`,
+    the advection schemes and the golden data are untouched. The default
+    `Tₜ = 1e-3` stays, and it is now also the bath's temperature: a line
+    relaxes towards a Maxwellian 0.03 wide, under a kernel 0.045 wide, which a
+    grid must be that fine to follow.
+
 - **The quadratic and cubic `SemiLagrangian` prefilter in the package, and a
   step that allocates nothing** (`src/VlasovSolver/schemes/semi_lagrangian.jl`,
   `SplineWorkspace` in `src/VlasovSolver/Advection.jl`,
@@ -1601,7 +1648,7 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
   - The kernels lost their Float64 literals. Float64 results are bit-identical,
     as the golden data confirms.
 - **`Landau1P` is no longer exported from `Collisions`**; reach it as
-  `Vasilek.Collisions.Landau1P`. It is experimental, as its docstring says.
+  `Vasilek.Collisions.Landau1P`.
 
 - **`Godunov(PiecewiseLinear(), VanLeer())` steps 7 to 14 times faster and
   `Superbee` 6.5 to 11.5 times, to the same bits, and on Julia 1.10 the scheme
@@ -2807,16 +2854,6 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 ### Known issues
 
-- `Landau1P`'s closure is inconsistent: the numerator carries the transversal
-  estimate `2Tₜ` while the denominator uses the longitudinal `|vᵢ-vⱼ|³`, leaving
-  a non-integrable singularity at `i ≈ j`. The collision integral grows under
-  grid refinement instead of converging (0.0023, 0.0053, 0.0080, 0.0104 at
-  Δv = 0.4, 0.2, 0.1, 0.05) and a Maxwellian is not a stationary point. Two
-  `@test_broken` assertions record this. A consistent closure would use
-  `(Δv² + 2Tₜ)^(3/2)`; that is a physics decision, not a coding fix.
-- `Landau1P` differences a cell-centred `I` rather than staggered fluxes, so
-  mass is not conserved to machine precision. Measured drift over 100 steps is
-  2e-10, which the test asserts as a bound.
 - Rounding inside the flux itself can still leave `PFCNonUniform` an ulp above
   `fmax` where a plateau at the bound meets rough data. That happened in 199 of
   3600 twenty-step runs on such lines, down from 733 before the fix under Fixed.
