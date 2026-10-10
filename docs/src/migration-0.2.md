@@ -242,9 +242,17 @@ momentum and energy to round-off on the grid it is given; 0.1's sampled
 Maxwellian, which a narrow velocity window cooled, is `BGK(τ; conservative =
 false)`.
 
-`Landau1P` follows the same shape but is **not exported** and remains
-experimental — its closure is inconsistent and the collision integral does not
-converge under grid refinement. See its docstring.
+`Landau1P` follows the same shape but is **not exported**: reach it as
+`Vasilek.Collisions.Landau1P`. It is a one-dimensional model of the Landau
+operator whose transverse velocities are a bath at `Tₜ`. Its kernel
+`2Tₜ/(u² + 2Tₜ)^(3/2)` is finite where 0.1's `2Tₜ/|u|³` was not, so the
+collision integral converges under grid refinement; the bath's drag makes the
+Maxwellian at `Tₜ` its equilibrium; and the update is in flux form, so the
+density is conserved to round-off. The step is forward Euler on a diffusion:
+its docstring gives the time-step bound. `Tₜ` defaults to 1, the plasma's own
+temperature in thermal units, where it was 1e-3: it no longer scales the rate,
+and a bath that cold collapses a thermal line below any practical grid. It
+must be positive, and at least the square of the grid's coarsest spacing.
 
 ## Numerics
 
@@ -258,6 +266,7 @@ to 0.1. Several fixes made since do move numbers, on purpose:
   * the quadratic and cubic `SemiLagrangian` solve their periodic prefilter
     themselves rather than through Interpolations.jl, and move in the last bits
     only: 1.2e-15 relative at most over the golden run, under 5e-15 of the
-    data's maximum in a wider comparison. The linear spline is unchanged.
+    data's maximum in a wider comparison. The linear spline is unchanged;
+  * `Landau1P` has a regularised kernel, a drag, and a flux-form update.
 
 The CHANGELOG lists each with what it changes.

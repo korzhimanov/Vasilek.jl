@@ -13,6 +13,12 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 ### Breaking
 
+- **`Landau1P(A)` defaults to `Tₜ = 1`, where it was 1e-3, and `Tₜ` means
+  something else.** It was a factor on the collision rate; it is now the
+  temperature of the transverse bath the line relaxes to, and the width of
+  the kernel. A value that is not positive and finite is refused by the
+  constructor, and one below `Δv²` by `collide!`. See the `Landau1P` entry
+  under Changed for the measurements.
 - **`Yee1D` refuses what would run wrong, and its source sees one time type**
   (`src/MaxwellSolver/FDTD1D.jl`, after the review of the FDTD rewrite).
   * **Refused when the operator or the layer is built:** `Δx` or `Δt` zero,
@@ -150,7 +156,7 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
   `CubicSpline()`. A typo is now a `MethodError` where it is written.
 - **Collision operators follow the same shape**: `BGK(τ)` and
   `collide!(dest, src, op, v, Δt, ws)` replace `BGK.generate_solver`, which
-  mutated its argument in place. `Landau1P` is unexported and experimental.
+  mutated its argument in place. `Landau1P` is unexported.
 - `Limiters` is gone; the limiters are callable types in `Advection`.
 
   Numerics are unchanged. Every scheme is bit-for-bit identical to 0.1 in
@@ -1268,6 +1274,76 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 ### Changed
 
+- **`Landau1P` is a consistent model: a regularised kernel, the transverse
+  bath's drag, and an update in flux form**
+  (`src/BoltzmannSolver/operators/landau1p.jl`,
+  `test/BoltzmannSolver/test_damping_1v.jl`). The two entries it had under
+  Known issues are closed, and its two `@test_broken` are `@test`.
+  * **The kernel.** `2Tₜ/|u|³`, zeroed at `u = 0`, was not integrable there,
+    and the collision integral grew under refinement: max|∂f/∂t| was 0.0023,
+    0.0053, 0.0080, 0.0104 at Δv = 0.4, 0.2, 0.1, 0.05. The kernel is now
+    `Φ(u) = 2Tₜ/(u² + 2Tₜ)^(3/2)`, the closure `u⊥² ≈ 2Tₜ` carried into the
+    denominator too, which gives the old kernel back for `|u| ≫ √(2Tₜ)`. On a
+    line the grid resolves, at `Tₜ = 0.5`, the integral converges at second
+    order: 0.0663, 0.0818, 0.0861, 0.0872 at the same Δv.
+  * **The drag.** The Landau tensor's `xy` and `xz` components, against
+    transverse Maxwellians at `Tₜ`, add `−f f′ (v − v′)/Tₜ` to the bracket
+    under the same kernel. Without it the only stationary lines of a scalar
+    kernel in one dimension are exponentials, and every Maxwellian spreads.
+    With it the Maxwellian at `Tₜ` is stationary, to second order on the grid
+    (residual 1.26e-3 and 3.19e-4 at Δv = 0.1 and 0.05), and a line at any
+    other temperature relaxes to `Tₜ`: 1 → 0.939 and 0.25 → 0.288 in t = 0.5.
+    Energy is exchanged with that bath. The relative entropy
+    `Σ w f ln(f/M_Tₜ)` falls at every step until the line nears the discrete
+    equilibrium, which lies O(Δv²) from `M_Tₜ`.
+  * **The update.** It differenced a nodal integral with the centred
+    derivative, and the density drifted by 2e-10 in 100 steps. The flux now
+    lives on the half-points and is differenced over the cell widths `BGK` and
+    the advection schemes conserve by, with walls at the window's ends: the
+    drift is 2.4e-16. Momentum is exact on a uniform grid while the line
+    vanishes at the walls, and second order on a stretched one, 3.98e-7 then
+    9.97e-8 at N = 121 and 241.
+  * **The time step.** Forward Euler on the operator's diffusion is stable for
+    `Δt ≲ Δv²/(4·L·A·max f)`, which the docstring now states. On the test line
+    that is 0.0125 at Δv = 0.1; the run holds to 1.5 times it and ends in NaN
+    at 2. The tests took Δt = 0.1, which the old operator survived and this
+    one does not; they take 0.005. For a line cooling towards a narrow bath,
+    `max f` is the bath's peak: from the thermal line at `Tₜ` = 0.01 and 0.04,
+    Δv = 0.1, the bound at that peak held over t = 5, and 1.4 times it too.
+  * **The bath must be resolved.** A line relaxing towards a bath narrower
+    than a cell ends in NaN whatever the step. From the thermal line on ±6,
+    √Tₜ/Δv = 0.22 to 0.5 ended in NaN by t = 0.34 to 1.4; 0.71 to 1.0 ran but
+    went down to f = −0.06 to −0.7; 1.4 and more stayed positive. `collide!`
+    refuses `Tₜ < Δv²` with an `ArgumentError`, the criterion `BGK` applies
+    to a line; the docstring says positivity takes about `4Δv²`. `Δv` is the
+    widest cell anywhere on the grid, up to the rounding of its values, so
+    `Tₜ = 0.01` passes on `collect(-6:0.1:6)`. That refuses some stretched
+    grids that would have run: on `8 sinh(3ξ)/sinh(3)`, N = 121, cells 0.040
+    to 0.392, `Tₜ` = 0.05 and 0.1 ran for t = 3 with f ≥ 2.8e-15 unchecked.
+    A test on where the line lives would depend on the data and could stop a
+    run halfway, which `BGK`'s docstring argues against.
+  * **Cost.** The nodal derivative is taken once per call, not once per pair,
+    which pays for the square root the kernel now needs: 1.95 ms a step at
+    N = 800 under `--check-bounds=yes`, against 1.90 ms for the old kernel on
+    the same machine. Still O(N²), exponent 2.003 to 2.030.
+  * **Contracts.** A `src` sharing the workspace is refused with an
+    `ArgumentError`, as `BGK` refuses one, and so is a `dest` over the
+    fluxes, which a node out of step left 0.053 off without an error. `Tₜ`
+    must be positive and finite: 0 returned NaN, and −1 threw from `sqrt`
+    halfway through a step. Arrays must be one-based. A line of one node is
+    returned unchanged where the old operator read past its end.
+  * **The default `Tₜ` is 1, the plasma's own temperature in thermal units,**
+    where it was 1e-3. In the old kernel `Tₜ` only scaled the rate; in the new
+    one it is the bath, and 1e-3 made it a thousand times colder than a
+    thermal line. One step from the thermal Maxwellian max|∂f/∂t| was 0.39,
+    against the old operator's 3.7e-4; the line collapsed towards a Maxwellian
+    0.03 wide; and at Δv = 0.1 the run ended in NaN by t = 0.23 at Δt = 5e-3,
+    5e-4 and 5e-5 alike. With `Tₜ = 1` the thermal Maxwellian is the
+    equilibrium: max|∂f/∂t| one step from it is 1.98e-4, 5.05e-5, 1.27e-5 at
+    Δv = 0.2, 0.1, 0.05, and T = 0.9990 at t = 10.
+  * **What moved.** `Landau1P`'s numbers, on purpose, and nothing else: `BGK`,
+    the advection schemes and the golden data are untouched.
+
 - **The quadratic and cubic `SemiLagrangian` prefilter in the package, and a
   step that allocates nothing** (`src/VlasovSolver/schemes/semi_lagrangian.jl`,
   `SplineWorkspace` in `src/VlasovSolver/Advection.jl`,
@@ -1601,7 +1677,7 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
   - The kernels lost their Float64 literals. Float64 results are bit-identical,
     as the golden data confirms.
 - **`Landau1P` is no longer exported from `Collisions`**; reach it as
-  `Vasilek.Collisions.Landau1P`. It is experimental, as its docstring says.
+  `Vasilek.Collisions.Landau1P`.
 
 - **`Godunov(PiecewiseLinear(), VanLeer())` steps 7 to 14 times faster and
   `Superbee` 6.5 to 11.5 times, to the same bits, and on Julia 1.10 the scheme
@@ -2807,16 +2883,6 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
 
 ### Known issues
 
-- `Landau1P`'s closure is inconsistent: the numerator carries the transversal
-  estimate `2Tₜ` while the denominator uses the longitudinal `|vᵢ-vⱼ|³`, leaving
-  a non-integrable singularity at `i ≈ j`. The collision integral grows under
-  grid refinement instead of converging (0.0023, 0.0053, 0.0080, 0.0104 at
-  Δv = 0.4, 0.2, 0.1, 0.05) and a Maxwellian is not a stationary point. Two
-  `@test_broken` assertions record this. A consistent closure would use
-  `(Δv² + 2Tₜ)^(3/2)`; that is a physics decision, not a coding fix.
-- `Landau1P` differences a cell-centred `I` rather than staggered fluxes, so
-  mass is not conserved to machine precision. Measured drift over 100 steps is
-  2e-10, which the test asserts as a bound.
 - Rounding inside the flux itself can still leave `PFCNonUniform` an ulp above
   `fmax` where a plateau at the bound meets rough data. That happened in 199 of
   3600 twenty-step runs on such lines, down from 733 before the fix under Fixed.
