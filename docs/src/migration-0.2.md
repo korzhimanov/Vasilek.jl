@@ -208,8 +208,9 @@ fields, so one value steps any number of meshes from any number of tasks, and
 `workspace(op)` is `nothing`. The closure captured its mesh; the operator does
 not, so the check that the mesh holds both layers and an interior moved from
 construction to every `advance!` call, beside a check that `j.y` and `j.z`
-have the mesh's `N + 1` entries. `cfl` still has to equal `Δt/Δx`, and is
-checked when the operator is built. It is a keyword of its own because a caller
+have the axes of `mesh.ey`, `1:N + 1`. `cfl` still has to equal `Δt/Δx`, and is
+checked when the operator is built, as are steps that are finite and positive
+and a `pml` built for this `Δx` and `Δt`, which a `PML` now records. It is a keyword of its own because a caller
 that sets the Courant number wants exactly that number in the interior, and
 `cfl*Δx/Δx` need not round back to it.
 
