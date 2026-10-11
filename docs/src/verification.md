@@ -498,7 +498,7 @@ tail cooled the plasma at every relaxation, by 1.2e-3 of the energy: by t = 60
 on ±4 the run has lost 5.3% of its energy, T has fallen to 0.949, and γ reads
 3.0% low.
 
-### Plasma oscillations
+### Plasma oscillation frequency and energy
 
 A solver oscillating at entirely the wrong rate passes an energy test without
 difficulty, so the frequency is measured as well (testsets "Plasma

@@ -100,7 +100,7 @@ julia --project=verification -e 'using Pkg; Pkg.instantiate()'             # onc
 julia --project=docs -e 'using Pkg; Pkg.instantiate()'                     # once
 julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'                # once
 julia --project=. -e 'using Pkg; Pkg.test(test_args = ["readme", "docs"])'  # only those files
-VASILEK_EXTENDED=1 julia --project=. -e 'using Pkg; Pkg.test()'             # the verification suite
+VASILEK_EXTENDED=1 julia --project=. -e 'using Pkg; Pkg.test()'             # the verification suite: slow, CI runs it on every PR
 julia --project=verification verification/two-stream.jl                     # or any other study
 julia --project=docs docs/make.jl                                           # VASILEK_DOCS_EXECUTE=1 runs the studies too
 julia --project=benchmark benchmark/runbenchmarks.jl                        # advisory

@@ -197,8 +197,8 @@ bump-on-tail run -- so the kick is the only change, and the kinetic energy at
 counted half the kick's work early: an error first order in Δt that oscillates
 with the power the field exchanges with the particles. On the plasma oscillation
 the energy test runs, that alone swung `ε` within each plasma period by eighteen
-times what it swings centred ([the verification page](verification.md), under
-Plasma oscillations).
+times what it swings centred (see [Plasma oscillation frequency and
+energy](@ref) on the verification page).
 
 **The ions are a fixed background**, a Maxwellian's density on the grid unless
 `nᵢ` gives a profile over `x`. Without `nᵢ`, `f` is rescaled on entry so that the
@@ -247,8 +247,9 @@ clips the reconstruction in the peak cell, and the α = 0.05 round trip in
 (see [Reversibility](@ref) on the verification page). Elsewhere the numbers
 moved little and are updated where they are quoted. No run leaves its bound: the
 `fmax` history of a Landau, a strong Landau, a two-stream and an equilibrium run
-tops out exactly at it, or below, to the last bit. `PFCNonUniform` now checks every call it takes,
-sub-steps included, and none of them is out of bounds -- the two-stream runs
+tops out exactly at it, or below, to the last bit. `PFCNonUniform` now checks
+every call it takes, sub-steps included, and none of them is out of bounds -- the
+two-stream runs
 carried past their velocity Courant limits into saturation among them, since
 [`OnGrid`](@ref Vasilek.Advection.OnGrid) splits every step that would cross a cell.
 

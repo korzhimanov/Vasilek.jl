@@ -145,7 +145,7 @@ entry says what changed and where its evidence lives: a section of
   [Landau damping](docs/src/verification.md#landau-damping-and-dispersion).
 - **The plasma oscillation frequency is asserted against Bohm–Gross**, and the
   cold `ωₚ` is excluded. See
-  [plasma oscillations](docs/src/verification.md#plasma-oscillations).
+  [plasma oscillations](docs/src/verification.md#plasma-oscillation-frequency-and-energy).
 - **The extended verification suite runs in CI**, on every pull request, in the
   `Extended verification` job of `.github/workflows/CI.yml`.
 - **Von Neumann amplification factors, against closed forms**, mode by mode for
@@ -469,9 +469,9 @@ entry says what changed and where its evidence lives: a section of
   keyword constructor makes that unrepresentable.
 - **`Landau1P` differentiated at the wrong index**, and integrated an unassigned
   `J[i]`; `L` and `Tₜ` are keywords.
-- **`PFCNonUniform` computed its limiter from the global spacing ratio**; it is
-  per cell, and the non-uniform plasma oscillation drifts 4.75% where it drifted
-  12%. See [plasma oscillations](docs/src/verification.md#plasma-oscillations).
+- **`PFCNonUniform` computed its limiter from the global spacing ratio**; per
+  cell, the non-uniform plasma oscillation drifts 4.75%, not 12%. See
+  [plasma oscillations](docs/src/verification.md#plasma-oscillation-frequency-and-energy).
 - `PFCNonUniform` hardcoded `fₘᵢₙ = 0`, `fₘₐₓ = 1`; they are required keywords,
   as in `PFC`. A breaking change.
 - **`PoissonFourier1D` returned a field too large by `1/Δx²`**: numerically
