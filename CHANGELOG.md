@@ -18,7 +18,7 @@ entry says what changed and where its evidence lives: a section of
 
 - **`Landau1P(A)` defaults to `Tₜ = 1`, where it was 1e-3, and `Tₜ` is the
   bath's temperature**, no longer a factor on the rate; one below `Δv²` is
-  refused. See the `Landau1P` entry under Changed.
+  refused. See the migration guide's "Collisions".
 - **`Yee1D` refuses what would run wrong, and its source sees one time type**:
   bad steps, a `pml` built for other steps and a current of the wrong `axes` are
   refused; the operator copies its layer. `test/MaxwellSolver/test_fdtd_1d.jl`.

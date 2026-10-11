@@ -91,7 +91,7 @@ echo, in `test/VlasovSolver/test_echo.jl`, and the collisional relation, in
 | strong Landau damping, α = 0.5 | γ₁ within 0.27…0.30, around the literature's 0.281…0.292, which it quotes as −γ; γ₂ within 0.070…0.090, just under the cited 0.0815…0.0858, and refining moves it toward them | 0.2863, 0.0787 (0.0813 at twice the resolution) |
 | and the non-uniform velocity grid agrees | both rates within 2% of the uniform grid at the same Δt | 0.06%, 0.5% |
 | a drifting plasma damps the same way | boosted mode matches the rest-frame one once the Doppler phase is removed at each sample's own time, and the fitted rates agree within 0.1% | 1.7e-3, 1.8e-3 rad, 0.014% |
-| collisional Landau damping, `BGK` at ν = 0.1, 0.3, 1 | γ within 1.5% and ω within 0.3% of the collisional root on the grid's field, and γ *falling* as ν rises | +0.37%, +0.49%, +0.76%; +0.05%, +0.08%, +0.03%; 0.1547 → 0.1341 → 0.1074 → 0.0660 |
+| collisional Landau damping, `BGK` at ν = 0.1, 0.3, 1 | γ within 1.5% and ω within 0.3% of the collisional root on the grid's field, and γ *falling* as ν rises | +0.37%, +0.49%, +0.76%; +0.05%, +0.08%, +0.03%; 0.1547 → 0.1341 → 0.1074 → 0.0660 at ν = 0, 0.1, 0.3, 1 |
 | which is BGK's root and no other operator's | a relaxation restoring only n, or only n and u, lands on its own root and over 1.5× BGK's rate | 0.31%, 0.23% from their own; 3.3×, 2.1× BGK's |
 | and the mode energy conservation adds | a matrix pencil of the field finds a real exponent within 0.2% of `heat_mode_root` at ν = 1 | 0.43377 against 0.43369 |
 | the collisional relation is the right one | the Landau root at ν = 0, Krook's closed form for density alone, and Chapman–Enskog as ν → ∞ with gaps closing as 1/ν² | 2.3e-14, 4.7e-16; gaps ×3.85–4.08 per doubling |
@@ -226,9 +226,9 @@ Maxwellian's density mode decays as `exp(−k²t²/2)`, a Gaussian rather than a
 exponential, because the mode is sheared into velocity structure rather than
 dissipated. Over t ≤ 4 the mode amplitude is off by 2.7e-6 for cubic
 `SemiLagrangian`, 3.3e-5 for PFC, 1.2e-3 for `LaxWendroff` and 1.7e-2 for
-`Upwind`, and the ordering is asserted. On a coarse velocity grid,
-`T_R = 31.4159`, both schemes peak at t = 31.42, recovering 1.0000 and 0.9991
-of the initial amplitude. The Courant limit binds here as it does not in
+`Upwind`, and the ordering is asserted. On a coarse velocity grid, Δv = 0.4 and
+`T_R = 31.4159`, cubic `SemiLagrangian` and PFC peak at t = 31.42, recovering
+1.0000 and 0.9991 of the initial amplitude. The Courant limit binds here as it does not in
 one-dimensional advection: the fastest velocity row carries `max|v|·Δt/Δx`, and
 everything runs at 0.611.
 
