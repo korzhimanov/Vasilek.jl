@@ -45,12 +45,11 @@ A scalar function rather than an `ifelse` inside the broadcast, because
 `ifelse` is an ordinary call and evaluates **both** arguments: written that way
 the guard does not guard, and `log` is handed the negative value anyway. That is
 not hypothetical here -- `LaxWendroff` and cubic `SemiLagrangian` drive `f` to
--0.093 and -0.105 against a peak of 0.6 on the large-amplitude case of the
-scheme comparison ([the verification page](verification.md)), and the entropy
-diagnostic threw `DomainError` on both until this was split out. That is no
-round-off leaking below zero: it is the size of the undershoot, 16% and 18% of
-the peak, that makes the guard a statement about the schemes rather than about
-floating point.
+-0.093 and -0.105 against a peak of 0.6 on the large-amplitude case of
+[The scheme comparison](@ref), and the entropy diagnostic threw `DomainError` on
+both until this was split out. That is no round-off leaking below zero: it is
+the size of the undershoot, 16% and 18% of the peak, that makes the guard a
+statement about the schemes rather than about floating point.
 
 ## `OnGrid`
 
@@ -177,8 +176,8 @@ conserve: `PFC` is a flux form, so what leaves one cell enters its neighbour and
 the full-weight sum is preserved exactly. The trapezoid halves the two endpoint
 weights, which no flux conservation law protects, and measuring with it reports a
 drift that belongs to the quadrature rather than to the scheme: on the Landau
-run, eleven orders of magnitude of it ([the verification page](verification.md),
-under Invariants).
+run, eleven orders of magnitude of it (see [Invariants](@ref) on the
+verification page).
 
 The energies kept the trapezoid longer, on the grounds that the tolerances they
 meet are half a percent. For a standing wave that does little harm: the field
@@ -187,8 +186,8 @@ half-weighted end points sit. A travelling wave crosses the seam, and the
 trapezoid books its passage as energy, first order in Δx: on the bump-on-tail
 instability the x half-steps alone, which cannot change the kinetic energy,
 moved the trapezoid's by up to 3.9e-4 of it per half-step. The Galilean test's
-boosted mode travels too. Both are measured on [the verification
-page](verification.md), under Invariants and The Doppler shift.
+boosted mode travels too. Both are measured on the verification page, under
+[Invariants](@ref) and [The Doppler shift](@ref).
 
 **The kinetic energy in `ε` is centred on the kick.** It is summed after the
 step, the field was solved before the kick, and the x half-steps in between
@@ -238,17 +237,17 @@ to the driver. They were the constant 1, which nothing chose and `PFCNonUniform`
 did not then check. Above it the limiter's `2(fmax − f)` goes negative and the
 scheme corrupted the run without a word: an equilibrium whose trapped population
 peaks above 1 was taken far from itself with the bound at 1, a run the scheme
-now refuses on its first call ([the verification page](verification.md), under
-The BGK equilibrium). Below it, where every run until then
-sat, the bound never engaged at all.
+now refuses on its first call (see [The BGK equilibrium](@ref) on the
+verification page). Below it, where every run until then sat, the bound never
+engaged at all.
 
 Tight, it does engage, at the maximum, and that has a measured price: the limiter
 clips the reconstruction in the peak cell, and the α = 0.05 round trip in
 `test_verification.jl` converges at second order where it converged at third
-([the verification page](verification.md), under Reversibility). Elsewhere the numbers moved little and are
-updated where they are quoted. No run leaves its bound: the `fmax` history of a
-Landau, a strong Landau, a two-stream and an equilibrium run tops out exactly at
-it, or below, to the last bit. `PFCNonUniform` now checks every call it takes,
+(see [Reversibility](@ref) on the verification page). Elsewhere the numbers
+moved little and are updated where they are quoted. No run leaves its bound: the
+`fmax` history of a Landau, a strong Landau, a two-stream and an equilibrium run
+tops out exactly at it, or below, to the last bit. `PFCNonUniform` now checks every call it takes,
 sub-steps included, and none of them is out of bounds -- the two-stream runs
 carried past their velocity Courant limits into saturation among them, since
 [`OnGrid`](@ref Vasilek.Advection.OnGrid) splits every step that would cross a cell.

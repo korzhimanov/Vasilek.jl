@@ -88,7 +88,7 @@ echo, in `test/VlasovSolver/test_echo.jl`, and the collisional relation, in
 | the Vlasov–Poisson flow runs backwards | round-trip error after v → −v falls by at least 3.5× when the grid is halved, at α = 0.05 | 2.82e-3 → 6.48e-4, ×4.3: second order, the limiter clipping the peak |
 | unless the flow has out-run the grid | at α = 0.5 the same refinement recovers nothing | 0.167 → 0.157, ×1.06 |
 | and reversibility is bought with positivity | the two most reversible schemes are the two that drive f negative | 0.090 and 0.108 at f = −0.093 and −0.057, against PFC's 0.167 at f ≥ 0 |
-| strong Landau damping, α = 0.5 | γ₁ in the literature's −0.281…−0.292; γ₂ within 0.070…0.090, just under the cited 0.0815…0.0858, and refining moves it toward them | 0.2863, 0.0787 (0.0813 at twice the resolution) |
+| strong Landau damping, α = 0.5 | γ₁ within 0.27…0.30, around the literature's 0.281…0.292, which it quotes as −γ; γ₂ within 0.070…0.090, just under the cited 0.0815…0.0858, and refining moves it toward them | 0.2863, 0.0787 (0.0813 at twice the resolution) |
 | and the non-uniform velocity grid agrees | both rates within 2% of the uniform grid at the same Δt | 0.06%, 0.5% |
 | a drifting plasma damps the same way | boosted mode matches the rest-frame one once the Doppler phase is removed at each sample's own time, and the fitted rates agree within 0.1% | 1.7e-3, 1.8e-3 rad, 0.014% |
 | collisional Landau damping, `BGK` at ν = 0.1, 0.3, 1 | γ within 1.5% and ω within 0.3% of the collisional root on the grid's field, and γ *falling* as ν rises | +0.37%, +0.49%, +0.76%; +0.05%, +0.08%, +0.03%; 0.1547 → 0.1341 → 0.1074 → 0.0660 |
@@ -100,7 +100,7 @@ echo, in `test/VlasovSolver/test_echo.jl`, and the collisional relation, in
 | each mode recurs at its own 2π/(kΔv) | within a plasma period, for the seeded mode and the harmonic it generates | 128.6 vs 125.7, 64.3 vs 62.8 |
 | a plasma echo, field off, is the closed form's | pointwise within 0.3% of the peak, the peak within two steps of its own, the sign reversing with the kick | 0.12%, t = 15.28 on both |
 | out of a mode no moment could see | the echo over 10⁴ times the seeded mode's density at the kick | 2.4·10⁴ |
-| and what a scheme keeps of a filament is what it returns | SemiLagrangian < PFC < LaxWendroff < Upwind; upwind returns under 70% | 0.11%, 1.03%, 4.5%, 45%; 55% |
+| and what a scheme keeps of a filament is what it returns | at 64 × 121, SemiLagrangian < PFC < LaxWendroff < Upwind; upwind returns under 70% | 0.11%, 1.03%, 4.5%, 45%; 55% |
 | the loss is truncation | PFC's error falls at least 5× per halving of Δv | 7.4×, 6.9× |
 | a plasma echo, field on, is second-order kinetic theory's | pointwise within 1% of `echo_second_order`, the peak within 1% of its size and two steps of its time | 0.48%, 0.48%, t = 29.05 on both |
 | which is not the field-off echo | the closed form's peak over 1/0.6 times the run's and 0.5 later | 2.1×, 1.14 |
@@ -249,10 +249,10 @@ limit is 14.6% high at these amplitudes. The sign is asserted separately, since
 the direction of the kick changes it and nothing about the peak. PFC at
 128 × 241 follows the closed form to 1.25e-3 of the peak, pointwise, out of a
 seeded mode the kick found at 1.84e-6, 2.4e4 times smaller than the echo it
-turns into. The loss converges at orders 2.89 and 2.78 as Δv halves, and it
-ranks the schemes: cubic `SemiLagrangian` 1.07e-3, PFC 1.03e-2, `LaxWendroff`
-4.48e-2, and `Upwind` 0.449, which returns 55% of the echo and loses most of the
-rest in the x-sweep rather than in the kick.
+turns into. The loss converges at orders 2.89 and 2.78 as Δv halves, and, at
+64 × 121, it ranks the schemes: cubic `SemiLagrangian` 1.07e-3, PFC 1.03e-2,
+`LaxWendroff` 4.48e-2, and `Upwind` 0.449, which returns 55% of the echo and
+loses most of the rest in the x-sweep rather than in the kick.
 
 **Field on** (testset "The plasma echo, with the plasma's own field", extended
 suite). `echo_second_order` composes three linear responses of the Maxwellian:
@@ -295,7 +295,8 @@ per halving. Trapped-particle structure lives or dies there.
 
 The teeth: ions built for a potential 10% off put the field 49% and 59% off at
 once, and `f` drifts 24 and 27 times further; ions built on the Poisson sign the
-normalization notes once gave hold the reversed field, `E/E₀ = −1.000`.
+normalization notes once gave hold the reversed field, `E/E₀ = −1.000`, and the
+run leaves the equilibrium by 16% of its peak.
 
 A trapped population colder than the bulk peaks at 1.79, above the f = 1 the
 harness once bounded PFC by. Bounded by `f₀`, as every run now is, it holds to
@@ -346,7 +347,9 @@ refining barely helps because its dissipation is first order.
 
 The α = 0.5 case is the standard nonlinear benchmark, and it is quoted by two
 numbers: Cheng and Knorr (1976) give γ₁ = −0.281 and γ₂ = 0.084, later work
-−0.292 with 0.0815 and −0.2918 with 0.08584 (testset "Strong Landau damping:
+−0.292 with 0.0815 and −0.2918 with 0.08584, the literature quoting the decay
+with a negative sign. Here γ₁ is the rate of decay, held within 0.27…0.30, and
+γ₂ the rate of regrowth, within 0.070…0.090 (testset "Strong Landau damping:
 the damping stops and reverses"). Measured on 128 × 241 with Δt = 0.025:
 γ₁ = 0.2863 over the four maxima of the decay proper, γ₂ = 0.0787 over the eight
 of the regrowth. Both windows are conventions, and the testset says so with
@@ -561,7 +564,12 @@ to the growing mode falls only as `exp(−γt)`: at a = 0.6 the instantaneous ra
 oscillates with period 4.5 against `2π/ω₊` = 4.626, between 0.21 and 0.41 about a
 cold γ of 0.353. Fitting over two beat periods rather than one cuts the spread
 over start points from 41.4%, 14.4% and 22.3% to 9.4%, 5.6% and 4.8%, and the
-amplitude band already spans 1.15 to 2.22 periods.
+amplitude band already spans 1.15 to 2.22 periods. Under the band, cooling the
+beams at a = 0.6 from `vt = 0.6` to 0.15 brings the rate to the cold one
+monotonically from below, −7.44% to −2.10%. An exploratory fixed window,
+t ∈ [10, 20], had it cross the cold value, +0.40% and +0.56% at `vt` = 0.2 and
+0.15: changing `vt` changes γ slightly, which moves the ripple's phase within a
+fixed window and drags the fitted rate with it.
 
 The box holds 96 cells by construction, `range(Δx; step = Δx, length = Nx)`: a
 float range built from its endpoints came up a point short at a = 0.4 and gave
@@ -652,9 +660,10 @@ it, and a laser doing work on the plasma pushes energy across that boundary.
 
 The study runs at twenty cells per laser wavelength, and that is a physics
 choice rather than a taste. At the ten it used before, the Yee dispersion
-relation puts the driver's group velocity 4.5% below `√(1−n)`: the pulse arrives
-late and the wake keeps station with it, so the wake's phase velocity is wrong
-by the same amount, `γ_φ ≈ 2.2` where the physics gives 3.0. The pulse's own
+relation puts the carrier's group velocity 4.5% below `√(1−n)`, and the pulse,
+averaged over its spectrum, 5.2% below, 6.6% as measured: the pulse arrives late
+and the wake keeps station with it, so the wake's phase velocity is wrong by as
+much, `γ_φ ≈ 2.2` where the physics gives 3.0. The pulse's own
 bandwidth is worth only half a percent: the continuum group velocity averaged
 over its spectrum is 0.9438 against 0.9487. `vg_pulse`, the group velocity of
 the *discrete* relation averaged over the same spectrum, predicts 0.8993 at ten

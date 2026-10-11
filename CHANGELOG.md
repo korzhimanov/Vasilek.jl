@@ -442,8 +442,8 @@ entry says what changed and where its evidence lives: a section of
   grid's dispersion, which `vg_pulse` predicts. See
   [the laser wakefield](docs/src/verification.md#the-laser-wakefield).
 - **"Finite temperature cannot make a beam grow faster than a cold one" is
-  false**, and the two-stream rate's overshoot was the estimator's. See
-  [two-stream](docs/src/verification.md#the-two-stream-instability).
+  false**: `a = 0.8` overshoots by physics, the `vt` sweep only under a fixed
+  window. See [two-stream](docs/src/verification.md#the-two-stream-instability).
 - **The Landau damping rate was fitted with an estimator its own window chose
   the answer for**; it is fitted through the maxima. See
   [Landau damping](docs/src/verification.md#landau-damping-and-dispersion).

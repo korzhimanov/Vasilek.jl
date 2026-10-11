@@ -30,7 +30,7 @@ every pull request. The headline rows:
 | Landau damping rate, k = 0.3, 0.4, 0.5 | γ within 3% of the root of the kinetic dispersion relation | 0.70%, 1.14%, 0.95% |
 | Landau real frequency, same three k | ω within 1% of the same root | 0.08%, 0.22%, 0.26% |
 | the Vlasov–Poisson flow runs backwards | round-trip error after v → −v falls by at least 3.5× when the grid is halved, at α = 0.05 | 2.82e-3 → 6.48e-4, ×4.3: second order, the limiter clipping the peak |
-| strong Landau damping, α = 0.5 | γ₁ in the literature's −0.281…−0.292; γ₂ within 0.070…0.090, just under the cited 0.0815…0.0858, and refining moves it toward them | 0.2863, 0.0787 (0.0813 at twice the resolution) |
+| strong Landau damping, α = 0.5 | γ₁ within 0.27…0.30, around the literature's 0.281…0.292, which it quotes as −γ; γ₂ within 0.070…0.090, just under the cited 0.0815…0.0858, and refining moves it toward them | 0.2863, 0.0787 (0.0813 at twice the resolution) |
 | collisional Landau damping, `BGK` at ν = 0.1, 0.3, 1 | γ within 1.5% and ω within 0.3% of the collisional root on the grid's field, and γ *falling* as ν rises | +0.37%, +0.49%, +0.76%; +0.05%, +0.08%, +0.03%; 0.1547 → 0.1341 → 0.1074 → 0.0660 |
 | plasma oscillation frequency | ω within 0.2% of Bohm–Gross √(1+3k²), and the cold ωₚ excluded | 0.018%, against 0.57% for cold |
 | two-stream growth rate, kv₀ = 0.4, 0.6, 0.8 | γ within 3% of the warm kinetic root, and the peak in the right place | 0.63%, 1.95%, 0.09% |
