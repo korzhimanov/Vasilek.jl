@@ -42,8 +42,11 @@
 ## Conventions
 
 - Every PR adds an entry to `CHANGELOG.md` (Keep a Changelog, the current
-  version's section) with the measurements that justify the change. Breaking
-  changes are also described in `docs/src/migration-0.2.md`.
+  version's section): one to three lines saying what changed and where its
+  evidence is. The measurements that justify it go to `docs/src/verification.md`
+  for a verification claim, `docs/src/driver-notes.md` for the driver, or the
+  test that asserts them. Breaking changes are also described in
+  `docs/src/migration-0.2.md`.
 - Commits: `fix:` / `refactor:` and so on, worded as behavior
   ("a step of vlasov_poisson allocates nothing").
 - Bring a branch up to date with master by merge, not by rebase.
