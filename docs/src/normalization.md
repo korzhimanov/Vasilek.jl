@@ -143,12 +143,13 @@ Courant numbers and four wavenumbers.
 
 The plasma enters only through `nΔt²/4`, so at a small Courant number the error
 is the spatial term, and it is not decorative: at ten cells per vacuum
-wavelength the group velocity this relation gives is several percent below
-`√(1-n)`. A laser pulse therefore arrives late and drives a wake whose phase
-velocity, and so `γ_φ`, is wrong by as much (see [The laser wakefield](@ref) on
-the verification page). Resolve the laser wavelength with twenty cells or
-better, or read the pulse speed off `em_omega` rather than off the continuum
-formula.
+wavelength the group velocity this relation gives the carrier is several
+percent below `√(1-n)`, and a pulse's, averaged over its spectrum, lower still.
+The pulse therefore arrives late and drives a wake whose phase velocity is
+wrong by as much as the pulse's, and whose `γ_φ = 1/√(1 − v_φ²)` is wrong by
+far more (see [The laser wakefield](@ref) on the verification page). Resolve the
+laser wavelength with twenty cells or better, or read the pulse speed off
+`em_omega` rather than off the continuum formula.
 
 The frequency of the longitudinal oscillation is asserted rather than
 asserted-about: `test/test_verification.jl` holds it to the Bohm–Gross
