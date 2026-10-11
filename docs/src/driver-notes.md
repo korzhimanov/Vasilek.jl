@@ -44,12 +44,13 @@ runs now exercise the solver the package ships.
 A scalar function rather than an `ifelse` inside the broadcast, because
 `ifelse` is an ordinary call and evaluates **both** arguments: written that way
 the guard does not guard, and `log` is handed the negative value anyway. That is
-not hypothetical here -- `LaxWendroff` and cubic `SemiLagrangian` drive `f` 18%
-of the peak below zero on the large-amplitude case of the scheme comparison
-([the verification page](verification.md)), and the entropy diagnostic threw
-`DomainError` on both until this was split out. That is no round-off leaking
-below zero: it is the size of the undershoot that makes the guard a statement
-about the schemes rather than about floating point.
+not hypothetical here -- `LaxWendroff` and cubic `SemiLagrangian` drive `f` to
+-0.093 and -0.105 against a peak of 0.6 on the large-amplitude case of the
+scheme comparison ([the verification page](verification.md)), and the entropy
+diagnostic threw `DomainError` on both until this was split out. That is no
+round-off leaking below zero: it is the size of the undershoot, 16% and 18% of
+the peak, that makes the guard a statement about the schemes rather than about
+floating point.
 
 ## `OnGrid`
 
@@ -299,11 +300,15 @@ against a bound of 0.3846, 8.3% above. Both are a `DomainError` from inside the
 step, as before this check.
 
 Lifting the bound moved the collisional numbers slightly, though it had ended
-none of those runs: tight, it clipped the reconstruction in the peak cell. γ
-moved by 3e-5 at most, the energy holds better, and the sampled Maxwellian on
-±4, which the bound stopped on the first step, now runs under the defaults. The
-figures are on [the verification page](verification.md), under Collisional
-damping.
+none of those runs: tight, it clipped the reconstruction in the peak cell. At
+ν = 0.1, 0.3 and 1, γ against the root on the grid's field went from +0.37%,
++0.48%, +0.75% to +0.37%, +0.49%, +0.76% (γ by 3e-5 at most); the heat mode
+from 0.43383 to 0.43377 against the root's 0.43369; `PartialBGK{(:n, :u)}`'s ω
+from +0.04% to −0.10% of its own root. The energy holds better: at ν = 1 it
+drifts 8.0e-9 on ±8, where it drifted 1.4e-7, and 8.0e-8 on ±4, where it
+drifted 2.1e-7. The sampled Maxwellian on ±4, which the bound stopped on the
+first step and `verification/collisional-damping.jl` ran with 50% of headroom,
+now runs under the defaults and cools by the same −5.3%.
 
 That refuses calls that ran. At 1% on ±4, where `f` comes no nearer 0 than
 1.3e-4, `LaxWendroff` and the cubic spline stay inside the bounds in either

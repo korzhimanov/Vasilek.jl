@@ -226,11 +226,11 @@ Maxwellian's density mode decays as `exp(−k²t²/2)`, a Gaussian rather than a
 exponential, because the mode is sheared into velocity structure rather than
 dissipated. Over t ≤ 4 the mode amplitude is off by 2.7e-6 for cubic
 `SemiLagrangian`, 3.3e-5 for PFC, 1.2e-3 for `LaxWendroff` and 1.7e-2 for
-`Upwind`, and the ordering is asserted. On a coarse velocity grid, `T_R = 31.4159`,
-both schemes peak at t = 31.42, recovering 1.0000 and 0.9991 of the initial
-amplitude. The Courant limit binds here as it does not in one-dimensional
-advection: the fastest velocity row carries `max|v|·Δt/Δx`, and everything runs
-at 0.611.
+`Upwind`, and the ordering is asserted. On a coarse velocity grid,
+`T_R = 31.4159`, both schemes peak at t = 31.42, recovering 1.0000 and 0.9991
+of the initial amplitude. The Courant limit binds here as it does not in
+one-dimensional advection: the fastest velocity row carries `max|v|·Δt/Δx`, and
+everything runs at 0.611.
 
 ### The plasma echo
 
@@ -328,7 +328,8 @@ distribution rather than of a moment of it).
   is interesting.
 * Ranked by round trip at α = 0.5: `LaxWendroff` 0.090, cubic `SemiLagrangian`
   0.108, PFC 0.167, `Upwind` 0.332. The first two get there by driving `f` to
-  −0.093 and −0.057 against a peak of 0.6, where PFC stays at +5e-10 and
+  −0.093 and −0.057 against a peak of 0.6, over the round trip's two runs of
+  t = 20 on 64 × 121 cells, where PFC stays at +5e-10 and
   `Upwind` pays a fifth of its L² norm instead. Reversibility and positivity are
   the same trade-off from two sides, reached through a quantity that has
   nothing to do with the damping rate the scheme comparison ranks them by.
@@ -422,8 +423,9 @@ The invariants and the energies are the cell-width sums `Σ f ΔvΔx` and
 ([driver notes](driver-notes.md)). On the same run the trapezoid reports 2.4e-4
 of mass drift and 7.3e-4 of momentum, eleven orders of magnitude of apparent
 non-conservation that belongs to its endpoint weights. On the bump-on-tail run,
-whose wave travels across the seam, the trapezoid's `ε` swung by −0.346 to
-+0.175 over t ∈ [60, 100], where the sums drift by 9.7e-3.
+whose wave travels across the seam, the trapezoid's `ε`, 61.8, swung by −0.346
+to +0.175 over t ∈ [60, 100] on 64 × 361 cells and by −0.185 to +0.093 at
+Nx = 128, first order in Δx, where the sums drift by 9.7e-3 and 1.0e-3.
 
 ### Collisional damping
 
@@ -613,16 +615,17 @@ the last digit, as Penrose's criterion requires.
 
 ### The laser wakefield
 
-The wakefield example was asserted only to run and stay bounded until recently,
-because that was all it could support: it had **no ponderomotive coupling**, so
-the laser never entered the longitudinal push and the wake it drew was the slab
-edges relaxing. Its numbers came out bit-identical whether the transverse
-current was right or wrong by thirty-two orders of magnitude. The coupling, the
-force `−∂Φ/∂x` with `Φ = (pʸ² + pᶻ²)/2` in the momentum advection, is now there,
-and the wakefield rows of the table under [What the tests assert](@ref) measure
-the wake it produces against linear wakefield theory rather than against a bound
-(`wakefield`, `linear_wake`, `vg_pulse` and `wake_wavelength` in the harness;
-testset "Laser wakefield: the laser drives a plasma wave").
+Before the ponderomotive coupling was added, the wakefield example was asserted
+only to run and stay bounded, because that was all it could support: without
+the coupling the laser never entered the longitudinal push, and the wake it drew
+was the slab edges relaxing. Its numbers came out bit-identical whether the
+transverse current was right or wrong by thirty-two orders of magnitude. The
+coupling, the force `−∂Φ/∂x` with `Φ = (pʸ² + pᶻ²)/2` in the momentum advection,
+is now there, and the wakefield rows of the table under
+[What the tests assert](@ref) measure the wake it produces against linear
+wakefield theory rather than against a bound (`wakefield`, `linear_wake`,
+`vg_pulse` and `wake_wavelength` in the harness; testset "Laser wakefield: the
+laser drives a plasma wave").
 
 The transverse momentum needed no repair, only a name. Nothing depends on `y` or
 `z`, so `p⊥ + A⊥` is conserved along a trajectory and the plasma is at rest ahead
@@ -689,9 +692,10 @@ measuring. A 1% perturbation cannot rank the schemes on positivity, since every
 one returns the same `min f = 1.3e-4`, the Maxwellian's tail at `v = ±4`. At 50%
 amplitude the two that lead are exactly the two that drive `f` negative,
 `LaxWendroff` to −0.093 and cubic `SemiLagrangian` to −0.105 against a peak of
-0.6: Godunov's theorem arriving in the physics, and the reason the solvers
-default to PFC. `Superbee` heads the table, at 0.21% in the rate and 0.14% in the
-frequency, from below: its compression anti-diffuses, it shows the only growing
+0.6, over one run to t = 40 on the round trip's 64 × 121 grid: Godunov's
+theorem arriving in the physics, and the reason the solvers default to PFC.
+`Superbee` heads the table, at 0.21% in the rate and 0.14% in the frequency,
+from below: its compression anti-diffuses, it shows the only growing
 L² in the table, +8.9e-5, and its lead is a cancellation. Refined at a fixed
 Courant number from Nx = 32 to 256:
 

@@ -219,8 +219,8 @@ entry says what changed and where its evidence lives: a section of
 ### Changed
 
 - **The measurements have one home**: `docs/src/verification.md` gathers them by
-  study, beside the full table and the nine studies' commands; the README keeps
-  ten headline rows, and this file one to three lines an entry.
+  study; the README keeps ten rows of its table, held to it by
+  `test/test_readme.jl`, and this file one to three lines an entry.
 - **`Landau1P` is a consistent model**: a regularised kernel, the transverse
   bath's drag, and a flux-form update that keeps the density to 2.4e-16; its
   Known issues are closed. `test/BoltzmannSolver/test_damping_1v.jl`.

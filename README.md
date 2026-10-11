@@ -96,18 +96,21 @@ These blocks are executed by the test suite, so they cannot drift from the API.
 
 ```
 julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
+julia --project=verification -e 'using Pkg; Pkg.instantiate()'             # once
+julia --project=docs -e 'using Pkg; Pkg.instantiate()'                     # once
+julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'                # once
 julia --project=. -e 'using Pkg; Pkg.test(test_args = ["readme", "docs"])'  # only those files
 VASILEK_EXTENDED=1 julia --project=. -e 'using Pkg; Pkg.test()'             # the verification suite
 julia --project=verification verification/two-stream.jl                     # or any other study
-julia --project=docs docs/make.jl                                           # VASILEK_DOCS_EXECUTE=1 runs the studies
+julia --project=docs docs/make.jl                                           # VASILEK_DOCS_EXECUTE=1 runs the studies too
 julia --project=benchmark benchmark/runbenchmarks.jl                        # advisory
 julia --project=benchmark benchmark/workprecision.jl                        # advisory
 ```
 
 The `verification`, `benchmark` and `docs` environments take the package from
-this checkout through `[sources]`, so they need Julia ≥ 1.11 and an
-`instantiate` each, and the benchmark baseline in `benchmark/results.json` was
-recorded on the development machine, so `runbenchmarks.jl --strict` means
-something only there.
+this checkout through `[sources]`, so they need Julia ≥ 1.11 (a docs build that
+runs the studies loads theirs from `verification`), and the benchmark baseline
+in `benchmark/results.json` was recorded on the development machine, so
+`runbenchmarks.jl --strict` means something only there.
 
 See [CHANGELOG.md](CHANGELOG.md) for the changes.
