@@ -12,7 +12,8 @@ module Collisions
 # was a MethodError.
 import ..workspace
 
-# `Landau1P` is defined here but not exported: it is experimental, see its
+# `Landau1P` is defined here but not exported: it is a one-dimensional model of
+# the Landau operator, with a bath at a temperature of its own; see its
 # docstring.
 export AbstractCollisionOperator, collide!, BGK
 

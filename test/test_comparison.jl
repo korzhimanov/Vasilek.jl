@@ -288,13 +288,17 @@ end
     #   BGK       92.7 186 374 752 us    ratios 2.00-2.01   exponent 1.01
     #             (the discrete Maxwellian's Newton solve, three iterations at
     #             every N; the sampled one ran 13.6 27.4 55.0 110 us)
-    #   Landau1P  102 401 1600 6385 us     ratios 3.91-4.07   exponent 1.990-2.001
+    #   Landau1P  30.2 120 481 1948 us     ratios 3.99-4.13   exponent 2.003-2.030
+    #             (the regularised kernel in flux form, on a second machine,
+    #             where the old kernel ran 28.5 116 468 1905 us; on the first
+    #             it ran 102 401 1600 6385)
     #
     # Held to a threshold at 1.5, which is some forty measurement errors from
     # either. The `Coverage` job runs the same assertions under
     # `--code-coverage=user`, where every number above grows by a factor of
-    # about fourteen: 194 to 1551 us and 673 us to 43 ms. The exponents come out
-    # 0.983-1.005 and 1.997-2.008 -- unmoved, because a uniform slowdown cancels
+    # thirteen or fourteen: 194 to 1551 us, and 383 us to 25.7 ms for
+    # `Landau1P`. The exponents come out 0.983-1.005 and 2.013-2.023 --
+    # unmoved, because a uniform slowdown cancels
     # in a ratio, which is the whole reason this quantity can be gated where a
     # duration cannot.
     #
