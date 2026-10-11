@@ -74,9 +74,10 @@ identities rather than to stored numbers: `Z` against its own Cauchy integral
 where that converges, to 3.5e-15, and the susceptibility against a trapezoid
 that never calls `Z`, to 1.3e-14.
 
-Every row below is asserted in `test/test_verification.jl`, except the field-off
-echo, in `test/VlasovSolver/test_echo.jl`, and the collisional relation, in
-`test/test_dispersion.jl`.
+Every row below is asserted in `test/test_verification.jl`, the extended suite,
+except the field-off echo's four rows, in `test/VlasovSolver/test_echo.jl`, and
+the collisional relation, in `test/test_dispersion.jl`, which run in a default
+`Pkg.test()`.
 
 | claim | asserted | measured |
 |---|---|---|
@@ -151,8 +152,8 @@ on, so it is held to 1% where `γ` is held to 3%.
 
 Three constraints shape the runs, and each cost time to rediscover:
 
-* **The velocity window must contain the resonance** at `v = ω/k` (2.83, 3.21,
-  3.87), since that is where the damping comes from; the window then fixes Δt,
+* **The velocity window must contain the resonance** at `v = ω/k` (3.87, 3.21,
+  2.83), since that is where the damping comes from; the window then fixes Δt,
   because the fastest row runs at `max|v|·Δt/Δx` against the scheme's Courant
   limit. The k = 0.5 case runs at 0.815.
 * **The fitting window stops before the floor** where recurrence and round-off

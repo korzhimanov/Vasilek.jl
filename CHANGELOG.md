@@ -10,9 +10,9 @@ as they stood through commit `f5032f9`: `git show f5032f9:CHANGELOG.md`.
 ## [0.2.0] - unreleased
 
 Each section gathers what the pull requests appended to it, newest first. An
-entry says what changed and where its evidence lives: a section of
-`docs/src/verification.md`, `docs/src/driver-notes.md`, the migration guide
-`docs/src/migration-0.2.md`, or a test.
+entry says what changed and, when it needs any, where its evidence lives: a
+section of `docs/src/verification.md`, `docs/src/driver-notes.md`, the migration
+guide `docs/src/migration-0.2.md`, or a test.
 
 ### Breaking
 
@@ -464,18 +464,21 @@ entry says what changed and where its evidence lives: a section of
   estimate, 13 kB, where it stored 4.4 MB of samples.
 - The Cyrillic `c` (U+0441) in the benchmark keys is gone.
 - **`FDTD1D` read `f.hz[i-1]` in an `hy`-only stencil for `ez`**, so the y
-  polarization drove `ez`: numerically breaking for any z-polarized run.
+  polarization drove `ez`: numerically breaking for any z-polarized run
+  (`test/MaxwellSolver/test_fdtd_1d.jl`).
 - `FDTD1D`'s `PML` default argument passed `Δt` and `Δx` in the wrong order; a
   keyword constructor makes that unrepresentable.
 - **`Landau1P` differentiated at the wrong index**, and integrated an unassigned
-  `J[i]`; `L` and `Tₜ` are keywords.
+  `J[i]`; `L` and `Tₜ` are keywords (`test/BoltzmannSolver/test_damping_1v.jl`,
+  "Landau1P invariants").
 - **`PFCNonUniform` computed its limiter from the global spacing ratio**; per
   cell, the non-uniform plasma oscillation drifts 4.75%, not 12%. See
   [plasma oscillations](docs/src/verification.md#plasma-oscillation-frequency-and-energy).
 - `PFCNonUniform` hardcoded `fₘᵢₙ = 0`, `fₘₐₓ = 1`; they are required keywords,
   as in `PFC`. A breaking change.
 - **`PoissonFourier1D` returned a field too large by `1/Δx²`**: numerically
-  breaking for anything computed with it before.
+  breaking for anything computed with it before
+  (`test/MaxwellSolver/test_poisson_fourier_1d.jl`).
 - **`PFC`'s two `generate_solver` overloads computed different things**, a
   factor of 740 on data above 1; `fₘᵢₙ` and `fₘₐₓ` are required. A breaking
   change.
