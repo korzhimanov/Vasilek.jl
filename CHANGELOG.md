@@ -4,2889 +4,496 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project has not been released; entries below describe work on `master`.
+The measurement journals the entries once carried are in the git history,
+as they stood through commit `f5032f9`: `git show f5032f9:CHANGELOG.md`.
 
 ## [0.2.0] - unreleased
 
-Each section below gathers what the separate pull requests appended to it,
-newest first. Entries keep the measurements that justified them; the
-migration guide, `docs/src/migration-0.2.md`, is the short version.
+Each section gathers what the pull requests appended to it, newest first. An
+entry says what changed and, when it needs any, where its evidence lives: a
+section of `docs/src/verification.md`, `docs/src/driver-notes.md`, the migration
+guide `docs/src/migration-0.2.md`, or a test.
 
 ### Breaking
 
-- **`Landau1P(A)` defaults to `Tₜ = 1`, where it was 1e-3, and `Tₜ` means
-  something else.** It was a factor on the collision rate; it is now the
-  temperature of the transverse bath the line relaxes to, and the width of
-  the kernel. A value that is not positive and finite is refused by the
-  constructor, and one below `Δv²` by `collide!`. See the `Landau1P` entry
-  under Changed for the measurements.
-- **`Yee1D` refuses what would run wrong, and its source sees one time type**
-  (`src/MaxwellSolver/FDTD1D.jl`, after the review of the FDTD rewrite).
-  * **Refused when the operator or the layer is built:** `Δx` or `Δt` zero,
-    negative or not finite, which gave `cfl = Inf` and a mesh of `Inf`/`NaN`
-    after one step, a scheme running backwards in time, or a layer of `Inf`
-    and growing coefficients. Refused when the operator is built: a `pml` built
-    for other steps, such as `PML(10, 1e3, Δt, Δx)`, whose `r₂` tends to
-    `Δx/Δt = 1.25` against an interior at 0.8, the reflecting edge the `cfl`
-    check exists to prevent. `PML` now keeps the `Δx` and `Δt` it was built
-    for, and `Yee1D` compares them with its own in `T`, to the `cfl` check's
-    relative `max(1e-12, 4eps(T))`; the error names both pairs and says when
-    they are swapped. A `Float64` layer still serves a `Float32` operator.
-  * **`advance!` checks `axes`, not `length`,** of `j.y` and `j.z`: a current
-    indexed `0:N` passed and threw on `j[N]` with the source already injected.
-  * **Both injections call the source with one time type and one place
-    type.** The magnetic one is called at `t + Δt/2` and `x_min + 3Δx/2`;
-    `t + 0.5*Δt` and `x_min + 1.5*Δx` widened `Float32` to `Float64`, and the
-    electric one took `t` as given, so one source saw an `Int` or `Float32`
-    time beside a `Float64` one. The times are now the promotion of `t` and
-    the step's type, the places that of `x_min` and the step's type; `3h/2`
-    is `1.5h` to the bit. For a `Float64` time nothing changes: 27
-    runs of 400 steps on 300 cells (`Float64` and `Float32` steps with a
-    `Float64` time, layers of 0, 5 and 10 cells, `cfl` 0.5, 0.8 and 1, both
-    polarisations, a source, a current and `x_min = 0.37`) give `ey`, `ez`,
-    `hy` and `hz` identical in every bit to `master`. With a `Float32` time
-    the fields move by 1.2e-7 to 5.4e-7, a few ulp of the unit pulse.
-  * **The operator copies its layer.** `PML{T}(p)` shared `p.r₁` and `p.r₂`
-    when `T` matched, so a change to the caller's layer changed every operator
-    built from it.
-  * **A layer wider than `Float64` is as accurate as its type:** the depth
-    profile `(i/2N)^3` is computed in the wider of `T` and `Float64`, where it
-    was always `Float64`. `Float64` and `Float32` layers are unchanged to the
-    bit.
-  * Comments: the magnetic update reads both PEC nodes, `ey[1]` as well as
-    `ey[end]` (also in the `YeeMesh1D` docstring); entry `k` of the layer
-    table sits at depth `k/2` cells, so `k = 1` has a small nonzero σ; and
-    `_inject!` takes the times and places it needs instead of the operator,
-    like the two updates. `docs/src/normalization.md` quotes the current's
-    line as it now reads, `e[i] += j[i]`.
-
-- **The FDTD solver is a type, and `make_advance_fields` is gone.**
-  `FDTD1D.Yee1D(; Δx, Δt, cfl = Δt/Δx, source, x_min = 0.0, pml)` holds the
-  step's constants, the absorbing layers and the source, and
-  `advance!(mesh, op, t, j)` takes the leapfrog step on a `YeeMesh1D` and
-  returns it. The operator holds no fields, so one value steps any number of
-  meshes from any number of tasks, and `workspace(op)` is `nothing`. It was
-  the last 0.1 closure factory in the package. See the migration guide's
-  "FDTD".
-  * **The same update, moved.** The four update loops and the source injection
-    are methods now, their bodies copied verbatim and called in the same
-    order. Measured against `make_advance_fields` over eight runs (no layer, a
-    layer of 5 and of 10 cells, either polarisation, `cfl` 0.8, 0.99 and 1,
-    a current, a nonzero `x_min`, an integer time), every one of `ey`, `ez`,
-    `hy` and `hz` agrees in every bit after 200 steps. So does the harness's
-    `wakefield()`, which drives the solver through `transverse_step!` with a
-    nonzero `x_min`: its density, both fields, the ponderomotive potential and
-    both energies, over 8800 steps on 401 nodes. The suite's own identities
-    hold unchanged: `fz.ez == fy.ey`, the magic step at 1.1e-19, the staggered
-    energy at 2.3e-15, the PML's `R` at 6.25e-9.
-  * **`cfl` stays a keyword**, defaulting to `Δt/Δx` and checked against it as
-    before, because a caller that sets the Courant number wants exactly that
-    number in the interior: `0.8*Δx/Δx` need not round back to 0.8.
-    The check runs in every constructor, the positional
-    `Yee1D(cfl, Δx, Δt, x_min, pml, source)` included, which Julia's default
-    constructor would otherwise have left unchecked.
-  * **The step works in the type of `Δx` and `Δt`.** `cfl`, `Δx`, `Δt` and
-    the layer's coefficients are converted to it, so `Float32` steps give a
-    `Yee1D{Float32}` with a `PML{Float32}` even with a literal `cfl = 0.8` or
-    the default layer's `σ_max = 1e3`; before, either widened the step to
-    `Float64` and converted on every store. The layer is rounded once, from
-    the coefficients computed in the arguments' types. `cfl` is checked after
-    the conversion, to `max(1e-12, 4eps(T))`: at `1e-12`, `cfl = 0.8f0` with
-    `Δt = 0.008f0`, `Δx = 0.01f0` was refused, `Δt/Δx` being `0.8000001f0`,
-    one ulp off — on `master` too. A `Float32` run of 400 steps on 300 cells
-    with a 10-cell layer and `cfl = Δt/Δx` differs from `make_advance_fields`
-    with a `Float64` layer by at most 1.0e-7 in `ey` and `hz`, the rounding of
-    a unit pulse in `Float32`; `Float64` runs are untouched. `x_min` is a
-    coordinate for the source only and keeps its own float type, so the `x`
-    the source sees is computed as `make_advance_fields` computed it, in
-    `Float64` for a `Float64` `x_min` whatever the steps' type.
-  * **The mesh-holds-both-layers check moved** from construction, where the
-    closure had its mesh, to every `advance!` call, since the operator has
-    none. `advance!` also checks that `j.y` and `j.z` have the mesh's `N + 1`
-    entries, a `DimensionMismatch`: a short current used to throw a
-    `BoundsError` halfway through the step, with the source injected and part
-    of `ey` already written. Both checks throw before writing anything, which
-    the test now confirms on all four fields with the source on.
-  * **`PML{T}` has one parameter, the float type**, and `N` is an `Int`. An
-    integer `σ_max` was a `MethodError`, the type taking its float parameter
-    from `σ_max` alone; `PML(10, 1000, Δx, Δt)` is now `PML(10, 1e3, Δx, Δt)`
-    to the bit. `FDTD1D` exports `PML`.
-  * **`YeeMesh1D{T}` has one parameter too**: the second was the integer type
-    of `N`, which is an `Int` now.
-  * `FDTD1D` is still not re-exported from `Vasilek`, and neither is
-    `PoissonFourier1D`: the public API is the top-level `export` list plus
-    those two named submodules, which the README and the migration guide now
-    say.
-- **`PoissonFourier1D.generate_solver` is gone.** It was kept as a deprecated
-  wrapper (the `PoissonFFT1D` entry under Changed); 0.2 is unreleased, so
-  nothing depends on it, and it goes the way of the other closure factories.
-  The test that held `PoissonFFT1D`'s centred form to 0.1 bit for bit
-  reimplements 0.1 and does not need it.
-
-- **`StrangSplitting.make_time_step_2d!` is gone; `strang_step!` is the split
-  step.** `strang_step!(f, scheme_x, scheme_v, cx, cv, ws[, hook])` steps one
-  matrix, `f[x, v]`, with no second array and no per-line closures: the
-  schemes are values, put on their grids by `OnGrid` where `cx` and `cv` are
-  displacements, and a collision operator is the hook `Collide(op, v, Δt)`.
-  **`cv` is now handed the state transposed**, `ft = f[v, x]` after the first
-  half step, which is the layout the driver sums the density over, where it was
-  handed `f`: a `cv` that read the rows of `f` reads the columns of `ft`. See
-  the migration guide's "Strang splitting".
-- **`VlasovPoisson1D1V.line_advector` and `substeps` are gone**: `OnGrid`
-  (Added) is the scheme on its grid, and `substeps` is
-  `Vasilek.Advection.substeps`. A uniform scheme on a non-uniform grid is
-  refused with an `ArgumentError`, where `line_advector` raised an
-  `ErrorException`.
-
+- **`Landau1P(A)` defaults to `Tₜ = 1`, where it was 1e-3, and `Tₜ` is the
+  bath's temperature**, no longer a factor on the rate; one below `Δv²` is
+  refused. See the migration guide's "Collisions".
+- **`Yee1D` refuses what would run wrong, and its source sees one time type**:
+  bad steps, a `pml` built for other steps and a current of the wrong `axes` are
+  refused; the operator copies its layer. `test/MaxwellSolver/test_fdtd_1d.jl`.
+- **The FDTD solver is a type, `Yee1D`, and `make_advance_fields` is gone.**
+  `advance!(mesh, op, t, j)` steps in the type of `Δx` and `Δt`, to the bit of
+  the closure in `Float64`. See the migration guide's "FDTD".
+- **`PoissonFourier1D.generate_solver` is gone**; `PoissonFFT1D` replaces it
+  (Changed).
+- **`StrangSplitting.make_time_step_2d!` is gone; `strang_step!` steps one
+  matrix**, `f[x, v]`, and hands `cv` the state transposed, `f[v, x]`. See the
+  migration guide's "Strang splitting".
+- **`VlasovPoisson1D1V.line_advector` and `substeps` are gone**: `OnGrid` is the
+  scheme on its grid, `substeps` is `Vasilek.Advection.substeps`, and a uniform
+  scheme on a non-uniform grid is an `ArgumentError`.
 - **Advection schemes are types, and `generate_solver` is gone.** `advect!`
-  dispatches on an immutable scheme value; scratch memory, where a scheme
-  needs any, comes from `workspace` and is passed explicitly. See
-  [docs/src/migration-0.2.md](docs/src/migration-0.2.md).
-
-  No compatibility shim, contrary to the original plan: the module names
-  `generate_solver` lived under are the new type names, so the two APIs
-  cannot coexist in one namespace.
-
-  The reason is reentrancy. A 2D2P step sweeps O(N²) independent lines per
-  direction, which is work for `Threads.@threads`; the old closures captured
-  a single shared scratch buffer, so they could not be threaded over them.
-  The parallel 2D2P goal in the README was unreachable without this.
-
+  dispatches on an immutable value with an explicit `workspace`, so lines can be
+  threaded. See [docs/src/migration-0.2.md](docs/src/migration-0.2.md).
 - The `Symbol`-valued options are singleton types: `:Riemann_linear` becomes
   `PiecewiseLinear()`, `:VanLeer` becomes `VanLeer()`, `:Cubic` becomes
-  `CubicSpline()`. A typo is now a `MethodError` where it is written.
+  `CubicSpline()`.
 - **Collision operators follow the same shape**: `BGK(τ)` and
   `collide!(dest, src, op, v, Δt, ws)` replace `BGK.generate_solver`, which
-  mutated its argument in place. `Landau1P` is unexported.
-- `Limiters` is gone; the limiters are callable types in `Advection`.
-
-  Numerics are unchanged. Every scheme is bit-for-bit identical to 0.1 in
-  both directions, and the golden values recorded before the change still
-  match. (`Godunov(PiecewiseLinear())` has since changed on purpose, gaining the
-  `(1 − |c|)` factor its flux lacked in 0.1; see Fixed.)
+  mutated its argument; `Landau1P` is unexported.
+- `Limiters` is gone; the limiters are callable types in `Advection`. At the
+  change every scheme matched 0.1 to the bit; `Godunov(PiecewiseLinear())` has
+  changed since on purpose (Fixed).
 
 ### Added
 
-- **`CLAUDE.md` and a SessionStart hook for Claude Code cloud sessions**
-  (`.claude/hooks/session-start.sh`, `.claude/settings.json`). `CLAUDE.md`
-  holds the commands and the rules for changes (checks are run, not read; the
-  1.10 floor; a step allocates nothing; a changelog entry per PR). The hook
-  installs the latest stable Julia through `juliaup` and instantiates the
-  package, its test extras, `verification/` and `docs/`, so that tests run at
-  once; it does nothing outside the cloud. Measured in a cloud container:
-  5 min 7 s on a fresh one (Julia 1.13.1), 12.6 s once it is set up, after
-  which `Pkg.test()` passes (2503 pass, 3 broken) in 3 min 41 s. With the
-  network blocked it exits 0 and says which hosts it needs: on a fresh
-  container it leaves Julia uninstalled, and where Julia is already installed
-  it keeps it and instantiates from the depot. Its stdout is empty, since a
-  SessionStart hook's stdout is added to the session's context; the output of
-  the install and of `Pkg` goes to stderr, so a resolver or precompilation
-  error is shown rather than reported as a network one. The test extras are
-  resolved together with `[deps]` under the package's `[compat]`, both read
-  from `Project.toml`, so the depot holds the versions `Pkg.test()` takes
-  (Aqua 0.8.18). After `/clear` or a compaction the hook exits at once (10 ms),
-  and it writes the `PATH` line to `CLAUDE_ENV_FILE` once however often it
-  runs. Without juliaup it goes on with a Julia on `PATH` only from 1.10. Its
-  command is quoted, so a path with spaces works. Its timeout is 900 s, where
-  the default of 600 s left less than twice the fresh install.
-
-- **`OnGrid(scheme, Δz)`, exported: a scheme on its grid.** Its fourth
-  `advect!` argument is a displacement whatever the scheme takes: divided by
-  the spacing for a uniform-grid scheme, which a non-uniform grid refuses, and
-  passed as it is to `PFCNonUniform`, which carries its grid (`OnGrid(p)`; a
-  grid given with it has to be that one). A step wider than a cell, the
-  narrowest one for `PFCNonUniform`, is split into the fewest equal sub-steps
-  that fit (`substeps`); `SemiLagrangian`, with no Courant limit, takes it
-  whole, and another scheme without one opts out through `nsubsteps`.
-  `workspace(OnGrid, n[, T])` holds the scheme's scratch and the sub-steps'
-  line. It does what `line_advector` did, to the bit, as a value: the driver,
-  the harness's echo kick and the splitting tests all take it. An `OnGrid`
-  given to the driver is kept if it is on the driver's grid to `1e-12`; an
-  exact comparison refused one built with `fill(L/N, N)` for cell centres
-  `(j - 1/2)L/N`, whose widths differ from `L/N` in the last bit.
+- **`CLAUDE.md` and a SessionStart hook for Claude Code cloud sessions**: the
+  commands and the rules for changes; `.claude/hooks/session-start.sh` installs
+  the latest Julia through `juliaup` and instantiates every environment.
+- **`OnGrid(scheme, Δz)`, exported: a scheme on its grid**, taking a
+  displacement and splitting a step wider than a cell; `line_advector` as a
+  value. `test/VlasovSolver/test_strang_splitting.jl`.
 - **`strang_step!` takes a collision hook**, `Collide(op, v, Δt)`, which
-  collides every v line for `Δt/2` either side of its kick, and
-  `workspace(scheme_x, scheme_v, f, collisions = nothing, T = float(eltype(f)))`
-  holds the operator's scratch. `T` is the type the lines are worked in, wider
-  than `f`'s if asked: the transposed copy keeps `f`'s type, so the transposes
-  are exact copies. A hook whose operator the workspace was not built for is an
-  `ArgumentError` before the first sweep, where it was a `MethodError` from
-  inside the kick with `f` half a step on.
-
-- **The documentation is published, with the verification studies on it**
-  (`docs/make.jl`, `.github/workflows/Docs.yml`, `docs/src/verification.md`),
-  at https://korzhimanov.github.io/Vasilek.jl/dev/ from the `gh-pages` branch.
-  The site built from `docs/src` was checked in CI and published nowhere; the
-  studies wrote their figures beside themselves and `Scripts.yml` threw them
-  away; and the claims table lived in the README.
-
-  * **The studies, rendered.** Literate.jl runs each script chunk by chunk and
-    puts its printed numbers and its figures on a page, under the prose its
-    comments already were. The scripts still run as they did. What rendering
-    needed of them: a `# # Title`, display math in ```` ```math ```` (Julia's
-    Markdown reads `$$` across lines as text), the harness included through
-    `pkgdir(Vasilek)` (under Literate `@__DIR__` is the page's directory), `##`
-    for a comment inside a loop or a function (an indented `# ` line is
-    Markdown to Literate, and cut the loop in two), a `;` after each `savefig`,
-    whose returned path would otherwise replace the chunk's printed output, and
-    Unicode subscripts for the `v_φ` and `t_e` that Julia's Markdown read as
-    italics.
-  * **Every build runs them**, pull requests included: a study can break under
-    Literate while running fine as a script. That takes about three minutes.
-    The packages come from `verification/Project.toml`, stacked under
-    `docs/Project.toml` rather than repeated in it, and the build fails on a
-    script in `verification/` that `docs/make.jl` does not list. `Docs.yml`
-    replaces the build-only job in `CI.yml`; pull requests build read-only, and
-    only the deploy job, which never runs on a pull request, can write.
-    `Scripts.yml` no longer runs the studies on a push to master, where the
-    published build has just run them.
-  * **`collide!`'s docstring is attached.** A comment stood between it and the
-    definition, and Julia's parser then reads the string as a statement of its
-    own, so `collide!` had no documentation and the API page left it out.
-  * **The README's verification table moved** to `docs/src/verification.md`,
-    with the notes on the studies; the README keeps the commands and a link.
-
-- **Collisional Landau damping: the `BGK` operator in a run, against its own
-  dispersion relation** (`test/test_verification.jl`; `collisional_landau`,
-  `mode_exponents`, `PartialBGK` and a `collisions` keyword for `vlasov_poisson`
-  in the harness; `collisional_determinant`, `collisional_root` and
-  `heat_mode_root` in `test/dispersion.jl`; `verification/collisional-damping.jl`).
-  `BGK` is the one collision operator the package exports, and the README lists
-  it among what is implemented, but until now nothing had run it with a field.
-  `test_damping_1v.jl` checks it on a single velocity line.
-
-  * **The theory.** Linearised, BGK relaxes a mode towards
-    `F₀[n₁ + u₁v + T₁(v² − 1)/2]`, and the three moments close the kinetic
-    equation into a 3×3 determinant built from `Z`. At `ν = 0` the determinant
-    *is* the collisionless dielectric function (2.3e-14). Restricted to the
-    density, it is the Krook model's textbook closed form (4.7e-16). At large `ν`
-    it approaches the Chapman–Enskog fluid, derived separately: no viscosity in
-    one dimension, heat flux `−(3nT/ν)∂ₓT`, and a cubic whose roots are the
-    Langmuir pair and a heat-conduction mode. The gaps in ω, γ and the heat rate
-    close as 1/ν², 3.85 to 4.08 times per doubling, as the next order of the
-    expansion says they should. At `ν ≥ 0.3` the root sits above the real axis
-    once `ν` is added, so a trapezoid over the mode's own moments, which never
-    calls `Z`, confirms it (|det| 2.3e-14).
-  * **What it says.** Collisions that restore all three moments *weaken* the
-    damping at k = 0.5: γ goes 0.1534 → 0.1327 → 0.1062 → 0.0652 at
-    ν = 0, 0.1, 0.3, 1, towards a fluid wave that damps only by conduction, at
-    `3k⁴/(ν(1 + 3k²))`, and oscillates at the adiabatic `√(1 + 3k²)`. Restoring
-    fewer moments strengthens the damping: dγ/dν at ν = 0 is −0.243 for BGK,
-    +0.114 without energy and +0.684 for Krook, and by ν = 1 the three
-    frequencies are 10% and 20% apart.
-  * **The runs.** On 64 × 161 over v ∈ [−8, 8] with Δt = 0.04, each run lands
-    on the root on the grid's field. γ reads +0.37%, +0.48% and +0.75% above it,
-    and ω reads +0.05%, +0.08% and +0.03%. The damping falls as ν rises. The
-    residue in γ is the x-sweep's dissipation: halving Δx and Δt at ν = 1 takes
-    it to 0.03%, while halving Δv moves γ by 0.01%.
-  * **The teeth.** `PartialBGK` relaxes at the background temperature, restoring
-    only the density (the Krook model) or the density and the drift. Run in
-    place of BGK, each lands on the root `collisional_root` gives for what it
-    restores: 0.31% and 0.23% in γ. That is 3.3 and 2.1 times BGK's rate. So the
-    relation is checked for three operators, and a BGK that lost its temperature
-    or its drift would fail by a factor.
-  * **The heat mode.** Energy conservation gives the plasma a third mode at each
-    `k`, a temperature perturbation that does not oscillate. The density seed
-    excites it at 21% of the wave's amplitude at t = 4, and it decays six times
-    faster than the wave, so the maxima and nulls never see it. A matrix pencil
-    of the field's `k` mode, `mode_exponents`, returns the wave pair and a real
-    exponent, 0.43383 against `heat_mode_root`'s 0.43369 at ν = 1. Its wave agrees
-    with the maxima and nulls to 0.06% in γ and 0.04% in ω. The pencil takes the
-    *left* singular vectors: the right ones return every exponent conjugated,
-    which on a test signal swapped a travelling wave's direction and nothing else.
-  * **The window.** On ±8 the ν = 1 run keeps mass to 7.4e-14 and momentum to
-    1.5e-15. Energy holds to 1.4e-7, the same order as the collisionless run's
-    7.3e-8, and entropy rises monotonically. On the ±4 the collisionless case
-    runs on, it cools. `BGK` takes each line's temperature by the trapezoid over
-    the window and puts back a Maxwellian that fills the whole line, which loses
-    1.2e-3 of the energy per relaxation. By t = 60 the run has lost 5.3% of its
-    energy, T has fallen to 0.949, and γ reads 3.0% low. The first sign is the
-    bound: the narrowed Maxwellian peaks above the initial maximum of f, and
-    PFC refuses it on the first step.
-
-  The collisional roots need a looser secant stop than the collisionless ones,
-  1e-9 rather than 1e-12. `J₃` and `J₄` come from `1 + ζJ₂`, which cancels to
-  `|ζ|²` when ν is large. Against quadrature they carry 1.2e-10 of their size at
-  ν = 20, where the secant ran out of iterations at 1e-12. `heat_mode_root`
-  searches the imaginary axis only above `Im ζ = −2`. Further down, the
-  continuation of `Z` grows as `exp(|ζ|²/2)`, and a scan to g = 30 found dozens
-  of spurious sign changes.
-
-- **The bump-on-tail instability, carried through saturation**
-  (`test/test_verification.jl`; `bump_on_tail` and `mode_rates` in the harness;
-  `bump_on_tail_root` and `BUMP_ON_TAIL` in `test/dispersion.jl`;
-  `verification/bump-on-tail.jl`). The beam is Arber and Vann's [J. Comput.
-  Phys. 180, 339 (2002)], `F = [0.9·exp(−v²/2) + 0.2·exp(−2(v − 4.5)²)]/√(2π)`,
-  over one wavelength of k = 0.3. The two-stream case grows as a standing wave
-  that does not oscillate. This one is a Langmuir wave that travels with a weak
-  beam over a warm bulk, and it is the first run held to numbers after its
-  linear phase. At this beam's temperature the instability is mostly reactive: a
-  cold beam would grow 18% faster, and `test_dispersion.jl` follows the root to
-  that limit as the beam cools. The beam's temperature cuts the rate by 15%,
-  and the run has to resolve that cut. Measured on 64 × 361 with Δt = 0.05:
-
-  * **Growth.** γ = 0.19784 and ω = 1.00108 over t ∈ [30, 50], from a seed of
-    1e-6. That is 0.131% and 0.014% below the kinetic root,
-    1.001218 + 0.198098i. Nearly all of the gap is the Poisson solve's centred
-    difference, which gives a mode `sin(kΔx)/(kΔx)` of its field. Put that
-    factor on the susceptibilities, as `dielectric` now does given `Δx`, and
-    the root sits 0.016% and 0.003% from the run. The rate is set in x, not v:
-    Δv from 0.025 to 0.2 moves γ by 0.017% at most, while Nx = 32 puts it
-    0.69% off the continuum and Nx = 128 puts it 0.020% off. The phase of the
-    mode amplitude shows the wave travelling with the beam.
-  * **Saturation.** The mode peaks at |E_k| = 0.4979 at t = 74.32. There the
-    bounce frequency is 1.951γ, and 1.945–1.952 over the grids tried. A seed a
-    thousand times larger peaks at 0.4981, 35.00 earlier, against
-    ln(1000)/γ = 34.91.
-  * **Trapping.** Past the peak the amplitude swings down to 0.2645 and back to
-    0.4137. The period is 21.40, 1.32 times the bounce period at the bottom of
-    the well. The steepest slope of the x-averaged f on the beam's flank falls
-    from 0.096 to 0.0048 by t = 120. It rises and falls with the swing, from
-    0.0013 to 0.026 over t ∈ [80, 160], so the test asks only for a factor of
-    3.
-  * **f stays a distribution function.** Its minimum is 3.6e-23, its mass holds
-    to 3.4e-16, and its maximum stays below the initial one.
-
-  The seed is not the literature's 0.04. At 0.04 the mode starts at a quarter
-  of its saturated amplitude, so there is no linear phase to fit. The default
-  test suite checks the root against a quadrature of the formula exactly as
-  Arber and Vann write it. That check never calls `Z` and leaves 5.2e-15. A beam
-  twice as narrow would leave 0.21, and a beam density of 0.2 would leave 0.64.
-  It also cools the beam and follows the root down to the cold-beam fluid
-  limit, which it meets to 0.026%. And it finds the band's edge at k = 0.4824,
-  where the phase velocity equals the bottom of the valley in F to the last
-  digit, as Penrose's criterion requires.
-
-- **`Superbee`**, `r -> max(0, min(2r, 1), min(r, 2))` [Roe, Annu. Rev. Fluid
-  Mech. 18, 337 (1986)]: the upper edge of Sweby's region, and so the most
-  compressive limiter that keeps `Godunov(PiecewiseLinear())` second order and
-  total-variation diminishing to `|c| = 1`. `VanLeer` used to lead the square
-  pulse in `test_comparison.jl` only because the flux lacked its `(1 − |c|)`
-  factor (see Fixed). That made its limiter `VanLeer/(1 − c)`, past this edge,
-  which also made the scheme first order and unstable past `c = 1/2`. Superbee
-  sharpens a jump from on the edge rather than outside it.
-
-  Measured with `c = 0.4` and N = 512 unless noted:
-
-  * **The pulse.** The L² error after one traversal is 1.58e-2, the lowest in
-    `test_comparison.jl`; the cubic spline leaves 2.01e-2 and `VanLeer`
-    2.77e-2. In `benchmark/workprecision.jl` Superbee joins the pulse's
-    frontier at 0.87 ms per traversal (5.8 ms before the kernel was sped up;
-    see Changed) and pushes the cubic spline, at 40 ms for 2.01e-2, off it.
-  * **Smooth data.** 1.74e-4 on the sine and 1.98e-3 on the gaussian, twice
-    `VanLeer`'s 8.55e-5 and 9.50e-4. Against the cubic spline it goes from 7070
-    times its error on the sine to 0.786 times it on the pulse. It is second
-    order in L¹, but gets there late: the local slopes from N = 32 to 2048 are
-    1.19, 1.81, 1.91, 1.96, 1.98 and 1.99, so a fit over 32 to 256 reads 1.65.
-    `test_convergence.jl` holds it to 2 over 128 to 1024, where it measures
-    1.95. L² settles near 1.69 and L∞ near 1.3.
-  * **Stability.** It is TVD from `c = 0.5` to 1 in both directions: the
-    pulse's total-variation ratio is 0.99999999 to 1, `f` stays inside
-    `[0, 1]`, and a sine touching zero stays non-negative through 1000 steps.
-    The mirror is exact, the step at `c = ±1` is one ulp from a shift, and it
-    allocates nothing.
-  * **Anti-diffusion.** Compression has a price the TVD property does not
-    show. Under Superbee the L² norm of a smooth perturbation *grows*: +1.3e-3
-    on the sine and +1.2e-2 on the gaussian after a traversal at N = 128, where
-    every other scheme's shrinks. `test_invariants.jl` asserts the sign. In
-    `verification/scheme-comparison.jl` this puts Superbee at the head of the
-    Landau table, 0.21% off in the rate and 0.14% in the frequency. It gets
-    there from below, with the only growing L² in the table, +8.9e-5. Refined
-    at a fixed Courant number from Nx = 32 to 256:
-
-    | scheme | γ error | L² change |
-    |---|---|---|
-    | Superbee | −2.58%, −0.21%, −0.67%, +0.13% | rises at every level, +5.0e-4 to +7.3e-6 |
-    | `VanLeer` | +7.73%, +1.45%, +0.53%, +0.44% (monotone) | falls |
-    | `PFC` | +6.47% to +0.47% (monotone) | falls |
-
-    Its lead is a cancellation. At 50% amplitude it stays positive (3.05e-9).
-  * **Cost.** 1.38 ns per cell per step on smooth data and 1.35 on the pulse,
-    against `VanLeer`'s 1.07 and 1.06, at N = 512 on Julia 1.13 (see Changed;
-    with the kernel as it was, 15.2 and 8.8 against 14.0 and 7.3).
-
-  It joins `uniform_schemes`, so the golden, symmetry, contract and
-  type-stability suites cover it. `test/data/golden.txt` gains one line; the
-  other nine are unchanged bit for bit. It also joins:
-
-  * the allocation gate;
-  * the flux-limiter tests, which check Superbee piece by piece and `VanLeer`
-    below it everywhere;
-  * `test_1d_advection`, where it gives the donor-cell answer on the pulse;
-  * the benchmark suite, which times it but does not judge it until the next
-    `--rebaseline` stores a baseline;
-  * both reports.
-
-- **A nonlinear equilibrium, run to see whether it stays put**
-  (`test/test_verification.jl`, `bgk_equilibrium` in the harness,
-  `verification/bgk-equilibrium.jl`). Every other Vlasov–Poisson run in the
-  suite starts off equilibrium and is judged on how it moves. This one starts on
-  one — a function of the particle energy in the potential `−ψ cos kx`, on an ion
-  background built to hold it — and is judged on how little it moves. It is also
-  the first run whose physics is carried by trapped particles: at ψ = 0.5 two
-  thirds of them are.
-
-  The Maxwell–Boltzmann equilibrium, analytic across the separatrix, holds f to
-  1.52e-3 of its peak and the field to 3.85e-3 through t = 50. That is not an
-  oscillation about the equilibrium but a steady drift, and it is the scheme's
-  dissipation: L² falls by 1.13e-3 and the entropy rises by 1.27e-4, where the
-  exact flow keeps both. It converges at PFC's third order, 7.6 times less in f
-  and 6.1 in the field per halving, and halving Δt alone moves neither.
-
-  Give the trapped particles a temperature of their own and `F` keeps its value
-  but not its slope across the separatrix. The worst cell is then *on* the
-  separatrix at both resolutions — where the smooth case's is 13 and 24 cells
-  away — twelve times the smooth error, converging at first order (1.75 per
-  halving). Trapped-particle structure lives or dies there, and so does the
-  accuracy of anything that has trapped particles in it.
-
-  The teeth: ions built for a potential 10% off put the field 49% and 59% off at
-  once and f drifts 24 and 27 times further; ions built on the documentation's
-  old Poisson sign hold the reversed field (below, under Fixed).
-
-  `vlasov_poisson` takes `nᵢ`, an ion density profile, and `renormalize`, which
-  passing `nᵢ` turns off: the driver keeps the ions it is handed. (The
-  rescaling of `f` to the ions' charge was then a trapezoid, 1 − 1.9e-3 on this
-  matched pair; it is now the cell-width sums and 1 to round-off, see Fixed.)
-
-- **The plasma echo, with the field off and with it on** (`test/echo.jl`,
-  `test/VlasovSolver/test_echo.jl`, `test/test_verification.jl`,
-  `verification/plasma-echo.jl`). Phase mixing is reversible, and nothing in
-  the suite checked that the solver keeps it so: free streaming measures the
-  decay of a density mode, never whether the information it decayed into
-  survives. A seed at k₁ = 1, a velocity kick at k₂ = 3/2 when t = 5, and around
-  t = 15 a mode nobody seeded, at k₃ = 1/2.
-
-  With the field off the echo has a closed form, exact in both amplitudes:
-  `−iα·J₁(k₃ε(t − τ))·exp(−(k₃t − k₂τ)²/2)`. The Bessel function is not a
-  refinement — its small-argument limit is 14.6% high at these amplitudes — and
-  the sign is asserted separately, since the direction of the kick changes it
-  and nothing about the peak. PFC at 128 × 241 follows the closed form to
-  1.25e-3 of the peak, pointwise, out of a seeded mode the kick found at 1.84e-6:
-  2.4e4 times smaller than the echo it turns into. The loss converges at orders
-  2.89 and 2.78 as Δv halves, and it ranks the schemes: cubic SemiLagrangian
-  1.07e-3, PFC 1.03e-2, LaxWendroff 4.48e-2, and Upwind 0.449, which returns 55%
-  of the echo and loses most of the rest in the x-sweep rather than in the kick.
-  Fast suite.
-
-  With the field on, `echo_second_order` composes three linear responses of the
-  Maxwellian: the seed's filament screened at k₁, the kick screened at k₂
-  together with the lifetime of the field it induces, and the echo's own density
-  polarising the plasma at k₃, solved as a Volterra equation. Its pieces are
-  checked before any run is held to it — the resonant dielectric function is
-  `dielectric` to 1.2e-16, the filament's closed form agrees with a time-domain
-  solve to 4.9e-6, and with the field off the theory is the closed form's
-  small-ε limit to 1.1e-14. The self-consistent run (128 × 241, α = ε = 0.01,
-  τ = 10) follows it to 4.8e-3 of the peak, pointwise and ringing included, with
-  the peak 0.48% low on the same sample, t = 29.05. The field-off form would put
-  that peak 2.1 times higher and 1.14 later. The residual is the x-sweep's: 1.6e-2
-  at Nx = 64, where halving Δv or Δt instead leaves it at 1.5e-2 and 1.7e-2.
-  Extended suite.
-
-- **Time reversal of the self-consistent system** (`test/test_verification.jl`).
-  `test_strang_splitting.jl` measures reversibility on a rigid rotation with the
-  field switched off; this is the same statement for Vlasov–Poisson, which is
-  invariant under `(t, v) → (-t, -v)` with `E` unchanged. Run forward, flip the
-  velocity axis, run forward again, flip back: an exact scheme returns the
-  initial state, and what a real one loses is its own dissipation.
-
-  Three measurements, and the second is the interesting one:
-
-  * at α = 0.05 the round-trip error is 2.82e-3, 6.48e-4 and 1.58e-4 as the grid
-    halves — ratios 4.3 and 4.1, second order, so the irreversibility is the
-    scheme's and it converges away. (It was 1.97e-3, 3.44e-4 and 4.85e-5, ratios
-    5.7 and 7.1 toward `PFC`'s third order, while the harness bounded the limiter
-    at 1; bounded at the initial maximum, as it now is, the limiter clips the
-    peak cell and that costs the order — see Fixed.);
-  * at α = 0.5 it is 0.167 and stays 0.157 when the grid is halved, a factor of
-    1.06. By then the flow has folded the distribution into filaments finer than
-    Δv, and the information needed to run the film backwards is not on the mesh
-    to be refined. Every nonlinear run in this suite is in that regime by the
-    time it is interesting;
-  * ranked by round trip at α = 0.5: LaxWendroff 0.090, cubic SemiLagrangian
-    0.108, PFC 0.167, Upwind 0.332 — and the first two get there by driving `f`
-    to −0.093 and −0.057 against a peak of 0.6, where PFC stays at +5e-10 and
-    Upwind pays a fifth of its L² norm instead. Reversibility and positivity are
-    the same trade-off from two sides, arrived at here through a quantity that
-    has nothing to do with the damping rate `verification/scheme-comparison.jl`
-    ranks them by.
-
-  `vlasov_poisson` now returns `f` as well. It costs nothing — the array exists
-  either way — and it is the only way to ask a question about the distribution
-  rather than about a moment of it.
-
-- **Strong Landau damping is measured against the literature instead of
-  eyeballed.** The `α = 0.5` case has been in the notebook since 2021 with the
-  text "the quantitative coincidence is almost perfect" against Fig. 6(a) of
-  Filbet, Sonnendrücker and Bertrand (2001) — a comparison nothing could check.
-  It is the standard nonlinear benchmark and is quoted by two numbers:
-  Cheng and Knorr (1976) give γ₁ = −0.281 and γ₂ = 0.084, later work −0.292 with
-  0.0815 and −0.2918 with 0.08584.
-
-  Measured on 128 × 241 with Δt = 0.025: γ₁ = 0.2863 over the four maxima of the
-  decay proper, γ₂ = 0.0787 over the eight of the regrowth. Both windows are
-  conventions and the testset says so with numbers: γ₁ reads 0.3793 over three
-  maxima and 0.2283 over five, because the envelope steepens and then flattens
-  into the trapping plateau, so a straight line through it depends on how much
-  of the curve is inside the window.
-
-  Refinement is what makes the agreement more than a coincidence of one grid:
-  γ₂ goes 0.0714 → 0.0787 → 0.0813 as Δx, Δv and Δt halve, toward the published
-  value rather than away from it.
-
-  The non-uniform velocity grid — the notebook's, and the only path this suite
-  has toward an adaptive mesh — reproduces both rates to 0.06% and 0.5%. It had
-  been asserted only through an energy drift on a *linear* run, where the
-  distribution never approaches the sharp gradients its limiter exists for.
-
-- **Galilean invariance of the Landau run** (`test/test_verification.jl`). Every
-  Vlasov–Poisson case in this suite starts from a distribution symmetric in `v`,
-  so the mean velocity is zero throughout and the drifting half of the solver
-  has never been exercised — the same blind spot `test_damping_1v.jl` found in
-  `BGK`, where the mean-velocity computation had never run on data with a mean
-  velocity.
-
-  A boost by `u` carries `f(x,v,t) → f(x-ut, v-u, t)` and `E(x,t) → E(x-ut,t)`,
-  so the mode's history should be the same complex function times `exp(-ikut)`.
-  Nothing in the discretisation is Galilean invariant — the grid does not move
-  and the boosted Maxwellian sits on it asymmetrically — so the agreement is a
-  measurement: over the eleven maxima in the fitting window, amplitudes within
-  1.7e-3 and phases within 1.8e-3 rad, with fitted rates 0.014% apart and
-  frequencies identical to the estimator's resolution. The phase is compared at
-  each sample's own time, `t[k] + Δt/2` — the field is recorded mid-step — and
-  removing the Doppler factor at `t[k]` instead reads 8.0e-3, of which 6.25e-3 is
-  that half-step and not the grid. Without the Doppler
-  correction the phase differs by up to 2.88 rad, which is what says the
-  correction is doing work.
-
-  Compared at the maxima rather than pointwise: both `|E_k|` and `ε_e` pass
-  through deep nulls, and the first version of this test reported a 900%
-  discrepancy that was entirely two nulls landing a time step apart.
-
+  collides each v line for `Δt/2` either side of its kick.
+  `test/VlasovSolver/test_strang_splitting.jl`.
+- **The documentation is published, with the verification studies rendered on
+  it**, at https://korzhimanov.github.io/Vasilek.jl/dev/ (`docs/make.jl`,
+  `.github/workflows/Docs.yml`); every build runs the studies.
+- **Collisional Landau damping: `BGK` in a run, against its own dispersion
+  relation**, `PartialBGK` the control. See
+  [collisional damping](docs/src/verification.md#collisional-damping).
+- **The bump-on-tail instability, carried through saturation**: growth on the
+  kinetic root of the grid's field, saturation by trapping, the plateau. See
+  [the bump-on-tail instability](docs/src/verification.md#the-bump-on-tail-instability).
+- **`Superbee`**, the most compressive limiter keeping
+  `Godunov(PiecewiseLinear())` second order and TVD. See
+  [the scheme comparison](docs/src/verification.md#the-scheme-comparison).
+- **A nonlinear equilibrium, run to see whether it stays put**; `vlasov_poisson`
+  takes the ions as `nᵢ`, and `renormalize`. See
+  [the BGK equilibrium](docs/src/verification.md#the-bgk-equilibrium).
+- **The plasma echo, with the field off and with it on**, against a closed form
+  and against second-order kinetic theory (`test/echo.jl`). See
+  [the plasma echo](docs/src/verification.md#the-plasma-echo).
+- **Time reversal of the self-consistent system**, and `vlasov_poisson` returns
+  `f`. See [reversibility](docs/src/verification.md#reversibility).
+- **Strong Landau damping is measured against the literature**: γ₁ and γ₂ at α =
+  0.5 under refinement and on the non-uniform velocity grid. See
+  [strong Landau damping](docs/src/verification.md#strong-landau-damping).
+- **Galilean invariance of the Landau run**: a drifting plasma damps as the one
+  at rest once the Doppler phase is removed. See
+  [the Doppler shift](docs/src/verification.md#the-doppler-shift).
 - **The dispersion relation of an electromagnetic wave in plasma is asserted**
-  (`test/test_em_plasma.jl`). The Yee update is pinned in vacuum mode by mode
-  against a closed form; the plasma current that turns it into half of a
-  laser-plasma model was exercised only through `wakefield`, where it enters a
-  wake dominated by the ponderomotive term. Standing PEC modes in uniform
-  plasma now measure
-
-      (2/Δt)²·sin²(ωΔt/2) = (2/Δx)²·sin²(kΔx/2) + n
-
-  over two densities, three Courant numbers and four wavenumbers, worst
-  departure 3.2e-4 — which is the crossing estimator's own Δt resolution, not
-  the scheme. The plasma cutoff comes with it: at n = 0.3 the longest mode the
-  grid holds oscillates at 0.55018 against `√(n + k²)` = 0.55000, where the
-  discrete plasma frequency itself is 0.54789 and `√n` is 0.54772.
-
-  The sign of the current is the point of the last testset. `docs/normalization`
-  says reversing it turns the oscillation into growth; run, it reaches 4.8e+134
-  in four thousand steps against the 1.0e+2 the physical sign holds.
-
-  The three lines this tests — the canonical `p⊥ += E⊥Δt`, the `-J Δt`
-  convention and that sign — are now `transverse_step!` in the harness, called
-  by `wakefield` rather than written inside it, so the relation asserted here is
-  a statement about the code the study runs. Numbers unchanged: the extended
-  suite reproduces every wakefield figure bit for bit.
-
-  `em_omega` is the closed form. It is not the continuum `ωₚ² + k²`, and the gap
-  matters: at the ten cells per wavelength the wakefield study used, the group
-  velocity it implies is 4.5% below `√(1-n)`.
-
-- **The kinetic dispersion relation is solved rather than tabulated**
-  (`test/dispersion.jl`). The plasma dispersion function is written as
-  `Z(ζ) = i√π·erfcx(-iζ)`, i.e. through the *entire* Faddeeva function, so one
-  expression covers the whole plane: the Cauchy integral that defines `Z`
-  converges only above the real axis, and every root worth finding — damped
-  Landau modes, growing beam modes — lives off it. On top of that sit the
-  Maxwellian susceptibility, a secant root finder, `landau_root(k)` and
-  `two_stream_warm(a; vt)`.
-
-  `test/test_dispersion.jl` holds it to identities and independent quadratures
-  rather than to stored numbers: `Z` against its own Cauchy integral where that
-  integral converges (3.5e-15), `Z′` against a central difference (9.3e-11,
-  which is the difference's truncation and not the identity's), the
-  susceptibility against a trapezoid that never calls `Z` (1.3e-14). The three
-  Landau roots this suite carried as constants are now the fixture rather than
-  the target, and the solver reproduces every digit they quoted.
-
-  `SpecialFunctions` is a test-and-verification dependency for `erfcx`; the
-  package itself still depends on four packages.
-
-- **The two-stream case is measured against warm beams.** The runs have
-  Maxwellian beams at `vt = 0.3` and were compared against the cold closed form,
-  which at that temperature is off by up to 3.15% — half of a 6% tolerance spent
-  on a known approximation, and 7.44% at the `vt = 0.6` run, where the cold error
-  has grown with the temperature. Against `two_stream_warm` the same three
-  measurements read −0.63%, −1.95% and +0.09%, and the tolerance is now 3%.
-
-  `a = 1.0`, the cold stability boundary, turns from a qualitative case into the
-  sharpest one in the testset. The cold form predicts exactly zero there and the
-  old assertion could only say "something grows" (a factor of 4.91 over t ≤ 26);
-  the warm root predicts 0.09823 and the run gives 0.09513, which is 3.16%. It
-  costs a longer run — `tmax = 80` to bring `ε_e` up to the same amplitude band
-  every other case uses, against a divergence at t = 86.2 — and is held to 8%
-  because the beat ripple `growth_rate` documents is worst where `γ` is
-  smallest: over `hi` ∈ {1, 2, 3, 5} the fit moves between −6.05% and −3.16%.
-
-  The temperature comparison at `a = 0.6` is now absolute as well as relative:
-  γ falls 4.4% between `vt = 0.3` and `vt = 0.6` where warm theory predicts
-  4.4%, and each run is separately within 3% of its own root.
-
-- **The laser wakefield study drives a wake, and the test measures it against
-  linear theory.** `wakefield` had **no ponderomotive coupling**: the laser
-  never entered the longitudinal push, so `ex` was the slab edges relaxing, and
-  the test could assert nothing beyond "runs and stays bounded". The coupling is
-  the force `−∂Φ/∂x` with `Φ = (pʸ² + pᶻ²)/2` in the momentum advection, added
-  alongside `e` before the sweep.
-
-  The transverse momentum needed no repair, only a name. Nothing depends on `y`
-  or `z` here, so `p⊥ + A⊥` is conserved along a trajectory and the plasma is at
-  rest ahead of the pulse; with `E⊥ = −∂A⊥/∂t` the accumulation that was already
-  there, `p⊥ += E⊥Δt`, *is* the canonical `p⊥ = −A⊥`. Read as a force integral
-  it would be missing `v×B` and the convective term; read as the invariant it is
-  exact, and the docstring now says which.
-
-  **Three things had to be fixed before any of it could be measured.**
-  `laser_amplitude` scaled nothing — the pulse shape was hard-coded to unity and
-  the parameter reached only the momentum grid, so the field was bit-identical at
-  `a₀` = 0.5 and 1.0. The pulse was injected by its tail: the profile was written
-  in `x - t` alone, putting its maximum at `t = x_min + Δx = −30.8`, before the
-  run began, and the 0.383 this study reported as its peak laser field was
-  `exp(−0.96)` of the amplitude it never reached. And `laser_duration = 5·2π` was
-  `k_pσ = 5.7`, which suppresses the wake by seven orders of magnitude: even with
-  a coupling term, that pulse would have driven nothing.
-
-  What is asserted now, at the study's own resolution, is that the wake
-  oscillates at the Bohm–Gross frequency (0.36%), that its wavelength is the one
-  a driver at the measured pulse speed imposes (1.16%), that its phase velocity
-  is that pulse speed — two measurements along two different axes agreeing to
-  0.75% — that its amplitude and pointwise profile match the driven-oscillator
-  solution `linear_wake` integrates on the recorded drive (4.4%, and 8.9% of the
-  theory's own rms), and that it is the laser's: `a₀²` to 0.45%, thirty-two
-  times the unlit control, and seven and a half times larger behind the pulse
-  than ahead of it.
-
-  `linear_wake` is driven by the `Φ` the run recorded rather than by an idealised
-  envelope, so the comparison assumes nothing about the shape the laser arrives
-  with or whether it translates rigidly; it shares no code with the wake it is
-  compared against, `Φ` being the `FDTD1D` side and `ex` the Vlasov push and the
-  Poisson solve. Its `3T` term is load-bearing — dropping the thermal correction
-  alone takes the pointwise agreement from 8.9% to 26% and fails the test.
-
-  The defaults moved with the physics: `laser_duration = 2π` for `k_pσ = 1.13`,
-  `laser_amplitude = 0.3` so that the `1/γ` the non-relativistic `Φ` drops is
-  worth 3.2% rather than the 25% it would be at 1.0, `plasma_temperature = 0.01`
-  to keep the edge sheaths off the measurement, and `total_time = 2π·22` for
-  enough wake to fit through. `Δε/ε` is 8.4% against the 1.2% it was, and that is
-  the point: `ε` is `∫∫f p² + ∫e²`, longitudinal kinetic *and* electrostatic, so
-  a wake trading one for the other leaves it alone — but the transverse motion
-  and the transverse field are outside it, and a laser doing work on the plasma
-  pushes energy across that boundary. It is supposed to rise.
-
-- **The two-stream instability** (`test/test_verification.jl`), the first
-  *unstable* case in the suite. Everything else here is a damped or neutral
-  mode, and a growth rate catches a class of error that damping cannot: a sign
-  flip in the field push turns damping into growth and growth into damping, so a
-  suite made only of damped cases is half-blind to it.
-
-  The test plan deferred this twice on the grounds that a growth rate means
-  either a plasma dispersion function or a hard-coded constant of unknown
-  provenance. That turns out not to apply to the **cold** case, which is why it
-  was worth waiting for. For two beams of density 1/2 at `±v₀` the relation
-  `1 = ½/(ω − kv₀)² + ½/(ω + kv₀)²` is, with `a = kv₀` and `u = ω²`, a
-  quadratic — `u± = [(2a² + 1) ± √(8a² + 1)]/2` — unstable exactly when `a < 1`,
-  with `γ = √(−u₋)`. No special functions, no numerical root, nothing quoted.
-  The test checks the closed form against the relation it came from (residual
-  1.4e-14) and confirms it reproduces `√(3/8)` and `1/(2√2)` on its own before
-  using it.
-
-  Measured at three wavenumbers, with the beams at `vt = 0.3`: γ = 0.30172,
-  0.34227 and 0.31228 against 0.30819, 0.35339 and 0.31134 — 2.10%, 3.15% and
-  0.30%. **`γ(a)` is non-monotone**, peaking at `a = √(3/8) ≈ 0.612`, so
-  reproducing all three is a statement about the branch rather than about one
-  point: a solver that merely amplified what it was given could not put the
-  maximum in the right place. The residue is the beams' finite temperature and
-  moves the right way — widening them at `a = 0.6` gives a monotone approach,
-  −7.44%, −5.77%, −4.31%, −3.15%, −2.69%, −2.32% and −2.10% at `vt` from 0.6
-  down to 0.15.
-
-  The sharpest assertion is the **stability boundary**, which is qualitative and
-  so cannot be laundered by a tolerance: `γ_cold` is exactly zero for `kv₀ ≥ 1`,
-  and at `a` = 1.2 and 1.6 the mode decays to 0.052 and 0.000 of its initial
-  energy rather than growing. At `a` = 1.0, the cold boundary itself, the warm
-  system is still weakly unstable — a factor of 4.9 over `t ≤ 26` — and that is
-  asserted as *present* rather than papered over, the boundary being sharp only
-  in the cold limit.
-
-  `growth_rate` fits every sample where `damping_rate` fits an envelope, and the
-  difference is not an inconsistency: the unstable root here is purely
-  imaginary, so the mode grows without oscillating and there are no `log cos²`
-  poles — nor, in fact, any local maxima for `damping_rate` to find. Its window
-  is set by **amplitude** rather than time, which is what makes it transferable
-  across the branch: at `kv₀ = 0.4` a fixed time window gives 10.65%, 6.43%,
-  3.99% and 0.19% depending on where it is put, and the amplitude band gives
-  2.10% at every `k`. The ceiling also keeps the run inside the solver's
-  validity — the field grows with the mode, and a large enough `ε_e` breaks
-  `PFC`'s Courant limit in `v`, measured diverging to 1.2e161 before `NaN` at
-  `t = 24.1`. Widening the velocity window only postpones that, from `t = 24.1`
-  at `±8` to `t = 26.6` at `±16`, which is what identifies the Courant limit
-  rather than the boundary as the cause.
-
-  6.7 s, of which 3.8 s is arithmetic.
-
-- **The wakefield study is asserted to run and stay bounded**, and its physics
-  now lives in `wakefield` in `test/verification_harness.jl` rather than inline
-  in the script. The README has said the example "runs and is stable" for as
-  long as it has existed and nothing checked either half — largely because there
-  was nothing for a test to call. The script now plots what the shared driver
-  returns and reproduces its previous output bit-for-bit.
-
-  The test runs the study at **its own resolution**, in about a second, the
-  plotting having been what made the script slow. That is worth insisting on: a
-  coarsened proxy is not the same experiment, reporting a peak laser field of
-  0.641 against 0.383 and an energy drift of 6.9% against 1.2%, so a test built
-  on one would have pinned a different number and called it the study's.
-
-  What it establishes is that the solver runs, stays finite and stays bounded —
-  not that the physics is complete, there being no ponderomotive coupling. The
-  distinction has teeth in how the assertions divide: the wake and energy
-  numbers are bit-identical whether the transverse current is right, wrong by a
-  factor of `Δt`, or wrong by thirty-two orders of magnitude, so they constrain
-  the longitudinal solver only. **The peak laser field is the single line that
-  sees the current**, and is where both documented bugs surfaced — 1.0e22 with
-  the `Δt` missing and 44 with the sign flipped, against 0.383 correct. Bounding
-  it at 1.0 is the regression net; the rest is a smoke test and says so.
-
-- **The splitting and a real scheme are measured together against an analytic
-  answer** (`test/VlasovSolver/test_strang_splitting.jl`). Everything there
-  hands the splitting an exact spectral shift, which is the right way to
-  isolate the splitting and should stay — but it meant nothing measured what a
-  production run actually is. On the same rigid rotation, refining Δx, Δv and Δt
-  together over N = 32, 64, 128: cubic `SemiLagrangian` 6.37e-3 → 5.72e-5 at
-  orders 3.60, 3.19; `PFC` at 2.26, 2.22; `LaxWendroff` at 1.84, 1.96.
-
-  Each scheme keeps its own spatial order rather than being dragged to the
-  splitting's second — the cubic spline reaches 3.19 where Strang alone gives 2.
-  That is not the problem being easy: a rigid rotation factors into shears,
-  which is what the splitting does, so the commutator error is unusually small
-  here and the scheme is what is left.
-
-- **The splitting is reversible, and the round-trip error measures
-  dissipation.** Rotation is invariant under `(t, v) → (−t, −v)`, and Strang
-  splitting is symmetric, so a forward rotation, a velocity flip, a second
-  forward rotation and a second flip must return the initial state. What breaks
-  it is the scheme's own dissipation, which has no time-reverse — so this
-  separates the schemes far more sharply than the forward error does. At
-  N = 64 → 128: cubic `SemiLagrangian` 1.01e-3 → 1.23e-4, `LaxWendroff`
-  3.77e-3 → 4.94e-4, `PFC` 1.95e-2 → 3.61e-3, and `Upwind` 4.04e-1 → 2.56e-1.
-
-  Upwind is included **because it fails**: 0.40 is 40% of the peak, it has
-  smeared the blob past recovery, and refining barely helps because the
-  dissipation is first order. A test every scheme passed would not show that
-  this measures dissipation rather than the splitting.
-
-- **The Yee scheme's numerical dispersion relation**
-  (`test/MaxwellSolver/test_fdtd_1d.jl`). The update satisfies
-  `sin(ωΔt/2) = cfl·sin(kΔx/2)` exactly, and nothing measured it: the suite
-  asserted the magic-step case and, at `cfl = 0.8`, only that the deviation from
-  a pure translation *exceeded* 0.1 — bounded from below and not from above, so
-  a wrong-but-dispersive scheme passed. Measured departure from the closed form
-  1.4e-16 to 1.3e-4 over `cfl ∈ {0.5, 0.9, 1.0}` and `kΔx` from 0.016 to 1.41,
-  with the physical content quantified: the phase velocity at `λ ≈ 4.4Δx` is
-  0.936c at `cfl = 0.5`, 0.981c at 0.9, and exactly c at 1.
-
-  Measured through the mode's own projection `Σ ey·sin(kx)` rather than a point
-  sample. A probe at `L/4` reads `sin(mπ/4)`, exactly zero whenever `m` is
-  divisible by four — at `m = 20` the "signal" was round-off and the fitted
-  frequency came out 4.2× too high.
-
-- **PML reflection against layer thickness.** The existing test measures one
-  configuration, which establishes that the layer absorbs but not that the σ
-  ramp is what absorbs. Sweeping the thickness at σ_max = 1e3: R = 8.73e-3,
-  2.97e-5, 2.16e-8, 3.74e-10, 5.84e-12 at 2, 4, 8, 16 and 32 cells — four orders
-  between 2 and 8 cells, which is the cubic ramp working, then a slower fall as
-  the limit stops being the layer and becomes the discretisation of the ramp.
-
-- **`BGK` relaxes at the rate it is given.** Both limits of the update were
-  pinned bit-for-bit and the moments asserted conserved; the rate in between —
-  which is what `τ` means — was not. It holds *exactly*, and the reason ties two
-  facts together: `M` is built from the conserved moments, so it is the same
-  vector at every step, and `f_k − M = (f_0 − M)·exp(−kΔt/τ)` is then an
-  algebraic identity rather than an approximation. A fitted rate that missed
-  `1/τ` would mean the moments had moved. Recovered to between 1.4e-10 and
-  2.1e-10 at τ = 0.5, 1.0e-13 and 9.4e-13 at τ = 1.0, and 5.1e-15 and 5.8e-14 at
-  τ = 2.0 — ranges rather than values, because the fit takes the logarithm of a
-  difference that has cancelled to a millionth of its operands, so the residue
-  is round-off and tracks the summation order the compiler happens to pick.
-  Toggling `--check-bounds=yes` alone moves the middle column by a factor of
-  eleven. The assertion sits at `rtol = 1e-8`, fifty times the worst of them.
-
-- **The schemes are compared with each other, not only measured separately**
-  (`test/test_comparison.jl`). `benchmark/` times each one in isolation and
-  `test_convergence` establishes that each has the order it claims; neither said
-  which to reach for, and the answer is not a single name. L² error after one
-  traversal at N = 512:
-
-  | scheme | sine | gaussian | square |
-  |---|---|---|---|
-  | `SemiLagrangian` cubic | 2.46e-8 | 3.55e-6 | 2.01e-2 |
-  | `PFC` | 2.30e-7 | 3.30e-5 | 2.65e-2 |
-  | `SemiLagrangian` quadratic | 5.02e-6 | 1.37e-4 | 2.72e-2 |
-  | `LaxWendroff` | 4.68e-5 | 1.28e-3 | 4.53e-2 |
-  | `Godunov`+`VanLeer` | 8.55e-5 | 9.50e-4 | 2.77e-2 |
-  | `Upwind` | 8.08e-3 | 4.11e-2 | 6.32e-2 |
-
-  The ranking is strictly ordered by scheme order on the sine, over five
-  decades, and **collapses on the discontinuity** to a factor of 3.1 between
-  best and worst. The two second-order schemes change places there.
-  `LaxWendroff` is linear and so, by Godunov's theorem, cannot be monotone; it
-  rings, and falls behind `Godunov`+`VanLeer`, whose limiter buys monotonicity
-  with the extrema it clips on the sine. That is the most useful single thing
-  to know when choosing a scheme: no ordering of these survives a change of
-  problem class. (`Godunov`+`VanLeer` read 7.03e-3, 1.61e-2 and 8.45e-3 while
-  its flux lacked a `(1 − |c|)` factor. That put it second from the bottom on
-  the sine and first on the pulse, a swing of six decades against the cubic
-  spline. Both came from the missing factor, which steepened every slope,
-  smooth or not; see Fixed.)
-
-  Errors are asserted; wall-clock is not, for the reasons `runbenchmarks.jl`
-  already sets out. The equivalence of `Upwind`, `Godunov(PiecewiseConstant)`
-  and linear `SemiLagrangian` shows up here too, agreeing to 2.9e-14 after 1280
-  steps — the consequence of the shared amplification factor
-  `test_amplification.jl` proves.
-
-- **The collision operators' complexity class is gated.** The one timing
-  assertion in the suite, and it is gateable because it measures a class rather
-  than a duration: `BGK` doubles when N doubles and `Landau1P` quadruples, so
-  the fitted exponents are 1.00 and 1.99 with nothing between them for noise to
-  land on. Five trials under `--check-bounds=yes`, which is what `Pkg.test()`
-  passes and so the only mode the assertion runs in, gave BGK ratios of 2.00 to
-  2.09 and `Landau1P` 3.91 to 4.07, at times from 13.6 us to 6.4 ms. Under the
-  `Coverage` job's `--code-coverage=user` every one of those times grows about
-  fourteenfold and the exponents do not move — 0.98 to 1.01 and 2.00 to 2.01 —
-  because a uniform slowdown cancels in a ratio. That is what makes this
-  gateable where a duration is not, and why the 10 us floor `runbenchmarks.jl`
-  sets does not apply: nothing here is compared against a number stored on
-  another day. It catches an accidental O(N²) in `BGK` — a moment recomputed
-  inside the velocity loop, say — which leaves the allocation gate happy and
-  every physics assertion passing.
-
-  Samples are drawn against a time budget per size rather than a fixed count, so
-  the short measurements the fit is most sensitive to get thousands of them and
-  the long ones get five. The testset costs 0.42 s, or 0.7 s under coverage.
-
-  The advection kernels are **not** gated this way, which is a measurement
-  rather than an omission: their per-call times are sub-microsecond, and a
-  fourfold size increase on an O(N) kernel measured ratios from 3.29 to 8.00
-  against the 4 it should give.
-
-- **A work–precision report** (`benchmark/workprecision.jl`, advisory, exits 0).
-  Error against the cost of reaching it, per scheme, per problem class, per
-  resolution, with the Pareto frontier at the bottom — the schemes no other
-  scheme beats on both axes. On smooth data that is `Upwind`, `LaxWendroff`,
-  `PFC` and cubic `SemiLagrangian` spanning 0.12 ms to 40 ms and 8.1e-3 to
-  2.5e-8. The quadratic spline is dominated on every profile. (So was
-  `Godunov`+`VanLeer`, by `PFC`, until its kernel was sped up; see Changed. It
-  now sits on the gaussian's and the pulse's frontiers. It had been on the
-  pulse's once before, and pushed the cubic spline off it, while its flux lacked
-  a `(1 − |c|)` factor; see Fixed. `Godunov`+`Superbee`, added since, does that
-  without it: on the pulse it reaches 1.58e-2 at 0.87 ms where the cubic spline
-  takes 40 ms for 2.01e-2, and with `Godunov`+`VanLeer` it takes the pulse's
-  frontier from `PFC` and the spline.)
-
-  Timing goes through `BenchmarkTools.@belapsed` rather than `@elapsed`, which
-  is what keeps it from measuring the compiler — the mistake caught in
-  `verification/scheme-comparison.jl` a week ago. The report also quantifies its
-  own error bar rather than claiming precision it lacks: `Upwind` and
-  `Godunov(PiecewiseConstant)` are the same scheme, so any gap between their
-  timings is measurement error, and which of them reaches the frontier has
-  already changed between two runs of the script.
-
-- **The suite runs against the Julia prerelease, weekly.** A release candidate
-  lands weeks before the release, and that gap is the only window in which an
-  upstream change that breaks the package — or that the package turns out to be
-  relying on by accident — can still be reported upstream and fixed there rather
-  than worked around here afterwards. A `Julia prerelease` job now runs the
-  default suite at `setup-julia`'s `version: 'pre'`, which resolves to the latest
-  RC, beta or alpha, and to the latest stable when no prerelease exists. Between
-  cycles the job is therefore a duplicate of the ubuntu `1` matrix entry; that is
-  the price of not re-editing a pin every time a cycle opens.
-
-  `continue-on-error`, because the subject under test is Julia and not Vasilek:
-  an RC is allowed to be broken, and a red X on the required checks for someone
-  else's unreleased bug would train everyone to ignore the checks. The cost is
-  silence — a green run sends no failure mail, so a broken RC is visible only in
-  the Actions tab.
-
-  The job also brought a `schedule:` trigger to the workflow, at 05:23 UTC on
-  Mondays, without which it could not do what it is for: this repository goes a
-  fortnight without a push or a PR often enough that an RC could ship, break the
-  package and reach its release with the job never having run. The other five
-  jobs run on the same cron rather than being gated off it, which is not only
-  simpler — the package commits no Manifest, so every run resolves afresh, and
-  the weekly run is the only thing that would catch a new `Interpolations` or
-  `FFTW` breaking us between one PR and the next.
-
-- **The verification driver takes its schemes as arguments**
-  (`test/verification_harness.jl`). `vlasov_poisson` hard-coded
-  `PFCNonUniform` on both directions, so the only way to ask what the physics
-  costs under a different scheme was to copy the Strang loop — and a copy drifts
-  from the one the tests assert against. It now takes `scheme_x` and `scheme_v`,
-  defaulting to what every previous caller got, and returns a NamedTuple rather
-  than a pair.
-
-  `line_advector` absorbs the API's one asymmetry: `PFCNonUniform` takes a
-  displacement while every other scheme takes a Courant number, which only
-  exists on a uniform grid. It divides by the spacing for those and **refuses** a
-  non-uniform grid rather than picking one of its spacings and being wrong by the
-  ratio between them.
-
-- **Mass, momentum, L² and entropy are measured and asserted.** Total energy was
-  the only invariant that ever was. Over the k = 0.5 Landau case, 875 steps:
-  mass drifts 1.6e-15 and momentum stays at 2.2e-15 on a mass of 25.1 — both
-  round-off, both exact conservation laws the discrete scheme also satisfies.
-  L² falls 1.0e-5 and entropy rises 7.5e-6, monotonically at every step. Those
-  two are *not* conserved and are not asserted as if they were: an exact Vlasov
-  flow preserves both, and the drift is numerical dissipation. What is asserted
-  is the direction, since a dissipative scheme can only lose L² and gain entropy.
-
-  **The invariants use the cell-width sum `Σ f ΔvΔx`, not `integrate`.** That is
-  the quadrature a flux form conserves; the trapezoid halves the two endpoint
-  weights, which no conservation law protects. Measured on the same run, the
-  trapezoid reports 2.4e-4 of mass drift and 7.3e-4 of momentum against 1.6e-15
-  and 2.2e-15 — eleven orders of magnitude of apparent non-conservation that
-  belongs entirely to the quadrature. The energy histories use the same sums
-  now, after keeping `integrate` for longer (see Fixed, above).
-
-- **Landau damping converges under refinement.** Agreement at one resolution
-  inside a 3% band can be two errors of opposite sign meeting in the middle.
-  Halving Δx, Δv and Δt together — so the Courant number stays at 0.81 and only
-  the discretisation moves — gives γ errors of 6.47%, 1.33%, 0.71% and 0.47%.
-  The L² dissipation over the same ladder falls by 11.0x, 7.9x and 7.8x against
-  the 8x a third-order scheme predicts, which is what identifies the residual
-  error in γ: the fitted rate is the physical damping plus the scheme's own,
-  which is why every measurement sits on the high side of the analytic value
-  rather than scattering about it.
-
+  (`test/test_em_plasma.jl`), with the cutoff and the current's sign; the
+  current's three lines are `transverse_step!` in the harness.
+- **The kinetic dispersion relation is solved rather than tabulated**:
+  `Z(ζ) = i√π·erfcx(−iζ)`, `landau_root` and `two_stream_warm` in
+  `test/dispersion.jl`, held to identities in `test/test_dispersion.jl`.
+- **The two-stream case is measured against warm beams**, and `kv₀ = 1.0`, where
+  the cold form gives zero, is its sharpest case. See
+  [the two-stream instability](docs/src/verification.md#the-two-stream-instability).
+- **The laser wakefield study drives a wake**, through the ponderomotive force,
+  measured against `linear_wake`. See
+  [the laser wakefield](docs/src/verification.md#the-laser-wakefield).
+- **The two-stream instability**, the first unstable case, measured then against
+  the cold closed form and since against the warm root (above), with
+  `growth_rate` fitted in an amplitude band.
+- **The wakefield study was asserted to run and stay bounded** (`wakefield` in
+  the harness), before it had a ponderomotive coupling; the entry above replaces
+  that with a measured wake.
+- **The splitting and a real scheme are measured together on a rigid rotation**:
+  each scheme keeps its own order. See
+  [convergence](docs/src/verification.md#convergence-under-refinement).
+- **The splitting is reversible, and the round trip measures dissipation**
+  (`test/VlasovSolver/test_strang_splitting.jl`). See
+  [reversibility](docs/src/verification.md#reversibility).
+- **The Yee scheme's numerical dispersion relation**,
+  `sin(ωΔt/2) = cfl·sin(kΔx/2)`, measured to 1.3e-4 from the mode's projection
+  (`test/MaxwellSolver/test_fdtd_1d.jl`).
+- **PML reflection against layer thickness**: four orders between 2 and 8 cells,
+  the cubic ramp working (`test/MaxwellSolver/test_fdtd_1d.jl`).
+- **`BGK` relaxes at the rate it is given**: `f − M` decays as `exp(−kΔt/τ)` to
+  2e-10, an identity once `M` is fixed by the conserved moments.
+  `test/BoltzmannSolver/test_damping_1v.jl`.
+- **The schemes are compared with each other**, the L² error per scheme and
+  problem class (`test/test_comparison.jl`). See
+  [the scheme comparison](docs/src/verification.md#the-scheme-comparison).
+- **The collision operators' complexity class is gated**: fitted exponents 1.00
+  for `BGK` and 1.99 for `Landau1P`, which a uniform slowdown cannot move.
+  `test/test_comparison.jl`.
+- **A work–precision report** (`benchmark/workprecision.jl`, advisory): error
+  against cost per scheme and problem class, with the frontier. See
+  [the scheme comparison](docs/src/verification.md#the-scheme-comparison).
+- **The suite runs against the Julia prerelease, weekly**, as a
+  `continue-on-error` job, and every CI job runs on Mondays' cron.
+  `.github/workflows/CI.yml`.
+- **The verification driver takes its schemes as arguments**, `scheme_x` and
+  `scheme_v`, and returns a NamedTuple. See
+  [the driver notes](docs/src/driver-notes.md).
+- **Mass, momentum, L² and entropy are measured and asserted**, by the
+  cell-width sums the schemes conserve. See
+  [invariants](docs/src/verification.md#invariants).
+- **Landau damping converges under refinement**, and the L² dissipation says why
+  γ sits above the root. See
+  [convergence](docs/src/verification.md#convergence-under-refinement).
 - **A cross-scheme study on a physical observable**
-  (`verification/scheme-comparison.jl`, advisory, exits 0). The benchmark suite
-  times a bare kernel and `test_convergence` measures an order on a shifted
-  sine; neither says what a scheme costs *in the physics*. Ranked by error in
-  the Landau damping rate at k = 0.5: `LaxWendroff` 0.67%, cubic
-  `SemiLagrangian` 1.09%, `PFC` 1.33%, `Godunov`+`VanLeer` 1.45%, and upwind —
-  with `Godunov(PiecewiseConstant)` and linear `SemiLagrangian`, identical to it
-  as `test_amplification` requires — at **48.8%**, its own dissipation being two
-  orders of magnitude larger than the physical damping it is trying to measure.
-  (`Godunov`+`VanLeer` was 3.99% off in the rate, and 16.0% in the frequency
-  where it is now 0.54%, while its flux lacked a `(1 − |c|)` factor; see Fixed.)
-
-  The interesting half is the second table. A 1% perturbation cannot rank the
-  schemes on positivity at all: every one returns the same `min f = 1.3e-4`,
-  which is only the Maxwellian's tail at `v = ±4`. At 50% amplitude the two
-  schemes that *lead* the accuracy table are exactly the two that drive `f`
-  negative — `LaxWendroff` to −0.093 and cubic `SemiLagrangian` to −0.105,
-  against a peak of 0.6. That is Godunov's theorem arriving in the physics, and
-  it is why the harness defaults to `PFC` despite it not leading the first table.
-  (`Godunov`+`Superbee`, added since, now heads the first table at 0.21% and
-  stays positive. It gets there from below, by anti-diffusion rather than
-  accuracy; see Added.)
-
-- **Landau damping at three wavenumbers, and the real frequency**
-  (`test/test_verification.jl`). One `k` with one fitted `γ` is a single point
-  on a curve and cannot separate a solver that reproduces the dispersion
-  relation from one that lands near a value at one wavenumber. Both roots are
-  now measured at `k = 0.3, 0.4, 0.5`:
-
-  | k | γ | vs tabulated | ω_r | vs tabulated |
-  |---|---|---|---|---|
-  | 0.3 | 0.01257 | 0.42% | 1.15696 | 0.25% |
-  | 0.4 | 0.06646 | 0.51% | 1.28042 | 0.36% |
-  | 0.5 | 0.15558 | 1.45% | 1.41372 | 0.14% |
-
-  The real frequency is about four times the sharper of the two — it comes from
-  counting nulls, where `γ` comes from fitting an amplitude that numerical
-  dissipation also acts on — so it is held to 1% where `γ` is held to 3%.
-
-  Two constraints are documented in the test because they are not obvious and
-  cost real time to rediscover. The velocity window must contain the resonance
-  at `v = ω_r/k` (2.83, 3.21, 3.87), since that is where the damping comes
-  from; and the window then fixes `Δt`, because the fastest row runs at
-  `max|v|·Δt/Δx` against `PFCNonUniform`'s Courant limit of 1 — so reaching a
-  resonance costs a smaller time step, not just more velocity points. The
-  existing `k = 0.5` case ran at 1.019, marginally over; it now runs at 0.815.
-  Separately, the fitting window has to stop before the mode reaches the floor
-  where recurrence and round-off take over, and that arrives earlier *in units
-  of e-foldings* the weaker the damping is: at `k = 0.3` the mode has decayed
-  only threefold by `t = 50`, and fitting past it reports γ = 0.0099, 22% low.
-
-- **The frequency estimator is now held to its window as well.** `γ` gained a
-  window-sensitivity assertion above; `ω` rested on a counting assumption of its
-  own and had none. Its spacing is averaged between the first and last minimum
-  over `length(m) − 1` intervals, so one null missed on a near-tie — or one
-  spurious null off numerical noise — rescales the answer with nothing to say
-  so, and agreement with the analytic value on a single window could be luck.
-  Both windows are now read for `ω` too: the three Landau cases agree to 0.05%,
-  0.15% and 0.10% against a 1% threshold, and the Bohm–Gross run to 0.006%
-  against 0.2%. It costs no extra solve, only a second reading of the same
-  `ε_e`.
-
-  The thresholds sit in a gap worth naming. Below them is the estimator's own
-  floor: a null is located only to within `Δt`, so two windows disagree by about
-  `Δt/span` whatever the physics does — 0.4% at `k = 0.5`, and 0.05% for the
-  long Bohm–Gross window. Above them is the failure being tested for: losing one
-  null of ten rescales the spacing by 11%, one of sixty by 1.7%.
-
-- **The plasma oscillation frequency is asserted against Bohm–Gross.**
-  `docs/normalization.md` states that the plasma-oscillation study verifies the
-  analytic plasma frequency; nothing in the repository measured a frequency
-  anywhere, only the energy drift — which a solver oscillating at entirely the
-  wrong rate passes without difficulty. Measured ω = 1.005719 against
-  `√(1 + 3k²) = 1.005904`, 0.018%, where the cold `ωₚ = 1` is 0.57% away. The
-  factor of thirty is the point: the test fails if the thermal correction is
-  dropped rather than merely preferring it to be there. Costs one second at
-  `t ≤ 200`, where the energy test needs 3000 and forty times as long.
-
-- **The extended verification suite now runs in CI.** `VASILEK_EXTENDED=1` was
-  named in the README, the changelog and three test files, and set by none of
-  the four CI jobs — so the body of `test/test_verification.jl` had never
-  executed on a runner, and the three claims in the README's verification table
-  held only when someone remembered to export the variable by hand. There is now
-  an `Extended verification` job that sets it. Per-PR rather than nightly: the
-  benchmark suite is advisory because wall-clock timing on a shared runner is
-  unreliable at any tolerance worth having, and that argument does not carry over
-  to deterministic numerics. Measured 2m08s for the whole job against 51s for the
-  default suite; the three assertions pass.
-
-- **Von Neumann amplification factors, against closed forms**
-  (`test/test_amplification.jl`). Each scheme is linear, so a Fourier mode is an
-  eigenvector and one step multiplies it by a `g(kΔx, c)` available in closed
-  form. Six schemes are asserted mode by mode against symbols derived from the
-  update formulas: `Upwind`, `Godunov(PiecewiseConstant)` and
-  `SemiLagrangian(LinearSpline)` share `1 − c(1 − e^{−iθ})`; `LaxWendroff` and
-  `Godunov(PiecewiseLinear, NoLimiter)` share `1 − ic·sinθ + c²(cosθ − 1)`; and
-  `PFC`'s unlimited branch is its third-order flux. Measured agreement over
-  `m ∈ {1,2,4,8,16,24,31}` and `c ∈ {0.4, 0.8}`: 1.6e-14 to 1.8e-14 for the
-  three-point schemes, 4.6e-14 for `PFC`. (The first was quoted as 8.9e-15;
-  Julia 1.10.12 and 1.13.0 both give 1.8e-14 for upwind.)
-
-  This is sharper than what guarded these kernels before. `test_convergence`
-  fits a slope to ±0.15 and `test_golden` pins one dataset for eight steps;
-  this pins every mode from the fundamental to the grid scale against an
-  analytic value, and because the comparison runs elementwise it asserts at the
-  same time that the output *is* a pure mode. One consequence worth naming: the
-  three claimed scheme equivalences now hold mode by mode rather than on one
-  profile. (There was a fourth symbol, the centred `1 − ic·sinθ` of
-  `Godunov(PiecewiseLinear, NoLimiter)`, with `|g| > 1` for every mode — worst
-  1.077 per step at `c = 0.4`. That stated its unconditional instability
-  analytically, until its flux gained the `(1 − |c|)` factor that makes it
-  `LaxWendroff`'s; see Fixed.)
-
+  (`verification/scheme-comparison.jl`, advisory). See
+  [the scheme comparison](docs/src/verification.md#the-scheme-comparison).
+- **Landau damping at three wavenumbers, and the real frequency.** See
+  [Landau damping](docs/src/verification.md#landau-damping-and-dispersion).
+- **The frequency estimator is held to its window**, as `γ` is. See
+  [Landau damping](docs/src/verification.md#landau-damping-and-dispersion).
+- **The plasma oscillation frequency is asserted against Bohm–Gross**, and the
+  cold `ωₚ` is excluded. See
+  [plasma oscillations](docs/src/verification.md#plasma-oscillation-frequency-and-energy).
+- **The extended verification suite runs in CI**, on every pull request, in the
+  `Extended verification` job of `.github/workflows/CI.yml`.
+- **Von Neumann amplification factors, against closed forms**, mode by mode for
+  six schemes, to 1.8e-14 (`test/test_amplification.jl`).
 - **Dissipation and dispersion, per scheme per wavenumber**, from the same
-  symbols at no extra cost: `|g|` is the amplitude lost per step and
-  `arg(g)/(−cθ)` the relative phase velocity. The two order the schemes
-  *differently*, which is the point. At `c = 0.4`, `λ = 64Δx`: upwind loses
-  1.16e-3 per step where `LaxWendroff` and `PFC` lose 2e-6. At `λ = 4Δx` the
-  phase error is 2.4% for `PFC` against 29% for `LaxWendroff` — `LaxWendroff`
-  keeps a marginal mode's amplitude and puts it in the wrong place, where upwind
-  removes it instead. Also asserted from the symbol alone: the amplitude retained
-  after one full domain traversal, 0.831 for upwind against 0.9998 for
-  `LaxWendroff` and `PFC`, which is the same 17% loss that shows up in the
-  advection error tables, arrived at independently.
-
+  symbols (`test/test_amplification.jl`).
 - **Free streaming: phase mixing and recurrence**
-  (`test/VlasovSolver/test_free_streaming.jl`). With no field the Vlasov
-  equation has an exact solution, and a spatially modulated Maxwellian gives a
-  density mode decaying as `exp(−k²t²/2)` — a Gaussian, not an exponential,
-  because the mode is sheared into fine velocity structure rather than
-  dissipated. On a discrete velocity grid the sheared modes rephase and the mode
-  returns at `T_R = 2π/(kΔv)`, a number set by `Δv` alone that no scheme can
-  move.
-
-  This is the only exact kinetic solution available without a field solve, and
-  it exercises the x-sweep together with the velocity moment outside the
-  extended gate — that path previously ran only inside `verification_harness.jl`.
-  Measured relative error in the mode amplitude over `t ≤ 4`: 2.7e-6 for cubic
-  semi-Lagrangian, 3.3e-5 for `PFC`, 1.2e-3 for `LaxWendroff`, 1.7e-2 for
-  upwind. Four orders of magnitude on a quantity with physical meaning, and the
-  ordering is asserted rather than only printed, errors being deterministic
-  where timings are not. Recurrence is measured on a deliberately coarse
-  velocity grid, which brings `T_R` from 125.7 to 31.4 and makes the test four
-  times cheaper without weakening it: both schemes peak at `t = 31.42` against
-  `T_R = 31.4159`, recovering 1.0000 and 0.9991 of the initial amplitude.
-
-  The Courant limit binds here in a way it does not in the one-dimensional
-  advection tests: the fastest velocity row carries `max|v|·Δt/Δx`, so the
-  velocity window and the time step are not independent. Everything runs at
-  0.611.
-
-- **The Yee leapfrog's conserved energy is asserted.** `E` sits at integer steps
-  and `H` at half-integer ones, so the conserved quadratic form is staggered in
-  time too — `‖E^{n+1}‖² + ⟨H^{n+1/2}, H^{n+3/2}⟩`, equivalently
-  `⟨E^n, E^{n+1}⟩ + ‖H^{n+1/2}‖²`. Measured relative drift over 2000 steps:
-  3e-15 at cfl = 0.5, 0.8 and 0.99. The naive `‖E‖² + ‖H‖²` at a single instant
-  is **not** conserved — it ranges over 12% to 24% across the same runs — and
-  the test asserts that too, so nobody reaches for it later.
-- **PML absorption is measured rather than eyeballed.** The previous test
-  checked the field ended up near zero, which a badly-but-symmetrically
-  absorbing layer also passes. Now: reflection coefficient 6.25e-9 rightgoing
-  and 6.26e-9 leftgoing, asymmetry 1.0010 — the two ends have different index
-  arithmetic, so an off-by-one in one of them was invisible to a test that only
-  looked one way — and a no-PML control leaving 0.999 of the pulse on the grid,
-  so the numbers are the layer working rather than the pulse having left.
+  (`test/VlasovSolver/test_free_streaming.jl`). See
+  [recurrence](docs/src/verification.md#recurrence).
+- **The Yee leapfrog's conserved energy is asserted**, the staggered
+  `‖E^{n+1}‖² + ⟨H^{n+1/2}, H^{n+3/2}⟩`, to 3e-15 over 2000 steps; the naive
+  `‖E‖² + ‖H‖²` is not conserved. `test/MaxwellSolver/test_fdtd_1d.jl`.
+- **PML absorption is measured**: reflection 6.25e-9 either way, against a
+  control without the layer. `test/MaxwellSolver/test_fdtd_1d.jl`.
 - **`BGK` satisfies the H-theorem**, to machine precision once the velocity
-  window resolves the relaxed state. The most negative single-step increment
-  over 200 steps is -1.2e-4 at ±6, -3.1e-12 at ±10 and -4.4e-16 at ±14, while
-  refining Δv does not move it — which is what identifies the truncation rather
-  than the operator as the cause, and the test asserts both halves of that.
-- **`∂f∂v` is tested directly**: second order in the interior, first at the
-  ends, and exact on a linear profile including on a non-uniform grid. It was
-  factored out of `Landau1P` after the second copy was found differentiating at
-  the wrong index, and until now was only ever exercised through the operator
-  that misused it.
-- `YeeMesh1D` shape and element type, and a `Bounds checking` CI job running the
-  suite under `--check-bounds=yes` so the `@inbounds` on the advection kernels
-  is non-binding for one run. It passes today; the point is that nothing else
-  could have told us.
-- **The README's usage example is executed by the suite** and so cannot drift.
-  It had: the block referred to `src`, `dest` and `courant` without defining any
-  of them, and the file carried two near-identical `## Usage` sections.
-
-- **Reentrancy is asserted** (`test/test_threading.jl`), and a `Multithreaded`
-  CI job runs the suite at `JULIA_NUM_THREADS=4` so it means something. Sweeping
-  many independent lines with one shared scheme value and a per-task workspace
-  must reproduce the serial result *bit-for-bit*, in both Courant directions,
-  for every scheme and for `BGK`. This is the property the 0.2 refactor existed
-  for — the old closures captured a single shared scratch buffer, which is why
-  the parallel 2D2P goal was unreachable — and it was the one claim with no test.
-  Workspaces are allocated inside the task rather than indexed by
-  `Threads.threadid()`: tasks migrate, and `maxthreadid()` exceeds `nthreads()`
-  whenever an interactive pool exists (8 against 4 here), so a `threadid()`-keyed
-  pool is both a race and an out-of-bounds read waiting to happen. The test is
-  the pattern the 2D2P sweeps should copy.
-- **`BGK` moment conservation** (`test/BoltzmannSolver/test_damping_1v.jl`).
-  Leaving `n`, `u` and `T` alone is the entire content of the operator and
-  nothing checked it; worse, every existing test started from data symmetric in
-  `v`, so `u` was zero throughout and the mean-velocity computation was never
-  exercised at all. Measured over 100 steps on `v ∈ [-10, 10]`: machine
-  precision for skewed and drifting initial data, 2.5e-10 for a bi-Maxwellian.
-  Adds an arbitrary Maxwellian as a fixed point at four `(u, T)` pairs, and both
-  limits of the update — `Δt ≪ τ`, and `Δt ≫ τ` giving the local Maxwellian
-  bit-for-bit — plus the intermediate `f·e + (1−e)·M`, also bit-for-bit.
-  The residual at `T = 2` is quantified as the velocity window rather than left
-  as a footnote: ±8 gives 1.6e-5 where ±10 gives 3.7e-9, which is the tail the
-  trapezoid loses, and it sets the window callers need.
-- **Contract tests** for `advect!` (`test/test_contracts.jl`): the argument
-  checks below, workspaces carrying no state between calls, `@inferred` on every
-  kernel, and element-type behaviour — including the pinned fact that
-  `workspace(::SemiLagrangian, n)` hard-codes `Vector{Float64}`, so a `Float32`
-  line is prefiltered in double precision.
-
-- **Direction-symmetry suite** (`test/test_symmetry.jl`). Every other advection
-  suite ran at `c = 0.4 > 0`, and `c > 0` and `c < 0` are separate branches in
-  every scheme that has one; only a single-step check ever touched the negative
-  one. Instead of duplicating four suites, this asserts the identity that ties
-  the branches together, `R∘A(+c) == A(−c)∘R` — exact for `Upwind` and
-  `Godunov`, 4.4e-16 for `LaxWendroff` and `PFC`, 4.5e-14 for the
-  semi-Lagrangian family, measured over five datasets × four Courant numbers.
-  That it suffices was checked rather than assumed: backward-direction
-  convergence orders and invariants agree with the forward ones to three
-  decimals. Also covers constant-preservation, `c = 0` as the identity (which
-  runs the negative branch, `c > 0` being false at zero), periodicity of
-  `SemiLagrangian` in the Courant number — the only test of its periodic
-  extrapolation path — and its stability at `c = 3.7`, where every other scheme
-  diverges.
-- **`StrangSplitting` has tests** (`test/VlasovSolver/test_strang_splitting.jl`).
-  It was executed zero times in a default run, being reachable only through
-  `verification_harness.jl` behind `VASILEK_EXTENDED=1`. Second order in Δt is
-  asserted on rigid rotation, measured 2.003/2.001/2.002 against both a fine
-  reference and the analytic answer. The advection operator there is an exact
-  spectral shift, deliberately: a scheme's spatial error does not vanish as
-  Δt → 0 — semi-Lagrangian interpolation error accumulates with the step count —
-  so measuring the order against a real scheme measures the scheme. Also pins
-  the non-square `Nx ≠ Nv` transpose bookkeeping, and the postcondition that
-  **`f[2]` lags `f[1]` by the final half-step on return**, which every caller in
-  this repository reads diagnostics off.
-- **`PFC` bounds check is tested** (`test/test_contracts.jl`). The `checked`
-  type parameter had a paragraph of docstring, the memory of a 740× bug, and no
-  test. Asserts that the check fires in both branches and at neither end of the
-  closed interval, that `checked = false` is bit-for-bit identical on valid data,
-  and that the element type survives `promote` — including that integer bounds
-  *widen* a `Float32` pairing rather than narrowing to it.
-- **The Poisson solver's exact discrete identity is asserted**, closing a gap
-  between `docs/normalization.md` — which already claimed the test asserted it
-  "to machine precision" — and the test, which compared one mode at
-  `atol = 1e-3`. `E_num == sinc(kΔx)·E_exact` now holds to 1.2e-13 across even
-  and odd `N`, six modes and five grid spacings, including one mode below
-  Nyquist. The departure is normalised by the continuum amplitude `1/k` rather
-  than by the output: near Nyquist the sinc factor suppresses the field itself,
-  and dividing by the output would report 7.3e-12 for the same 2e-15 absolute
-  error the solver has everywhere. Adds linearity, invariance to a net charge,
-  bit-for-bit repeatability across calls, and second order in Δx.
-- **FDTD at the magic time step.** At `cfl = 1` the 1D Yee update has no
-  numerical dispersion and translates a pulse exactly: measured 1.1e-19 after
-  20 steps against a plain `circshift`, where a mis-signed or mis-indexed term
-  would leave an O(1) residue. `cfl = 0.8` is run beside it, off by 0.83, so the
-  test visibly has teeth. The Courant limit is asserted too — bounded at
-  `cfl = 0.99` and 1, non-finite at 1.02 and 1.2 — which nothing covered.
-
-- **Extended verification** (`test/test_verification.jl`), gated behind
-  `VASILEK_EXTENDED=1`. The claims the verification documents made in prose
-  are now assertions: Landau damping at k = 0.5 within 5% of the tabulated
-  0.1533 (measured 0.1498), and energy drift below 0.5% on the uniform grid
-  and 6% on the non-uniform one at t = 3000 (measured 0.38% and 4.75%).
-- [docs/src/normalization.md](docs/src/normalization.md): the unit conventions, the
-  wavenumber convention that the Poisson bug came from, the FDTD current
-  convention that the wakefield instability came from, and why the PFC bounds
-  have no default.
-- `PFC(; fmin, fmax, checked = false)` compiles the bounds check away. The
-  check moved into `advect!` when the scheme stopped seeing data at
-  construction, costing a minimum/maximum pass per call -- 13% of the step at
-  N = 10000, which I had not measured at the time. Now a type parameter, on
-  by default.
-
-- **Allocation gate** (`test/test_allocations.jl`): blocking, deterministic, and
-  asserting zero for every kernel that achieves it. `@allocated` does not flap
-  the way wall-clock timing does, so it can gate CI.
+  window resolves the relaxed state. `test/BoltzmannSolver/test_damping_1v.jl`.
+- **`∂f∂v` is tested directly**: second order inside, first at the ends, exact
+  on a linear profile, on a non-uniform grid too.
+  `test/BoltzmannSolver/test_damping_1v.jl`.
+- `YeeMesh1D` shape and element type, and a `Bounds checking` CI job, since
+  replaced by `@inbounds in effect` (Changed).
+- **The README's usage example is executed by the suite**
+  (`test/test_readme.jl`), and so cannot drift.
+- **Reentrancy is asserted**: lines swept by tasks sharing a scheme value
+  reproduce the serial result bit for bit, run by a `Multithreaded` CI job.
+  `test/test_threading.jl`.
+- **`BGK` moment conservation**, on skewed and drifting data, an arbitrary
+  Maxwellian as a fixed point, and both limits of the update.
+  `test/BoltzmannSolver/test_damping_1v.jl`.
+- **Contract tests** for `advect!`: argument checks, stateless workspaces,
+  `@inferred` on every kernel, element types. `test/test_contracts.jl`.
+- **Direction-symmetry suite**: `R∘A(+c) == A(−c)∘R` for every scheme, to
+  4.5e-14 at worst, and `SemiLagrangian`'s periodicity in `c`.
+  `test/test_symmetry.jl`.
+- **`StrangSplitting` has tests**: second order in Δt on a rigid rotation, and
+  the transpose bookkeeping. `test/VlasovSolver/test_strang_splitting.jl`.
+- **`PFC`'s bounds check is tested**, at both ends and both branches, and
+  `checked = false` is bit for bit the same on valid data.
+  `test/test_contracts.jl`.
+- **The Poisson solver's exact discrete identity is asserted**,
+  `E_num == sinc(kΔx)·E_exact` to 1.2e-13.
+  `test/MaxwellSolver/test_poisson_fourier_1d.jl`.
+- **FDTD at the magic time step** translates a pulse exactly, to 1.1e-19, and
+  the Courant limit is asserted. `test/MaxwellSolver/test_fdtd_1d.jl`.
+- **Extended verification** (`test/test_verification.jl`), behind
+  `VASILEK_EXTENDED=1`: the studies' claims as assertions. See
+  [what the tests assert](docs/src/verification.md#what-the-tests-assert).
+- [docs/src/normalization.md](docs/src/normalization.md): the units, the
+  wavenumber and FDTD current conventions, and why PFC's bounds have no default.
+- `PFC(; fmin, fmax, checked = false)` compiles the bounds check away; the check
+  is a type parameter, on by default.
+- **Allocation gate**, blocking and deterministic, at zero for every kernel that
+  achieves it. `test/test_allocations.jl`.
 - `--strict` and `--rebaseline` flags for the benchmark driver, and
-  `PFCNonUniform` and `FDTD1D` added to the benchmark suite.
-
-- **Golden-value regression tests** (`test/test_golden.jl`): bit-for-bit
-  reference output for all nine advection scheme/option combinations, eight
-  steps each. Convergence rates are far too loose to catch an index swapped
-  by one; bit-identity is not. Regenerate with `test/generate_golden.jl`, and
-  only when a numerical change is intended. Advection-only by design — the
-  collision operators go through libm and already differ between Julia
-  1.10 and 1.12.
-- **Order-of-accuracy suite** (`test/test_convergence.jl`): global convergence
-  order for eight schemes, measured before being asserted. Replaces reliance
-  on magic `atol` values at a single resolution.
-- **Structural invariants** (`test/test_invariants.jl`): mass conservation,
-  total variation, PFC positivity and the maximum principle, and the Courant
-  limit. None of this was covered.
-
-- Continuous integration on GitHub Actions: tests on Julia `lts` and `1` across
-  Linux, Windows and macOS, plus a coverage job reporting to Codecov.
-  Verified locally on both ends of the matrix (1.10.12 and 1.12.7).
+  `PFCNonUniform` and `FDTD1D` in the benchmark suite.
+- **Golden-value regression tests**, bit for bit, for every advection scheme;
+  regenerate with `test/generate_golden.jl` only for an intended change.
+  `test/test_golden.jl`.
+- **Order-of-accuracy suite**, each scheme's global order measured before being
+  asserted. `test/test_convergence.jl`.
+- **Structural invariants**: mass, total variation, PFC positivity and the
+  maximum principle, and the Courant limit. `test/test_invariants.jl`.
+- Continuous integration on GitHub Actions: Julia `lts` and `1` on Linux,
+  Windows and macOS, and a coverage job reporting to Codecov.
 - Dependabot updates for GitHub Actions.
 - `Aqua.test_all` in the test suite.
 - Separate `benchmark/Project.toml` and `verification/Project.toml`.
-- Advection tests now assert that both `generate_solver` overloads produce
-  bit-identical output — the invariant `PFC` had been violating.
+- Advection tests asserted that both `generate_solver` overloads gave the same
+  bits, the invariant `PFC` broke; the overloads have since gone (Breaking).
 
 ### Changed
 
-- **`Landau1P` is a consistent model: a regularised kernel, the transverse
-  bath's drag, and an update in flux form**
-  (`src/BoltzmannSolver/operators/landau1p.jl`,
-  `test/BoltzmannSolver/test_damping_1v.jl`). The two entries it had under
-  Known issues are closed, and its two `@test_broken` are `@test`.
-  * **The kernel.** `2Tₜ/|u|³`, zeroed at `u = 0`, was not integrable there,
-    and the collision integral grew under refinement: max|∂f/∂t| was 0.0023,
-    0.0053, 0.0080, 0.0104 at Δv = 0.4, 0.2, 0.1, 0.05. The kernel is now
-    `Φ(u) = 2Tₜ/(u² + 2Tₜ)^(3/2)`, the closure `u⊥² ≈ 2Tₜ` carried into the
-    denominator too, which gives the old kernel back for `|u| ≫ √(2Tₜ)`. On a
-    line the grid resolves, at `Tₜ = 0.5`, the integral converges at second
-    order: 0.0663, 0.0818, 0.0861, 0.0872 at the same Δv.
-  * **The drag.** The Landau tensor's `xy` and `xz` components, against
-    transverse Maxwellians at `Tₜ`, add `−f f′ (v − v′)/Tₜ` to the bracket
-    under the same kernel. Without it the only stationary lines of a scalar
-    kernel in one dimension are exponentials, and every Maxwellian spreads.
-    With it the Maxwellian at `Tₜ` is stationary, to second order on the grid
-    (residual 1.26e-3 and 3.19e-4 at Δv = 0.1 and 0.05), and a line at any
-    other temperature relaxes to `Tₜ`: 1 → 0.939 and 0.25 → 0.288 in t = 0.5.
-    Energy is exchanged with that bath. The relative entropy
-    `Σ w f ln(f/M_Tₜ)` falls at every step until the line nears the discrete
-    equilibrium, which lies O(Δv²) from `M_Tₜ`.
-  * **The update.** It differenced a nodal integral with the centred
-    derivative, and the density drifted by 2e-10 in 100 steps. The flux now
-    lives on the half-points and is differenced over the cell widths `BGK` and
-    the advection schemes conserve by, with walls at the window's ends: the
-    drift is 2.4e-16. Momentum is exact on a uniform grid while the line
-    vanishes at the walls, and second order on a stretched one, 3.98e-7 then
-    9.97e-8 at N = 121 and 241.
-  * **The time step.** Forward Euler on the operator's diffusion is stable for
-    `Δt ≲ δv²/(4·L·A·max f)`, `δv` the finest spacing, which the docstring
-    now states. On `8 sinh(3ξ)/sinh(3)`, N = 121, at `Tₜ = 0.16`, the bound at
-    the finest cell kept the line positive over t = 3, and the bound at the
-    coarsest let it grow to ±1.5e16 without a NaN. On the test line
-    that is 0.0125 at Δv = 0.1; the run holds to 1.5 times it and ends in NaN
-    at 2. The tests took Δt = 0.1, which the old operator survived and this
-    one does not; they take 0.005. For a line cooling towards a narrow bath,
-    `max f` is the bath's peak: from the thermal line at `Tₜ` = 0.01 and 0.04,
-    Δv = 0.1, the bound at that peak held over t = 5, and 1.4 times it too.
-  * **The bath must be resolved.** A line relaxing towards a bath narrower
-    than a cell ends in NaN whatever the step. From the thermal line on ±6,
-    √Tₜ/Δv = 0.22 to 0.5 ended in NaN by t = 0.34 to 1.4; 0.71 to 1.0 ran but
-    went down to f = −0.06 to −0.7; 1.4 and more stayed positive. `collide!`
-    refuses `Tₜ < Δv²` with an `ArgumentError`, the criterion `BGK` applies
-    to a line; the docstring says positivity takes about `4Δv²`. `Δv` is the
-    widest cell anywhere on the grid, up to the rounding of its values, so
-    `Tₜ = 0.01` passes on `collect(-6:0.1:6)`. That refuses some stretched
-    grids that would have run: on `8 sinh(3ξ)/sinh(3)`, N = 121, cells 0.040
-    to 0.392, `Tₜ` = 0.05 and 0.1 ran for t = 3 with f ≥ 2.8e-15 unchecked.
-    A test on where the line lives would depend on the data and could stop a
-    run halfway, which `BGK`'s docstring argues against.
-  * **Cost.** The nodal derivative is taken once per call, not once per pair,
-    which pays for the square root the kernel now needs: 1.95 ms a step at
-    N = 800 under `--check-bounds=yes`, against 1.90 ms for the old kernel on
-    the same machine. Still O(N²), exponent 2.003 to 2.030.
-  * **Contracts.** A `src` sharing the workspace is refused with an
-    `ArgumentError`, as `BGK` refuses one, and so is a `dest` over the
-    fluxes, which a node out of step left 0.053 off without an error. `Tₜ`
-    must be positive and finite: 0 returned NaN, and −1 threw from `sqrt`
-    halfway through a step. Arrays must be one-based. A line of one node is
-    returned unchanged where the old operator read past its end.
-  * **The default `Tₜ` is 1, the plasma's own temperature in thermal units,**
-    where it was 1e-3. In the old kernel `Tₜ` only scaled the rate; in the new
-    one it is the bath, and 1e-3 made it a thousand times colder than a
-    thermal line. One step from the thermal Maxwellian max|∂f/∂t| was 0.39,
-    against the old operator's 3.7e-4; the line collapsed towards a Maxwellian
-    0.03 wide; and at Δv = 0.1 the run ended in NaN by t = 0.23 at Δt = 5e-3,
-    5e-4 and 5e-5 alike. With `Tₜ = 1` the thermal Maxwellian is the
-    equilibrium: max|∂f/∂t| one step from it is 1.98e-4, 5.05e-5, 1.27e-5 at
-    Δv = 0.2, 0.1, 0.05, and T = 0.9990 at t = 10.
-  * **What moved.** `Landau1P`'s numbers, on purpose, and nothing else: `BGK`,
-    the advection schemes and the golden data are untouched.
-
-- **The quadratic and cubic `SemiLagrangian` prefilter in the package, and a
-  step that allocates nothing** (`src/VlasovSolver/schemes/semi_lagrangian.jl`,
-  `SplineWorkspace` in `src/VlasovSolver/Advection.jl`,
-  `test/VlasovSolver/test_spline.jl`). Every step called Interpolations'
-  `interpolate!`, which rebuilt its periodic Woodbury prefilter: 88
-  allocations and 100 kB at N = 1000, and 77 to 105 ns per cell. The periodic
-  system `M c = f`, `M` cyclic tridiagonal `(b, a, b)`, is now split as
-  `A + b·uuᵀ`, `u = e₁ + eₙ`, `A` tridiagonal with `a − b` in its corners; the
-  workspace factorises `A` once, as reciprocal pivots, and holds the
-  Sherman–Morrison vector, so a step is a forward and a backward sweep and an
-  axpy. The evaluation follows Interpolations 0.16 as written: its knots, its
-  `value_weights` in its order of operations, its `roundbounds`, its periodic
-  image of a point, its summation order. The cells whose stencil lies inside
-  the knots go through a loop with no periodic map and no wrapped index, the
-  edges through the general one, with the same arithmetic.
-  * **Cost.** `benchmark/workprecision.jl`, Julia 1.13.1 on a 2.1 GHz Xeon,
-    `master` → this change, ns per cell per step at N = 64 … 512: quadratic
-    82–99 → 8.8–9.8, cubic 77–105 → 8.8–10.2, and linear, which no longer
-    goes through Interpolations either, 3.1–3.4 → 2.1–2.6. A traversal of the
-    cubic spline at N = 512 takes 5.8 ms where it took 51.9; it is still on
-    the efficiency frontier of the smooth profiles, and the quadratic spline
-    still dominated by `PFC` (2.3 ns). `@allocated` is 0 for all three, at
-    N = 1000 and 4000, and with every point through the periodic map: the
-    splines join the O(1) list in `test/test_allocations.jl`, whose separate
-    `< 110·N` bound for them is gone.
-  * **What moved, and by how much.** The linear spline is identical in every
-    bit, the periodic map included. The quadratic and cubic splines solve the
-    same system by another factorisation, so they move in the last bits: at
-    most 4.4e-15 of the data's maximum against the old kernel, reproduced in
-    `test_spline.jl` with Interpolations over five data sets, thirteen Courant
-    numbers (the seams of the periodic map among them) and three sizes, and
-    held there to 1e-13. Given Interpolations' own coefficients, the
-    evaluation is identical in every bit. The golden rows passed their old
-    rtol = 1e-13 before being regenerated: `SemiLagrangian_quadratic` moves by
-    up to 8 ulp in 49 of its 64 cells (9.9e-16 relative), `SemiLagrangian_cubic`
-    by up to 7 ulp in 50 (1.2e-15); the other eight rows are unchanged, and all
-    ten are now held to `==`, `GOLDEN_UPSTREAM_ROUNDING` gone. The suite's own
-    figures barely move: `c = 0` costs 4.4e-16 for both splines (the cubic
-    was 6.7e-16), the mirror identity 2.3e-14, `A(c)` against `A(c ± N)`
-    9.1e-14, and `max|f|` after 500 steps at `c = 3.7` agrees to 4e-14.
-  * **The workspace.** `SplineWorkspace{T, S}` holds `coefficients` (it was
-    `buffer`; `n`, or `n + 1` for the linear spline), `rdiag` and `z`, the last
-    two empty for the linear spline. A workspace built for another spline has
-    the right length and another matrix's factorisation, and is refused with an
-    `ArgumentError`; none of the three vectors may share memory with `dest` or
-    `src`.
-  * **The step computes in the data's type, the workspace's.** `c` is converted
-    to it before any point is computed; it used to set the type of every point
-    and weight (`c = float(c)`). A `Float16` `c` on `Float64` data rounded
-    `i − c` past the interior's last cell at n = 5000, and the period
-    `Float16(2051) == 2052` past the last knot at n = 2051, and the stencil read
-    beyond the coefficients under `@inbounds`: a `BoundsError` with
-    `--check-bounds=yes`, garbage without. Both now give what `Float64(c)` gives,
-    to the bit. BigFloat data with a `Float64` `c` was only Float64-accurate in
-    its weights: 1.7e-15 away from `c = big"0.4"`, now 2.7e-17, the gap between
-    the two Courant numbers. `Float64` data with a `Float64` `c` is unchanged in
-    every bit, golden rows included. A workspace type that cannot hold every
-    knot exactly (`Float16` past 2047 cells) is refused with an `ArgumentError`
-    naming a wider one; so is a workspace narrower than the data, which rounded
-    it on the way in, and a `c` that overflows the type, a `DomainError`.
-  * **The workspace is the spline's own, in a float type.** It is labelled with
-    `typeof(scheme.spline)`, so `SemiLagrangian{AbstractSpline}(CubicSpline())`
-    no longer refuses its own workspace; `workspace(scheme, n, Int)` builds a
-    `Float64` one, where it threw an `InexactError` on its first reciprocal
-    pivot. The prefilter's forward sweep reads `src` directly instead of a copy
-    of it, one pass fewer, with the same arithmetic: 12.5–13.5 against
-    12.4–14.2 ns per cell for the quadratic and cubic splines at N = 64, 512 and
-    4000, within the noise of the machine.
-
-- **The two polarisations of the FDTD step share one update.** The
-  copy-paste pairs `_update_ey!`/`_update_ez!`, `_update_hz!`/`_update_hy!`
-  and the y/z halves of `_inject!` are `_update_e!(e, h, j, ±, …)`,
-  `_update_h!(h, e, ±, …)` and `_inject!(e, h, s, ±, …)`, called with `-` for
-  (ey, hz) and `+` for (ez, hy). `±` is the operator itself, not a factor of
-  ±1, so each line performs the operation the hand-written copy did. The
-  absorbing layer's index is computed by `_k_left` and `_k_right` from a
-  position in half cells (`_node(i)`, `_cell(i)`), so each side's formula is
-  written once, for nodes and cells alike, instead of four times. Seventy-two
-  runs of 400 steps on 300 cells — `Float64` and `Float32`, no layer and
-  layers of 5, 10 and 20 cells, `cfl` 0.5, 0.8 and 1, either polarisation and
-  both, with currents and a nonzero `x_min` — give `ey`, `ez`, `hy` and `hz`
-  identical in every byte to `master`; golden data are unchanged. The step is
-  also faster, since the loops take the field vectors as arguments and LLVM
-  vectorises more of them: minimum of three `@benchmark`s of `advance!`,
-  `cfl` 0.8, `master` → this change, Julia 1.13.1, `Float64` 498 → 145 ns at
-  N = 100, 4.0 → 1.2 µs at 1000, 38.3 → 14.0 µs at 10 000; with layers of 10
-  cells 479 → 267 ns, 3.8 → 1.3 µs, 38.6 → 16.0 µs; `Float32` 506 → 118 ns,
-  3.7 → 0.54 µs, 37.1 → 7.0 µs. Still 0 bytes. The `Float64` case without a
-  layer is `Maxwell/fdtd/advance N` in `benchmark/runbenchmarks.jl`, which
-  reports a regression against `benchmark/results.json`; like the rest of
-  that suite it is advisory and does not gate CI (wall-clock times on shared
-  runners vary by 20–50 %), so only the allocation test is enforced.
-
-- **A step of `vlasov_poisson` allocates nothing.** It allocated 84 KiB a
-  step at 64 × 161, more than `f`'s 80.5 KiB: the density was summed as
-  `sum(ft .* Δv, dims = 1)`, a temporary the size of `f`, and `v .* Δt`,
-  `nₖ - nᵢ` and `e .* Δt` were a line each, and the field solve was a closure
-  defined inside the time loop. The driver is now
-  `setup`, which checks the arguments and allocates every buffer once, then
-  `step!` and `record!` for each step, over four internal types: a `Problem`
-  (the grids, widths, ions, schemes on their grids, collisions, modes), a
-  `State` (`f` in both layouts, the x displacements, one scratch matrix, the
-  quadrature weights, the splitting's workspace), a `FieldSolve` (the callable
-  `strang_step!` takes as its `cv`, with the density, charge, field and kick
-  buffers) and `Histories`. None is exported, and the signature and the
-  NamedTuple are unchanged.
-  - **Every Float64 result is the same to the bit.** The density is summed by
-    `sum!` into a `1 × Nx` matrix sharing `nₖ`'s memory, which sums each
-    column in the order `sum(dims = 1)` does: the same bits on 100 shapes on
-    Julia 1.10 and 1.13, where a loop down the column or a matrix-vector
-    product rounds differently. The gate in `test_driver.jl` passes
-    unchanged, `test/data/golden.txt` is untouched, and eleven runs of the
-    driver -- defaults, BGK, a stretched `v`, given ions with and without
-    `renormalize`, given schemes and schemes as functions, a Rational `v` --
-    return the same bits in every history on 1.10 and 1.13.
-  - **`test_allocations.jl` gates the step**: a 12-step run against a 2-step
-    one, at 64 × 81 and 128 × 161, with the invariants and a mode. Both
-    measure 80 bytes a step on Julia 1.10 and 1.13, which is the histories'
-    own growth; the test asks for at most 192 and for the two sizes to agree
-    to 64. With `BGK` it asks only for a few boxes a line, since `collide!`
-    leaves one on the Windows runner under 1.10.
-  - The kinetic energy is summed over `f*(v*v)*wt`, the bits of `f*v^2*wt`:
-    the literal power boxed a value every step on Julia 1.10 under
-    `--check-bounds=yes`.
-  - A run is continued by calling the driver again on the `f` it returned:
-    with the ions given and schemes that do not depend on the starting `f`,
-    two calls over the halves of `t` give one call's `f` and histories to the
-    bit, as `test_driver.jl` now checks. With the defaults the second call
-    rescales `f` by 1 to round-off and bounds its schemes by the `f` it is
-    handed: 5.6e-16 of the peak apart on one case.
-
-- **`vlasov_poisson` steps through `strang_step!`, to the bit.** The step runs
-  on `f[x, v]`, the schemes on their grids, `OnGrid(scheme_x, Δx)` and
-  `OnGrid(scheme_v, Δv)`, and the collisions as its hook. It stepped
-  `g = f'` through `make_time_step_2d!`, whose x sweep read strided views of
-  `f`'s rows; every line either sweep reads is now contiguous, which on a line
-  of 64 cells is 15 ns against 57 for `Upwind`, and about 10% for `PFC` and
-  `PFCNonUniform`, whose limiters take most of the step (550 ns against 620,
-  650 against 700; Julia 1.13). The arithmetic is the same: the gate in `test_driver.jl`, the
-  step written out with `f` and `ε_e` compared to the bit, passes unchanged,
-  and `test/data/golden.txt` is untouched. The state is transposed back to
-  `f[v, x]` after each step, a third transpose, so that the energies and the
-  invariants are summed in the order they always were; summed over `[x, v]`
-  the same terms round differently.
-
-  Under Float32 `f` the lines are still worked in Float64, and a line now
-  stays in Float64 through its sub-steps, and through the kick from the first
-  collision to the last, rounding into `f` once where it rounded after each.
-  A Float32 Landau run, with neither, is unchanged to the bit; the all-Float32
-  two-stream of `test_driver.jl`, whose x steps split in two, moves by 1.5e-7
-  of the peak over 20 steps, and a BGK(0.5) run by 3.4e-7 over 40.
-- **Uniform-grid schemes are split into sub-steps too**, by `OnGrid`, where
-  `line_advector` split `PFCNonUniform`'s only. Within a cell the count is 1:
-  `|α| ≤ h` exactly when `α/h` rounds to at most 1, and `α/1` is `α`, so every
-  call that ran takes the same step to the bit. A call past `|c| = 1`, a
-  `DomainError` until now, runs in sub-steps.
-- **`test/VlasovSolver/test_strang_splitting.jl` steps through `strang_step!`.**
-  Its exact spectral shift is a scheme, `SpectralShift`, on an `OnGrid`, which
-  copies each line into its own buffer since an FFTW plan refuses a misaligned
-  column. The step is held to its composition written out, bit for bit, for
-  three pairs of schemes, `PFCNonUniform` on stretched grids among them, with
-  steps `OnGrid` splits; the hook to `C(Δt/2) K C(Δt/2)` written out and to an
-  operator that counts two calls a line for `Δt/2` each; `OnGrid`'s sub-steps
-  to `m` steps by hand; and the grids `OnGrid` refuses. "Both arrays hold the
-  step on return" goes, with the second array.
-
-- **The docs build with Documenter.** `docs/*.md` moved to `docs/src/`, with
-  `docs/make.jl`, an index and a page of every docstring by module; a CI job
-  builds them, without deploying. `collide!` has a docstring.
+- **The measurements have one home**: `docs/src/verification.md` gathers them by
+  study; the README keeps ten rows of its table, held to it by
+  `test/test_readme.jl`, and this file one to three lines an entry.
+- **`Landau1P` is a consistent model**: a regularised kernel, the transverse
+  bath's drag, and a flux-form update that keeps the density to 2.4e-16; its
+  Known issues are closed. `test/BoltzmannSolver/test_damping_1v.jl`.
+- **The quadratic and cubic `SemiLagrangian` prefilter in the package**, ten
+  times faster, allocating nothing, and moving the splines by 4.4e-15 at most.
+  `test/VlasovSolver/test_spline.jl`.
+- **The two polarisations of the FDTD step share one update**, identical in
+  every byte and two to five times faster. `test/MaxwellSolver/test_fdtd_1d.jl`.
+- **A step of `vlasov_poisson` allocates nothing**, every Float64 result the
+  same to the bit, and a run continues by calling the driver on the `f` it
+  returned. `test/test_allocations.jl`, `test/test_driver.jl`.
+- **`vlasov_poisson` steps through `strang_step!`, to the bit**, every line
+  contiguous; under Float32 a line stays in Float64 through its sub-steps and
+  its kick. `test/test_driver.jl`.
+- **Uniform-grid schemes are split into sub-steps too**, by `OnGrid`: a step
+  within a cell is unchanged to the bit, and one past `|c| = 1` now runs.
+- **`test/VlasovSolver/test_strang_splitting.jl` steps through `strang_step!`**,
+  holding the step, the hook and the sub-steps to their compositions, bit for
+  bit.
+- **The docs build with Documenter**, from `docs/src/`, with an index and a page
+  of every docstring (`docs/make.jl`).
 - **`Pkg.test(test_args = ["golden", "contracts"])` runs those files only**;
-  `test/runtests.jl` lists every file, and refuses a name it does not have.
-- **`vlasov_poisson` is held to its step bit for bit** (`test/test_driver.jl`):
-  the step written out from `advect!`, `collide!`, `PoissonFFT1D` and the cell
-  widths, defaults and given schemes, schemes given as functions of `f`, with
-  and without `BGK`. Its `f₀` carries 1.3 times the ions' charge: on a neutral
-  one the rescaling was 1 to 3 ulps, and ions taken from `f₀`'s own density
-  matched the step bit for bit on the uniform grid.
-- The centred Poisson difference and `slope_limit` lose their Float64
-  literals: `(…)/(2Δx)` for `0.5*(…)/Δx`, the same bits in Float64.
+  `test/runtests.jl` lists every file and refuses an unknown name.
+- **`vlasov_poisson` is held to its step bit for bit**, the step written out
+  from `advect!`, `collide!`, `PoissonFFT1D` and the cell widths.
+  `test/test_driver.jl`.
+- The centred Poisson difference and `slope_limit` lose their Float64 literals,
+  the same bits in Float64.
 - `Scripts.yml` runs on a push to master only for the paths its pull requests
-  watch, by a YAML alias of their list; it ran on every merge, documentation
-  included.
+  watch.
 - `runbenchmarks.jl` prints the baseline's Julia and BenchmarkTools versions
-  beside this run's: the baseline is the development machine's, on 1.12.7.
-- The complexity-class test samples for longer (`budget = 0.2, minreps = 10`),
-  and the tests' cell-width formulas are `Collisions._width`, which a test
-  holds equal to `cell_widths`. Another holds the manual's front page to the
-  README's introduction.
-
-- **Documentation says what the code does.**
-  - Docstrings state contracts. The measurements and history that filled them
-    are in this file and, for the driver, in the new `docs/driver-notes.md`.
-  - `docs/migration-0.2.md`:
-    - its BGK example now runs;
-    - it no longer claims that nothing moved numerically;
-    - it notes that `PFCNonUniform` holds its grid.
-  - `docs/normalization.md` says that the reported energies are twice the
-    physical ones.
-  - The code in `docs/*.md` is executed by `test/test_docs.jl`, as the README's
-    is by `test/test_readme.jl`.
-  - `verification/scheme-comparison.jl` computes its Landau root rather than
-    quoting it, and states the x-sweep's Courant number correctly.
-  - This file now has one section per kind, where 16 accumulated one per pull
-    request.
-  - The version is `0.2.0-DEV` until the release is tagged.
-
-- **CI runs what it says it runs.**
-  - The "Bounds checking" job forced `--check-bounds=yes`, which `Pkg.test`
-    passes to every job already. It is replaced by "@inbounds in effect",
-    `Pkg.test(julia_args = ["--check-bounds=auto"])`, the one configuration
-    users run and no job did.
-  - The extended verification runs on the LTS as well as the current release.
-    The job now fails unless the suite wrote its marker file, because a skip
-    is green too.
-  - Coverage is instrumented only in the Coverage job.
-  - The workflow declares its permissions: `contents: read`, and
-    `actions: write` for the cache.
-- **The scripts are run.** A new `Scripts` workflow runs every
-  `verification/*.jl` study to completion, loads the benchmark suites and runs
-  `workprecision.jl`. It triggers on pull requests touching what they depend
-  on, on master, weekly and by hand. The verification environment once broke
-  for weeks without a signal.
-- **CompatHelper watches the `[compat]` bounds** of the package and of the two
-  script environments; dependabot covered only the Actions.
-- **The script environments install from a clean checkout.**
-  - `[sources]` needs Pkg 1.11, so their `julia` floor is 1.11.
-  - The benchmark environment gained the `[sources]` entry it lacked.
-  - `LinearAlgebra` and `Printf` are declared.
-  - The README gives the `instantiate` step.
-- **Benchmarks.**
-  - The Poisson and Vlasov suites use `N` points, not `N + 1`. The FFT lengths
-    were 101 (prime), 1001 and 10001, which timed FFTW's slow path.
-  - Entries missing from `params.json` are tuned and reported instead of
-    running untuned. Entries with no baseline are listed instead of being
-    skipped silently.
-  - The baselines are regenerated for the new sizes.
-
-- **`BGK` relaxes to the discrete Maxwellian and conserves to round-off.**
-  - `M` is the `exp(a + bv + cv²)` whose density, momentum and energy, in the
-    cell-width sums the advection schemes conserve, equal the line's
-    (Mieussens 2000). Newton's method finds it from the continuous Maxwellian
-    in three steps.
-  - On a ±4 window the sampled Maxwellian, relaxing a two-beam line fully,
-    lost 0.7% of its density and 6% of its energy, and it cooled a ν = 1 run by
-    5.3% by t = 60. The
-    discrete one holds the energy to 2e-7, and a sampled Maxwellian is its
-    fixed point on any window.
-  - The collisional rates on ±8 are unchanged to the digits quoted.
-  - The old operator remains as `BGK(τ; conservative = false)`.
-  - A step costs about 7 times more (93 µs against 13.6 µs at N = 800), still
-    linear in N.
-  - The H-theorem holds to round-off on ±6 in the cell-width entropy.
-- **`NumericalIntegration` is no longer a dependency.** The sampled operator
-  and `Landau1P` use a trapezoid of their own. It stays a test dependency for
-  the harness.
-
+  beside the run's.
+- The complexity-class test samples for longer, and a test holds the manual's
+  front page to the README's introduction (`test/test_docs.jl`).
+- **Documentation says what the code does**: docstrings state contracts, the
+  driver's reasons are in `docs/src/driver-notes.md`, and `test/test_docs.jl`
+  runs the code in `docs/src/*.md`. The version is `0.2.0-DEV` until a release.
+- **CI runs what it says it runs**: an `@inbounds in effect` job, the extended
+  verification on the LTS too and failing without its marker file, coverage in
+  one job, declared permissions. `.github/workflows/CI.yml`.
+- **The scripts are run**: `.github/workflows/Scripts.yml` runs every study to
+  completion and loads the benchmark suites.
+- **CompatHelper watches the `[compat]` bounds** of the package and of the
+  script environments.
+- **The script environments install from a clean checkout**, through
+  `[sources]`, which puts their `julia` floor at 1.11.
+- **Benchmarks** use `N` points rather than `N + 1`, which timed FFTW's slow
+  path at prime lengths, and report entries untuned or without a baseline.
+- **`BGK` relaxes to the discrete Maxwellian and conserves to round-off** on any
+  window; the sampled one is `BGK(τ; conservative = false)`. See
+  [collisional damping](docs/src/verification.md#collisional-damping).
+- **`NumericalIntegration` is no longer a dependency**, only a test one.
 - **The 1D1V driver ships with the package: `vlasov_poisson`, exported**, in
-  the new `Vasilek.VlasovPoisson1D1V` with the helpers it is built from:
-  `line_advector`, which takes a displacement for any scheme; `substeps`;
-  `cell_widths`; `mode_amplitude`; and `make_poisson`.
-  - It lived in `test/verification_harness.jl`, so every row of the README's
-    verification table was a statement about test code, and no user could run
-    Landau damping without copying it. It moved verbatim, and every number
-    stands.
-  - The harness keeps the setups and the analysis; it is now guarded by
-    `VERIFICATION_HARNESS` rather than by `vlasov_poisson`, which `using
-    Vasilek` defines.
-  - As a public function it checks what the harness never had to: the x grid
-    must be uniform, since the field solve takes its spacing from the first two
-    points (a stretched grid ran, 16% off in field energy, without an error),
-    and `t` must hold at least two times (one gave a `BoundsError`). Both are
-    an `ArgumentError`. The velocity grid may still be non-uniform. Uniform
-    is to 1e-10 of the spacing or 8 ulps of the largest coordinate, whichever
-    is more, so a Float32 grid, which the harness ran, still runs.
-- **`verification/landau-damping-1d1v.jl` and `plasma-oscillations-1d1v.jl`
-  run the driver.** They carried five copies of the Strang loop and their own
-  Poisson solve, and had drifted:
-  - the non-uniform Landau run still plotted the asymptotic rate the uniform one
-    had dropped;
-  - both compared the spectral peak with Bohm–Gross, 7% below the kinetic root
-    at `k = 0.5`;
-  - "perfect coincidence" was claimed for a comparison that was never made.
-
-  The spectra are now taken from the driver's mode amplitude, projected on the
-  standing wave's phase and zero-padded. They land at 1.4137 against the root's
-  1.4157, and 1.00528 against Bohm–Gross's 1.00590.
-- **The README says what exists**: 1D1V on static grids, with 2D2P and
-  adaptive meshes as the goal. It now shows a whole driver run, which the test
-  suite executes.
-
-- **The Poisson solver is a value, `PoissonFFT1D(n, Δx)`, with a `workspace`**
-  (`PoissonFourier1D`). The 0.1 closure captured its buffers and could not be
-  shared between tasks, which was the whole argument for making the advection
-  schemes values.
-  - `solve!(e, ρ, p, ws)` takes any vector, a view or a column included.
-  - `derivative = :spectral` takes `ê = −iρ̂/k`, exact for every resolved mode.
-  - The default `:centered` is the 0.1 solver bit for bit, and a test
-    reimplements 0.1 to hold it there.
-  - `generate_solver` remains as a deprecated wrapper.
-  - The verification harness now runs this solver instead of its own copy.
-- **`StrangSplitting.strang_step!(f, scheme_x, scheme_v, cx, cv, ws)`** takes
-  schemes and a workspace from `workspace(scheme_x, scheme_v, f)`, and is the
-  closure form's step to the bit.
-- **`make_time_step_2d!` leaves both arrays holding the step**: `f₂` used to
-  lag `f₁` by the final half step. When `f₂` shares `f₁`'s memory, as in the
-  harness, the transposes are skipped.
-- **`workspace` is defined once, in `Vasilek`**, and the advection,
-  collision, splitting and Poisson modules add methods to it.
-
+  `Vasilek.VlasovPoisson1D1V`; it refuses a non-uniform x grid and fewer than
+  two times. See [the driver notes](docs/src/driver-notes.md).
+- **`verification/landau-damping-1d1v.jl` and `plasma-oscillations-1d1v.jl` run
+  the driver**, and take their spectra from its mode amplitude, where they kept
+  five copies of the loop.
+- **The README says what exists**, 1D1V on static grids, and shows a whole
+  driver run.
+- **The Poisson solver is a value, `PoissonFFT1D(n, Δx)`, with a `workspace`**;
+  `:centered` is 0.1's bit for bit, `:spectral` exact for every resolved mode.
+  See the migration guide's "Poisson".
+- **`strang_step!` took schemes and a workspace**, the closure form's step to
+  the bit; it has since become the split step itself (Breaking).
+- **`make_time_step_2d!` left both arrays holding the step**; it has since gone
+  (Breaking).
+- **`workspace` is defined once, in `Vasilek`**, and every module adds methods
+  to it.
 - **`PFC`'s and `PFCNonUniform`'s bounds check throws `DomainError`**, not
-  `AssertionError`: it is part of the schemes' contract, and `@assert` is a
-  debugging aid that may be compiled out. Code catching `AssertionError` must
-  catch `DomainError`.
-- **`advect!` refuses more wrong calls:**
-  - a `dest` that shares memory with `src`, such as `view(src, :)`
-    (`Base.mightalias`); `===` alone let it through, 0.047 off for `Upwind`;
-  - offset (non-one-based) arrays;
-  - a non-finite Courant number for `SemiLagrangian`, which returned NaN.
-- **Constructors refuse what the schemes cannot use:**
-  - `fmin > fmax`;
-  - non-positive or non-finite cell widths, or fewer than three cells, for
-    `PFCNonUniform`;
-  - a limiter with `Godunov(PiecewiseConstant(), …)`, which ignored it.
-- **Element types are carried through.**
-  - `PFCNonUniform` runs on Float32 data; its limiter was annotated
-    `::Float64` and threw a `MethodError`.
-  - `workspace(scheme, n, T)` builds scratch of element type `T`, and the
-    four-argument `advect!` uses `src`'s. `workspace(BGK(τ), n)` follows `τ`'s
-    type, but `collide!` without a workspace follows the data's, as `advect!`
-    does.
-  - The kernels lost their Float64 literals. Float64 results are bit-identical,
-    as the golden data confirms.
+  `AssertionError`, which may be compiled out.
+- **`advect!` refuses more wrong calls**: a `dest` that may alias `src`, offset
+  arrays, a non-finite Courant number. `test/test_contracts.jl`.
+- **Constructors refuse what the schemes cannot use**: `fmin > fmax`, bad cell
+  widths for `PFCNonUniform`, a limiter with `PiecewiseConstant()`.
+  `test/test_contracts.jl`.
+- **Element types are carried through**: `PFCNonUniform` on Float32 data,
+  `workspace(scheme, n, T)`, no Float64 literals in the kernels; Float64 results
+  are bit-identical.
 - **`Landau1P` is no longer exported from `Collisions`**; reach it as
   `Vasilek.Collisions.Landau1P`.
-
 - **`Godunov(PiecewiseLinear(), VanLeer())` steps 7 to 14 times faster and
-  `Superbee` 6.5 to 11.5 times, to the same bits, and on Julia 1.10 the scheme
-  without a limiter 18 to 42 times.** With `VanLeer` the step cost 14.1 ns per
-  cell on a smooth sine and 7.2 ns on a square pulse, where the scheme without a
-  limiter costs 0.35 ns and `LaxWendroff` 0.28 ns (Julia 1.13, N = 10000). None
-  of that was the limiter's arithmetic. Taking the kernel apart one change at a
-  time, in the order below, put 61% of the step on the sine in two calls per
-  cell, 26% in `≈ 0.0` and 5% in evaluating every flux twice, and left 7%
-  (medians of three processes).
-
-  * **The inliner declined part of the flux.** On 1.13 it declined `_Φ` once a
-    limiter was in it. On 1.10 it declined `_ratio` instead, with or without a
-    limiter, and the call stayed even where `NoLimiter` discards the ratio,
-    because its bounds checks can throw. Either way the loop made two calls per
-    cell, vectorized nothing, and bounds-checked every read inside them, which
-    the loop's `@inbounds` does not reach. On 1.10 that made the unlimited
-    scheme cost 12.0 ns per cell on the sine too. Both functions are
-    `@inline` now.
-  * **`≈ 0.0`.** `_ratio` tested both differences with it. With its default
-    tolerances it is `== 0.0` for every Float64, NaN and ±0 included, but it
-    gets there through `isfinite` tests and a NaN-aware `max`. In the
-    vectorized loop that cost twice the rest of the step. It is `iszero` now.
-    The branches were not the cost: once `≈` was gone, LLVM turned them into
-    selects by itself. They are `ifelse` now so that vectorizing does not rest
-    on that, which measured at most 5% faster.
-  * **Every flux twice.** Each cell evaluated both of its faces, so every
-    face's flux, the limiter's two divisions included, was computed once as
-    one cell's outflow and again as the next one's inflow. The loop now
-    evaluates each face once and carries it to the next cell, which LLVM
-    vectorizes as a first-order recurrence.
-
-  `Godunov(PiecewiseConstant())` keeps a loop that evaluates both faces of
-  every cell. Its flux is one multiplication, and carrying it takes two vector
-  shuffles per four cells, which measured 8% to 27% slower.
-
-  Before and after on Julia 1.13, from six processes each, alternating between
-  master and this change. Each process was pinned to one CPU at high priority,
-  and each entry is the median over processes of the median over five rounds
-  of BenchmarkTools' minimum:
-
-  | ns per cell per step     | sine, N = 512 | sine, 10000 | pulse, 512  | pulse, 10000 |
-  |--------------------------|---------------|-------------|-------------|--------------|
-  | `VanLeer`                | 14.0 → 1.07   | 14.1 → 1.04 | 7.31 → 1.06 | 7.24 → 1.03  |
-  | `Superbee`               | 15.2 → 1.38   | 15.3 → 1.33 | 8.82 → 1.35 | 8.77 → 1.31  |
-  | no limiter               | 0.31 → 0.31   | 0.35 → 0.32 | 0.31 → 0.27 | 0.35 → 0.32  |
-  | `PiecewiseConstant`      | 0.14 → 0.17   | 0.17 → 0.17 | 0.14 → 0.14 | 0.16 → 0.16  |
-  | `LaxWendroff`, untouched | 0.25 → 0.28   | 0.28 → 0.29 | 0.25 → 0.25 | 0.28 → 0.28  |
-  | `Upwind`, untouched      | 0.12 → 0.16   | 0.16 → 0.16 | 0.12 → 0.13 | 0.15 → 0.15  |
-
-  The two controls moved by 0% to +3.4%, except in the first column, where
-  `LaxWendroff` read 11% and `Upwind` 33% slower after. At a fraction of a
-  nanosecond per cell that column is noise, the constant reconstruction's +20%
-  there included: in the same process on Julia 1.10 its kernel measures 0.98
-  of the old one. On Julia 1.10, timed against a verbatim copy of the old
-  kernel in the same process, over six processes, `VanLeer` went from 13.8 to
-  0.95–0.99 ns on the sine (14 to 15 times) and from 6.4–6.5 to 0.92–0.95 ns on
-  the pulse (7 times), and `Superbee` from 17.1 to 1.6–1.7 ns (10 times) and
-  from 10.1 to 1.7 ns (6 times). The unlimited scheme went from 11.8–12.0 to
-  0.28–0.29 ns on the sine and from 5.4–5.5 to 0.29 ns on the pulse. `VanLeer`
-  still costs three to four times the unlimited scheme, and that is the
-  limiter's own arithmetic. Its two divisions are about a quarter of the step,
-  measured by replacing them with multiplications.
-
-  Every output is the same to the bit. `test/data/golden.txt` is unchanged, and
-  `test_golden.jl` passes on Julia 1.10 and 1.13. `test_symmetry.jl` still
-  finds the mirrored Godunov expression exact. A verbatim copy of the old
-  kernel agrees with the new one for all four `Godunov` variants, `Superbee`
-  included, bit for bit, on 5.4 million cells of single steps, on Julia 1.10
-  and 1.13. Those cover both directions, 13 sizes from 3 to 1000, 14 Courant
-  numbers from −1 to 1 including ±0, and data with signed zeros, subnormals and
-  differences that overflow. The two also agree after 500 steps. Given Inf or
-  NaN in the input, both return NaN in the same cells, but the NaN's sign bit
-  can differ; IEEE 754 leaves it unspecified.
-
-  In the work–precision report, at N = 512, the gaussian's and the square
-  pulse's frontiers change. `Godunov`+`VanLeer` now costs 0.68 ms per traversal
-  on the gaussian, down from 8.8 ms, and 0.69 ms on the pulse, down from
-  4.9 ms, which puts it on both: on the gaussian at 9.50e-4, between
-  `LaxWendroff` and `PFC`, and on the pulse at 2.77e-2, a little behind `PFC`'s
-  2.65e-2 at under a third of its cost. `Godunov`+`Superbee` goes from 5.8 ms to
-  0.87 ms on the pulse for 1.58e-2, which takes `PFC` off that frontier. The
-  sine's frontier is unchanged, and so is every error.
-
-- **`FDTD1D` drives only the interior nodes, and the PEC boundaries are
-  written down.** Both ends of the grid are perfect electric conductors: no
-  update touches `ey[1]`, `ez[1]`, `ey[end]` or `ez[end]`, so they hold the zero
-  `YeeMesh1D` gives them. That was already true of the curl loops, but only by
-  omission and nowhere stated — `update_ey!` and `update_ez!` added the current
-  over `1:Nx`, so node 1 was driven while node `Nx+1` was not.
-
-  Injecting a current into a perfect conductor is meaningless, and doing it at
-  one end only broke the symmetry the conserved staggered energy rests on: the
-  discrete curls are adjoint precisely because the boundary terms vanish. The
-  current is now applied over `2:Nx`, exactly the set of dynamic nodes. The
-  arrays still span all `N+1` nodes so they index alongside `f.ey`; their first
-  and last entries are ignored.
-
-  Callers should seed the interior: writing into an end node does not launch a
-  wave, it changes the boundary condition to `E = const`. The convention is now
-  in [docs/src/normalization.md](docs/src/normalization.md) and in the `YeeMesh1D` and
-  `make_advance_fields` docstrings, and the tests assert the observable
-  consequence rather than the loop bounds — a pulse reaching either wall returns
-  inverted, with a measured reflection coefficient of −0.9998.
-
-  No effect on the verification runs: `wakefield.jl` is the only caller passing
-  a nonzero current, and its density profile vanishes at both walls.
-
-- **`advect!` validates its arguments.** Three ways of calling it wrongly used
-  to produce a plausible wrong answer rather than an error, which is the class
-  of failure this package has already paid for twice — the two `PFC` overloads
-  that disagreed by a factor of 740, and the `LaxWendroff` methods that sized
-  their loops from a captured array.
-
-  * `dest === src` is rejected. Every scheme except `SemiLagrangian` and
-    `PFCNonUniform` reads neighbours of `src` that an aliased `dest` has already
-    overwritten — measured 0.013 off for `Upwind`, 0.21 for `PFC`. The two that
-    survived did so by accident of holding a scratch copy, not by contract, so
-    aliasing is rejected uniformly rather than left scheme-dependent.
-  * `length(dest) != length(src)` is rejected. It used to be half-loud:
-    `length(dest) < length(src)` truncated silently in the finite-difference
-    schemes, wrapping periodically at the shorter length, while the other
-    direction threw `BoundsError`.
-  * A workspace of the wrong size is rejected. Undersized already threw;
-    **oversized did not**, and that was the dangerous one — `interpolate!`
-    prefilters the whole buffer, so a `SemiLagrangian` handed a workspace built
-    for a longer line returned garbage (max|Δ| ≈ 0.4) without complaint. The
-    check is exact equality, so a single large workspace can no longer be shared
-    across lines of differing length.
-  * Fewer than three cells is rejected. `Godunov(PiecewiseLinear())` reaches two
-    neighbours either side and threw `BoundsError` at `n = 2` while every other
-    scheme quietly returned a degenerate answer; the floor is now uniform.
-
-  The checks are three comparisons outside the loop with `@noinline` error
-  paths. The allocation gate still reports zero bytes for every kernel.
-
-- **The verification notebooks are runnable scripts.** `.jmd` + Weave becomes
-  Literate-format `.jl` that executes directly and writes its own figures.
-  Removes the Weave dependency and 330 kB of HTML generated in 2021 against
-  code that is no longer in the package.
-- **`wakefield.jl` produces output and is stable.** It used to plot the final
-  snapshot where a time-space matrix was wanted, which never raised because a
-  script never renders. Making it visible showed a peak field of 1.0e22
-  against a source amplitude of 1.0; a missing Δt on the current and a sign
-  taken from the verified longitudinal convention bring it to 0.38.
-
-  It still has **no ponderomotive coupling** -- the laser does not drive the
-  wake, evidenced by the wake coming out bit-identical whether the transverse
-  current is right or wrong by 32 orders of magnitude. Left to the author.
-
-- `Upwind` and `LaxWendroff` reduced to a single numerical kernel each, with
-  both `generate_solver` methods as wrappers. The kernel had been written out
-  twice per module, differing only in whether the Courant number was captured
-  or passed. Output is bit-identical, confirmed by the golden tests.
-
+  `Superbee` 6.5 to 11.5 times, to the same bits**: the flux inlined, `iszero`
+  for `≈ 0.0`, each face evaluated once. `test/test_golden.jl`, `benchmark/`.
+- **`FDTD1D` drives only the interior nodes, and the PEC boundaries are written
+  down**: a pulse reaching either wall returns inverted, at −0.9998.
+  `test/MaxwellSolver/test_fdtd_1d.jl`, `docs/src/normalization.md`.
+- **`advect!` validates its arguments**: an aliased `dest`, unequal lengths, a
+  workspace of the wrong size, fewer than three cells. `test/test_contracts.jl`.
+- **The verification notebooks are runnable scripts**, Literate `.jl` in place
+  of `.jmd` and Weave.
+- **`wakefield.jl` produces output and is stable**, at a peak field of 0.38
+  where the current's bugs gave 1.0e22. See
+  [the laser wakefield](docs/src/verification.md#the-laser-wakefield).
+- `Upwind` and `LaxWendroff` reduced to a single numerical kernel each, the same
+  bits, confirmed by the golden tests.
 - Tests load the package (`using Vasilek`) instead of including source files by
-  relative path and dispatching through `eval`. `src/Vasilek.jl` was previously
-  never exercised by its own test suite.
-- Runtime dependencies cut from nine to four: `FFTW`, `Interpolations`,
-  `LinearAlgebra`, `NumericalIntegration`. `DSP` and `Weave` were imported
-  nowhere; `Plots` only inside dead branches; `BenchmarkTools` belongs to
-  benchmarks. Added the missing `[compat]` section and `[extras]`/`[targets]`.
-- `@fastmath` removed from the advection kernels. Measured at N = 10000 it
-  bought nothing (1.55→1.51 µs, 2.47→2.38 µs, 48.2→48.1 µs) and output is
-  bit-identical, but it licensed LLVM to reassociate floating-point
-  arithmetic — and bit-for-bit reproducibility is what the planned
-  golden-value tests depend on. `@inbounds @simd` are kept.
-- `Limiters` hoisted to the top level; `Godunov` now uses `using ..Limiters`
-  rather than nested-including it, so the test process no longer holds two
-  distinct `Limiters` modules.
-- `StrangSplitting` added to the package include list. It is one of the three
-  features the README advertises and both verification notebooks depend on it,
-  yet it was reachable from neither.
-- `Manifest.toml` is gitignored rather than tracked, as it should be for a
-  library. The previously committed manifest was still in v1.0 format despite
-  the "upgrade to Julia v.1.11" commit, so it never recorded which Julia had
-  resolved it.
+  relative path.
+- Runtime dependencies cut from nine to four, and `[compat]`, `[extras]` and
+  `[targets]` added.
+- `@fastmath` removed from the advection kernels: it bought nothing, and it
+  licensed the reassociation that bit-for-bit tests rule out.
+- `Limiters` hoisted to the top level, so the test process holds one copy.
+- `StrangSplitting` added to the package include list.
+- `Manifest.toml` is gitignored rather than tracked, as for a library.
 
 ### Removed
 
-- **Interpolations as a dependency of the package.** It moves to the test
-  extras, for `test/VlasovSolver/test_spline.jl` to hold the semi-Lagrangian
-  splines to the kernel they replaced. The package's dependencies are `FFTW`
-  and `LinearAlgebra`.
+- **Interpolations as a dependency of the package**; it is a test dependency,
+  for `test/VlasovSolver/test_spline.jl`. The package depends on `FFTW` and
+  `LinearAlgebra`.
 - `StrangSplitting.make_time_step_2d!`, `VlasovPoisson1D1V.line_advector` and
   `VlasovPoisson1D1V.substeps` (now `Advection.substeps`); see Breaking.
-- Five files containing a single no-op function each (`Maxwell1D`, `Maxwell2D`,
-  `Poisson2D`, `Advection2D`, `Landau2P`) and the three `src/Mesh` types — bare
-  structs with untyped fields, referenced by nothing and absent from the include
-  list. A typed grid abstraction belongs with the 2D work.
-- The `plot_needed` / `plot!` machinery in tests. Never exercised, and the only
-  reason the test environment needed Plots and GR.
+- Five files holding a no-op function each and the three untyped `src/Mesh`
+  types, referenced by nothing.
+- The `plot_needed` / `plot!` machinery in tests, the only reason the test
+  environment needed Plots.
 
 ### Fixed
 
-- **`vlasov_poisson` runs in the data's type, `T = float(eltype(f₀))`.**
-  Under Float32 `f₀` the field and the density took the grids' type, the
-  default ions and so the charge were Float64, `E_modes` was `ComplexF64`, and
-  the histories took the type of `t` (`similar(t)`): Float32 data with Float64
-  times gave Float64 histories, and Float64 data with Float32 times Float32
-  ones. All of them are now `T`, and `E_modes` is `Complex{T}`. The cell
-  widths stay `T` or a grid's own type where that is wider, and the density,
-  the ions and the charge follow the widths: given ions are converted to the
-  widths' type.
-  - **Float32 data on Float64 grids keeps its density in Float64**, summed
-    and cancelled against the ions as `sum(ft .* Δv, dims = 1)` did. Summed
-    and cancelled in Float32, `ε_e` of a Float32 Landau run on Float64 grids
-    was 1.2e-5 of its peak from the Float64 run's, 13 times the 8.6e-7 it
-    had been; in Float64 it is 9.0e-7. The field solve then holds a matrix the
-    size of `f` in the widths' type, of its own.
-  - **The lines are still worked in Float64 under Float32 data**, the default
-    schemes and the step's line buffers alike, as the previous change made
-    them. Worked in Float32, a plateau with smooth sides and an edge down to
-    0, all in Float32, stopped with a `DomainError` in 13 of 24 runs of 40
-    steps, each on a cell rounded to −1.0e-45, one subnormal below the
-    defaults' `fmin = 0`. Worked in Float64, none of 240 runs over five
-    profiles, with and without `BGK`, stopped. `test_driver.jl` runs one of
-    those that stopped, and holds the defaults to `PFCNonUniform{Float64}`.
-  - The all-Float32 Landau run of `test_driver.jl` now matches the Float64
-    one to 7.7e-7 of the peak in `f` and 6.9e-6 in `ε_e` on Julia 1.13, 1.2e-6
-    and 3.3e-6 on 1.10, where it read 6.9e-7 and 8.3e-6 against Float64 ions.
-    The test's bounds, 1e-5 and 1e-4, stay.
-  - Float64 data on a Float32 x grid solves its field in Float64 now: `ε_e`
-    moves by 8.8e-9 of its peak on a 50% Landau run of 30 steps, and `f`
-    does not move.
-
-- **`PFC` keeps a line that sits at its upper bound.** It updated a cell as
-  `(f + Φin) − Φout`, the form `PFCNonUniform` dropped (see "The default
-  schemes keep a line that sits at their upper bound" below). On a constant
-  line the two fluxes are equal to the bit, but the two roundings still left a
-  cell one ulp above `f`. From a constant line at the waterbag's `fmax`,
-  0.2631…, 320 of 2001 Courant numbers across `[−1, 1]` did it, and the next
-  checked call refused the line with a `DomainError`. The driver's defaults
-  are not `PFC`, but a `PFC` given for a direction in which `f` is constant,
-  for example `f -> PFC(fmin = 0.0, fmax = maximum(f))`, could stop a run.
-  - A cell now takes `f + (Φin − Φout)`, the difference of the fluxes through
-    its two faces, which is zero on a constant line. None of the 2001 Courant
-    numbers moves the line. `test_contracts.jl` advances lines at 0.7 and
-    1/√(2π) at 401 Courant numbers each and asks for them back to the bit; the
-    old kernel left a cell above at 42 and 108 of them.
-  - `test/data/golden.txt` is regenerated for `PFC`: 39 of its 64 values move,
-    by at most 6.2e-16 relative. The other nine lines are unchanged bit for bit.
-  - In `test_nonuniform_advection.jl`, `PFCNonUniform` on a uniform grid and
-    `PFC` now differ by at most 1.1e-16, from 2.2e-16.
-
-- **The default schemes keep a line that sits at their upper bound.**
-  `vlasov_poisson` stopped a waterbag that is uniform in x with a `DomainError`
-  on its first step: on the Landau x grid of `test/test_driver.jl`, one cell came
-  out one ulp above `fmax = maximum(f)`. A constant `f` with `nᵢ` given stopped
-  the same way.
-  - The cause: `PFCNonUniform` added a cell's inflow, then subtracted its
-    outflow, `(f + Φin/Δx) − Φout/Δx`. On a constant line the two fluxes are
-    equal to the bit, but the two roundings still left a cell an ulp above `f`.
-    That happened in 691 of the 2406 cases (line, bound and displacement) now
-    in `test_nonuniform_advection.jl`, uniform grids included.
-  - A cell now takes `f + (Φin − Φout)/Δx`. A constant line stays constant to
-    the bit, and the waterbag stays an equilibrium to the bit.
-  - A plateau at the bound with smooth sides, `0.25*min(1, 1 + 0.01cos(kx))`
-    over `|v| < 2`, also used to stop. It now runs 200 steps with its maximum
-    held to the bit.
-  - Every other `PFCNonUniform` result moves at rounding level: at most 8.7e-15
-    of the peak of `f` after 300 steps of a 50% Landau run. The golden values
-    hold no `PFCNonUniform` case and do not move.
-
-- **`cell_widths` keeps a Float32 grid Float32**; a `0.5` made Float64 of it.
-- **`vlasov_poisson` runs grids and data of other types**: its widths follow
-  the data, `promote_type` of `f₀`'s float type and the grids', and its default
-  schemes work in Float64 at least, as `line_advector` now does the line. Built
-  in a Float32 grid's type, the defaults stopped runs. Under Float64 `f` the
-  Float32 `fmax = maximum(f)` cut into the peak, or the Float32 accumulator
-  rounded the peak past the other default's exact bound: 45 of 54 realistic
-  profiles on a Float32 x grid ended in a `DomainError`, and those that ran had
-  `f` rounded to Float32 every sub-step, the mass drifting 3.3e-8. All in
-  Float32, a two-stream's flux sum at its peak landed an ulp above `fmax` in
-  208 of 540 runs. A Rational v grid was a `MethodError`, a Float16 one a
-  `DomainError`. Float64 runs are bit for bit as they were.
+- **`vlasov_poisson` runs in the data's type, `T = float(eltype(f₀))`**: field,
+  density, histories and `E_modes` follow it, and the lines are worked in
+  Float64. `test/test_driver.jl`.
+- **`PFC` keeps a line that sits at its upper bound**: a cell takes
+  `f + (Φin − Φout)`, zero on a constant line, so the next checked call no
+  longer refuses it. `test/test_contracts.jl`.
+- **The default schemes keep a line that sits at their upper bound**:
+  `PFCNonUniform` takes `f + (Φin − Φout)/Δx`, and a waterbag stays an
+  equilibrium to the bit. `test/VlasovSolver/test_nonuniform_advection.jl`.
+- **`cell_widths` keeps a Float32 grid Float32.**
+- **`vlasov_poisson` runs grids and data of other types**: the widths follow the
+  data, the default schemes work in Float64 at least, and Float64 runs are as
+  they were to the bit. `test/test_driver.jl`.
 - **`PFCNonUniform` rounds its bounds outward** to its element type, and
-  `keeps_bounds` compares in it: a Float32 partner built on `maximum(f)` of
-  Float64 data was refused as unbounded or stopped on its first step, as the
-  rounding went.
-- **`PFC{T, Checked}` and `PFCNonUniform{T, Checked}` refuse a `Checked` that
-  is not a Bool**: `PFC{Float64, 3}` constructed, then failed its first step
-  with a `TypeError`. **They also check what the keyword constructors check**,
-  every scheme being built through them: `PFC{Float64, false}(2.0, 0.0)`
-  built, and a `PFCNonUniform` given a `Δxmin` of 1.0 over cells of 0.05 took
-  20-cell steps, from data in [0.5, 1.5] to [-1.02, 3.02], without an error.
-- **`collide!` refuses a `src` sharing its workspace**: `BGK` writes its
-  Maxwellian and moments there first, and returned the Maxwellian alone, 0.08
-  from the step, or through `moment` 0.64 off. Its docstring asks for the
-  workspace in `float(eltype(src))`, which it had given as the operator's type.
-- **A scheme that takes no workspace refuses one**: `Upwind` accepted another
-  scheme's and ignored it.
+  `keeps_bounds` compares in it.
+- **`PFC{T, Checked}` and `PFCNonUniform{T, Checked}` refuse a `Checked` that is
+  not a Bool**, and check what the keyword constructors check.
+- **`collide!` refuses a `src` sharing its workspace**, which returned the
+  Maxwellian alone.
+- **A scheme that takes no workspace refuses one.**
 - **`advect!` refuses a workspace whose buffer shares memory with `dest` or
-  `src`**: a spline buffer as `dest` came back 0.014 off, and `PFCNonUniform`'s
-  accumulator as `src` 0.21. A workspace type with no `_scratch_aliases`
-  method of its own is a `MethodError`, not taken as sharing nothing.
-
-- **Tests that could not fail now test the code.**
-  - The `Landau1P` kernel antisymmetry compared a kernel defined in the test
-    file with itself, which is zero in IEEE arithmetic whatever the operator
-    does. `collide!` is now held to the operator written out from its
-    docstring, on a skewed line, and to parity on a symmetric one.
-  - Scheme values were compared with their `deepcopy`, which for an isbits
-    value is itself. They are now asserted `isbitstype`, and a size used in
-    between leaves an answer alone.
-  - `bump_on_tail_root(k; Δx = 0.0) == ω` was one call made twice. It is now
-    continuity in `Δx`.
-  - "Dissipation and dispersion" asserted properties of this file's closed
-    forms. It now takes `g` from one step of each kernel.
-- **The extended suite's skip is a `@test_skip`, not `@test true`**, so a run
-  that lost `VASILEK_EXTENDED` on the way shows Broken instead of passing.
-- **Fragile checks loosened to what they mean.** The quadratic and cubic
-  `SemiLagrangian` golden values are held to 1e-13 relative, because their last
-  bits belong to Interpolations' prefilter. The allocation gate allows one
-  boxed value of difference between N and 4N.
-- **The harness:**
-  - `zero_crossings` counted a crossing that lands exactly on a sample twice,
-    and a run of zeros gave NaN.
-  - `wakefield` drove the laser one Δt ahead of its own clock.
-  - The reversibility test took its reference normalisation from the result it
-    was checking.
-- **The driver's docstring says when the invariants are sampled**: at the end
-  of each step, half a step after the field.
+  `src`.** `test/test_contracts.jl`.
+- **Tests that could not fail now test the code**: the `Landau1P` antisymmetry,
+  scheme values against their `deepcopy`, a root against itself, the dissipation
+  symbols against their own closed forms.
+- **The extended suite's skip is a `@test_skip`**, so a run that lost
+  `VASILEK_EXTENDED` shows Broken.
+- **Fragile checks loosened to what they mean**: the allocation gate allows one
+  boxed value between N and 4N. The spline golden rows, loosened then, are held
+  to `==` since (Changed).
+- **The harness**: `zero_crossings` counted an exact zero twice, `wakefield`
+  drove the laser one Δt ahead of its clock, and the reversibility test
+  normalised by its own result.
+- **The driver's docstring says when the invariants are sampled**: at the end of
+  each step, half a step after the field.
 - The test files calling `norm` import it, so each runs on its own.
-
-- **The z-polarised FDTD source launched its pulse into the absorbing layer**
-  (`FDTD1D.make_advance_fields`). It injected `hy` with the sign of `hz`, but
-  `(ez, hy)` mirrors `(ey, −hz)`, so all but 0.8% of a z pulse went left and
-  was absorbed. Now both polarisations launch rightwards, bit-identically.
-- **`workspace(BGK(τ), n)` was a `MethodError`**: `Collisions` defined a second
-  `workspace` the exported name never reached. It now extends
-  `Advection.workspace`; the migration guide's example runs.
-- **`BGK` filled an empty velocity line with NaN** (`n = 0`, as in vacuum) and
-  equally one with `T = 0`. Such lines now pass through unchanged, as does any
-  line colder than the grid resolves (`T < Δv²`): a single-node spike off a
-  dyadic node has `T` near 1e-34 rather than 0, and relaxed into a 1e14 spike.
-- **`PML` coefficients**: `r₂` is taken through `expm1`, so it no longer cancels
-  for small `σΔt` (σ_max = 1e-9 gave 0.4974 for 0.5) and is `Δt/Δx` rather than
-  NaN at `σ_max = 0`. Negative `N` or `σ_max` are refused.
-- **`make_advance_fields` refuses inconsistent arguments**: `cfl` must equal
-  `Δt/Δx` (the interior used one, the layer the other), and the mesh must hold
-  both layers. Its docstring now says what `pulse_shape` and `x_min` are.
-- **The harness's Poisson solve threw on about a quarter of grids**
-  (`test/verification_harness.jl`): its wavenumbers came from a float range
-  whose length rounds. It now uses `rfftfreq`, and a test runs it over every
-  `Nx` in 8:512 against `PoissonFourier1D`.
-
-- **The verification environment can load the harness again**
-  (`verification/Project.toml`). The charge-rescaling fix below dropped
-  `NumericalIntegration` from it. The two scripts with their own loops had
-  stopped calling `integrate`, but the harness they share has not: the
-  wakefield driver still integrates over `p`, and the harness loads the package
-  on its first lines. Every study that includes the harness then failed in a
-  fresh environment, with `Package NumericalIntegration not found` -- measured
-  on `two-stream.jl` -- and can only have run where the package was reachable
-  some other way, such as a default environment that has it. It is back in
-  `[deps]` and `[compat]`, as it was before.
-
-- **The charge rescaling is the sums the solver conserves**
-  (`test/verification_harness.jl`, and the two verification scripts with their
-  own loops). Without `nᵢ`, `vlasov_poisson` rescales `f` on entry to the ions'
-  charge, and it took both charges by the trapezoid over `x`, which on the
-  periodic grid halves the two end points. That is exact for proportional
-  profiles only. `M(v)(1 + α cos kx)` is not one, and the trapezoid scaled it by
-  `≈ 1 + α/(Nx − 1)`: 7.9e-3 at α = 0.5 on 64 cells, 1.6e-4 at α = 0.01, and
-  `ωₚ²` by the same. It also rescaled again on every restart, where the flux
-  form had kept the mass. The charges are now `Σ f ΔvΔx` and `Σ nᵢ Δx`, and the
-  default `nᵢ` is the Maxwellian's `Σ M Δv`, the same sum over `v` the field is
-  solved from. The factor is 1 to round-off on every uniform-background run and
-  on every restart, and to 3.8e-15 on the `bgk_equilibrium` pair, where the
-  trapezoid's was 1 − 1.9e-3.
-
-  What moved. Master reproduces every old figure below, so each was measured on
-  both sides:
-
-  * **The refinement ladder at k = 0.5**, errors in γ for Nx = 32 to 256:
-    `PFC` 6.42%, 1.31%, 0.61%, 0.47% → 6.47%, 1.33%, 0.71%, 0.47%; `VanLeer`
-    +7.69%, +1.43%, +0.52%, +0.43% → +7.73%, +1.45%, +0.53%, +0.44%; Superbee
-    −2.60%, −0.39%, −0.68%, +0.13% → −2.58%, −0.21%, −0.67%, +0.13%. The 128
-    rung moves most, although its factor was only 1 + 7.9e-5: applying that
-    factor by hand to the fixed driver gives the old 0.15430 back exactly.
-  * **`verification/scheme-comparison.jl`**: Superbee 0.39% → 0.21%,
-    `LaxWendroff` 0.64% → 0.67%, cubic `SemiLagrangian` 1.07% → 1.09%, `PFC`
-    1.31% → 1.33%, `VanLeer` 1.43% → 1.45%, the first-order rows 48.79% →
-    48.82%. At 50% amplitude the cubic spline's minimum is −0.105 where it was
-    −0.098.
-  * **Strong Landau damping, α = 0.5**: γ₂ 0.0789 → 0.0787 on 128 × 241, and
-    0.0716 → 0.0714 and 0.0814 → 0.0813 at half and twice the resolution; γ₁
-    0.2794 → 0.2819 at half the resolution. The non-uniform velocity grid
-    agrees with the uniform one to 0.06% and 0.5% (were 0.05% and 0.6%). Its
-    field no longer crosses the velocity Courant limit on the first step: it
-    peaks at 0.9938 of a narrow cell, where it asked for 1.0017 with `f` 0.79%
-    too large, so `line_advector` now splits no call on that run.
-  * **Time reversal at α = 0.5**: 0.164 → 0.156 became 0.167 → 0.157, and the
-    ranking reads `LaxWendroff` 0.090, cubic `SemiLagrangian` 0.108, `PFC`
-    0.167, Upwind 0.332. Upwind's error is 1.98 times `PFC`'s where it was
-    2.03, so the test asks for 1.8 times, not 2. At α = 0.05 the ratios are 4.3
-    and 4.1 (were 4.4 and 4.1).
-  * **Smaller moves**: the Landau rates at k = 0.3 and 0.5 read 0.70% and 0.95%
-    off (were 0.71% and 0.94%), the k = 0.3 window spread 0.17% (0.18%), two
-    arrest times 113.2 and 35.5 (113.1 and 35.4), the field-on echo's peak 0.48%
-    low (0.47%), the plasma oscillation's swing 6.6e-5 (6.0e-5), and the
-    two-stream rates by at most 4.3e-4 of themselves: 3.12% → 3.16% at a = 1.0,
-    whose spread over `hi` is now −6.05% to −3.16%, and +0.31% → +0.30% against
-    the cold root at a = 0.8.
-
-  `the ions it is handed are the ions it keeps` pinned the trapezoid's 1.9e-3.
-  On the matched pair the rescaling now does nothing, so the test hands the
-  driver ions with 1% more charge than `f`: the default keeps `f₀`'s mass, and
-  forcing the rescaling gives 1.01 of it.
-
-- **What the charge fix moved that the entry above does not list, and quotes
-  that were stale before it** (`test/test_verification.jl`,
-  `test/verification_harness.jl`, `verification/scheme-comparison.jl`,
-  `verification/two-stream.jl`, `README.md`, and this file). A new assertion
-  pins the strong-damping test's α = 0.5 seed: one step in, its flux-form mass
-  is its own to 4e-15, where the trapezoid made it 0.39% more on those 128
-  cells.
-
-  Moved by the fix, measured on master before it and after, with the value
-  before in brackets:
-
-  * the local damping rates of the k = 0.3, α = 1e-2 run, .0120 at t = 41 and
-    −.0035 at t = 84 (.0119, −.0036);
-  * the recurrence run's least amplitude of the seeded mode, 1.0e-8 (8.7e-9),
-    and the round-off its harmonic starts from, which the table now quotes as
-    CI prints it, 6.25e-17 (8.18e-17), and without bounds checking, 3.81e-17
-    (2.63e-17);
-  * the field-on echo's residual at Nx = 128, 4.84e-3 of the peak (4.80e-3),
-    3.3 times under Nx = 64's (3.4), and the run's peak, 2.373e-4 (2.374e-4);
-  * the last `ε_e` of the stable two-stream run at a = 1.6, 1.1e-9 (1.2e-9);
-  * the α = 0.5 round trip, 17% of the peak at Nx = 64 (16%), and Upwind's L²
-    loss there, 4.5 times `PFC`'s (4.4);
-  * the two-stream beams' density once rescaled: 1 − 1.7e-9 at a = 0.4 to 1.0,
-    where the trapezoid left 1 + 1.1e-5 to 1 + 2.7e-5. Across the a = 0.6
-    temperature scan the rates moved by 6.6e-6 to 7.9e-6 of themselves, which
-    `growth_rate`'s docstring now quotes in place of an estimate;
-  * figures quoted again elsewhere: the two negative minima at 50% amplitude
-    in the cross-scheme entry, −0.093 and −0.105 (−0.094 and −0.098), and the
-    a = 0.8 band fit in `growth_rate`'s docstring and the two-stream entry,
-    +0.30% (+0.31%).
-
-  Stale before the fix, with what master read then in brackets:
-
-  * the window sweep in `damping_rate`'s docstring, 0.14837 to 0.15755 fitting
-    every sample and 0.15451 to 0.15571 through the maxima (0.14824 to 0.15525
-    and 0.15439 to 0.15532); it reads 0.14840 to 0.15526 and 0.15442 to 0.15536;
-  * the 1% Landau runs' window spreads, 0.43% at k = 0.5 and 1.45% at k = 0.3
-    (0.16% and 1.46%; now 0.16% and 1.47%), and that k = 0.3 run's "0.42% low"
-    (0.38%; now 0.35%);
-  * the recurrence's point ratio, "between 20 and 520" (2.6 to 430 over
-    t ∈ [62, 66]; now 2.6 to 420), and this file's "at t = 64 the harmonic is
-    42 times" the seeded mode, which is not what the test compares: over
-    t ∈ [58, 72] the harmonic's peak is 21 times the seeded mode's;
-  * the echo's residual at Nx = 128, "4.81e-3" (4.80e-3), and "cutting α
-    tenfold moves it by 3e-5" (2.6e-4; now 2.3e-4);
-  * Upwind's L² loss, "four times" `PFC`'s (4.4);
-  * `two-stream.jl`'s peel of "18.0x" at a = 0.8, which is 17.95 and rounds to
-    17.9;
-  * the README's "`LaxWendroff` and cubic `SemiLagrangian` lead", out of date
-    since Superbee, which leads from below at 0.21% (0.39%).
-
-- **The energy histories are the sums the schemes conserve, and taken at one
-  instant** (`test/verification_harness.jl`, `test/test_verification.jl`, and
-  the two verification scripts with their own loops). `vlasov_poisson` summed
-  `ε` and `ε_e` by the trapezoid over `x`, which on the periodic grid halves the
-  two end points and leaves out the cell between them. A standing wave has a
-  node there and barely notices. A travelling wave crosses it, and the trapezoid
-  books the crossing as energy: on the bump-on-tail instability of Arber and
-  Vann, seeded at 1e-6 on 64 × 361 cells, where `ε` is 61.8, it swung by −0.346
-  to +0.175 over t ∈ [60, 100], and by −0.185 to +0.093 at Nx = 128, first
-  order in Δx. The energies are now `Σ f v² ΔvΔx + Σ e² Δx`, the weights the
-  invariants already used, and the same run drifts by 9.7e-3 and 1.0e-3. The x
-  half-steps alone moved the trapezoid's kinetic energy by up to 3.9e-4 of it
-  per half-step, where they cannot move the kinetic energy at all.
-
-  The kinetic energy was also taken at the wrong instant: after the step, while
-  the field is solved mid-step, before the velocity kick. The x half-steps leave
-  the sum alone (2.4e-16 per half-step at worst), so the two differed by half
-  the kick's work, an error first order in Δt that oscillates with the power the
-  field exchanges with the particles. With the sums but after the kick, the
-  bump-on-tail's energy still wandered over 1.5e-2 at Nx = 128, halving with
-  Δt. The kinetic energy is now the mean of the two sides of the kick, so `ε` is
-  sampled at `t[k] + Δt/2` as `ε_e` is.
-
-  What moved:
-
-  * **The Galilean test.** Its boosted mode travels, and its fitted damping rate
-    read 0.136% off the rest frame's; it reads 0.014%. The tolerance is now 0.1%
-    where it was 0.5%, which the trapezoid fails.
-  * **Plasma oscillations.** Over t ≤ 3000 the drift reads 0.379% where it read
-    0.381% on the uniform grid, and 4.75% where it read 4.85% on the non-uniform
-    one. Within a plasma period `ε` swung by 1.7e-3 of itself, 1.2e-3 of that
-    the kick's timing, and now moves by 6.0e-5; the test asserts under 3e-4.
-    The agreement at t = 3000 was a point on that swing landing near the drift.
-  * **Fits to a standing wave's `ε_e`** — the Landau rates, frequencies and
-    window spreads, the trapping arrest times, the strong-damping rates over
-    every window quoted, the Bohm–Gross frequency — move in the fourth
-    significant figure at most, and no figure quoted for them changes. The
-    coarsest rung of the k = 0.5 refinement ladder moves more: 6.41% → 6.42%
-    for `PFC`, 7.76% → 7.69% for `VanLeer`, −2.41% → −2.60% for Superbee. The
-    two-stream rates move by 5.4e-5 of themselves at most, which moves three
-    roundings: −0.62% → −0.63% at a = 0.4, 3.14% → 3.15% from the cold root
-    at a = 0.6, and 0.09516 → 0.09517 at a = 1.0. On the stretched velocity
-    grid the split steps still move γ₁ in the sixth digit, and now γ₂ in the
-    seventh. The first-order schemes in `verification/scheme-comparison.jl`
-    read 48.79% off where they read 48.80%.
-  * **`wakefield`** takes the same sums: its `x` grid wraps too, since `PFC` and
-    `PoissonFourier1D` are both periodic. Its seam starts in vacuum, and the
-    change moves `Δε/ε` by 2.3e-5.
-  * **The verification scripts** `plasma-oscillations-1d1v.jl` and
-    `landau-damping-1d1v.jl` carry their own Strang loops and now take the
-    energies the same way. The first says 4.75% for the non-uniform grid, where
-    it said "about 12%", a figure stale since the limiter became per-cell.
-
-  Two stale quotes turned up on the way. The two-stream stable cases were set
-  against "2.0e8 at a = 0.6", from when that run went past its velocity Courant
-  limit unchecked; it is 1.6e5. And this file's temperature scan of the
-  two-stream rate read −2.38% and −2.11% at `vt` = 0.2 and 0.15, which is what
-  those runs give with the explicit bound of 3 they had before PFC's bound came
-  from `f` (reproduced); with the bound from `f` they read −2.32% and −2.10%.
-
-- **`PFCNonUniform` checks its data against its bounds, as `PFC` does**
-  (`src/VlasovSolver/Advection.jl`, `test/test_contracts.jl`). It takes the same
-  `fmin` and `fmax` and builds them into the same limiter — its `ξ(fmax − f)`
-  turns negative above `fmax` — but it never looked at the data, so data outside
-  the bounds was not clipped but corrupted, with no error. That is how the
-  harness's old bound of 1 took an equilibrium peaking at 1.79 to 43.6% of its
-  peak away from itself (below). It now has `PFC`'s `checked` keyword and type
-  parameter, on by default, and runs `PFC`'s own assertion — one function for
-  both, so the two refuse the same data with the same message. The old bound on
-  that equilibrium is refused on the first call; built with `checked = false`
-  the scheme runs it to the same 43.6%, and the extended suite asserts both.
-  Existing calls `PFCNonUniform(Δx; fmin, fmax)` keep working, checked, and
-  still infer to a concrete type, which took `@constprop :aggressive` on the
-  constructor: without it the default never reached the type.
-
-  The fast suite runs `PFC`'s bounds tests over again for it, and adds the
-  damage: one unchecked step from a peak of 5 against `fmax = 2` lands 0.048
-  from the same step bounded at 5, and conserves mass to round-off, so a mass
-  check downstream would pass it.
-
-  The cost, measured as for `PFC` — one call at N = 10000, checked against
-  unchecked — is 5% of the step on Julia 1.13 and 10% on 1.10. Measured
-  alongside it, `PFC`'s is 7% and 17%, where its docstring said 13%: the pass is
-  `minimum` and `maximum`, which 1.10 runs two and a half times slower, so both
-  docstrings now name the version. Each figure is a median over six processes.
-  Within one process a kernel timed against itself agrees to 0.2%, but the
-  check's share moved from one process to the next, 4.5% to 6.2% for this one
-  on 1.13.
-
-  Every run in both suites stays inside its bounds on every call, sub-steps
-  included: over the two-stream cases, carried past their velocity Courant
-  limits into saturation, and the three equilibria, 3.8 million calls and not
-  one out of bounds, not even by round-off. That rests on the Courant bound
-  below. Before it, the harness handed the velocity sweep whole steps past one
-  cell, and the check caught what that did: the `a = 0.6` run crossed its limit
-  at t = 21.1, and at t = 22.0, with the Courant number at 1.41, handed the
-  scheme f = −5.5e-20, then −3.9e-3 by t = 23.4 -- no rounding tolerance would
-  have let it through. With the bound, `line_advector` splits such a step into
-  sub-steps that fit, and those stay inside.
-
-- **A non-positive scheme given for one direction, with the other left to its
-  default, stopped the run mid-way with a `DomainError`; it is now refused
-  before the first step** (`src/VlasovSolver/VlasovPoisson1D1V.jl`,
-  `test/test_driver.jl`). The default is a `PFCNonUniform` on `[0, maximum(f)]`,
-  and since it checks its data (above) it stops the run at the first line handed
-  to it outside those bounds. A scheme that does not keep them hands it one
-  sooner or later. At 50% amplitude on one wavelength of `k = 0.5`, 64 × 121
-  cells over ±6 with Δt = 0.05, `LaxWendroff` in `v` handed it `f = −1.9e-9` on
-  the 16th step and the cubic `SemiLagrangian` −7.0e-10 on the 21st. In `x` the
-  two stopped on steps 63 and 182, and the quadratic spline on the 4th, past the
-  maximum. Collisions do not save them. With `BGK(1.0)` in the step,
-  `LaxWendroff` stopped on the 2nd step, past the maximum by 2.5e-7 of it, and
-  the cubic spline on the 22nd, where the defaults alone, with the same
-  collisions, run all 1000 steps inside their bounds. The check does not reach
-  the collisions themselves, which can raise `f` past `maximum(f)` on their own;
-  the next entry lifts the defaults' upper bound when they are present.
-  `verification/scheme-comparison.jl` never met it, because it passes the same
-  scheme for both directions, and given both the driver checks neither. Such a
-  call is now an `ArgumentError` that names the scheme, the default it cannot
-  partner and the way out, which is to pass both schemes.
-
-  `keeps_bounds(scheme, lo, hi)` decides, by type. It passes the schemes that
-  keep their data between its own extrema -- `Upwind`, `Godunov` with a constant
-  reconstruction or a limiter, the linear `SemiLagrangian` -- and a `PFC` or
-  `PFCNonUniform` bounded inside `[0, maximum(f)]`, as
-  `f -> PFC(fmin = 0.0, fmax = maximum(f))` is. It refuses `LaxWendroff`,
-  `Godunov(PiecewiseLinear())` without a limiter, the quadratic and cubic
-  `SemiLagrangian`, a `PFC` bounded wider, and any type it does not know. The line
-  it draws was measured over 10080 runs of 20 steps on rough data in `[0, 1]` --
-  random, a quarter of it zeroed, a step down to 1e-9, spikes on a floor of
-  1e-300, a Maxwellian -- with every scheme on the same data at twelve Courant
-  numbers across `[−1, 1]`:
-
-  | scheme | below 0 | above the initial maximum |
-  |---|---|---|
-  | `Upwind` | never | never |
-  | `Godunov`, constant, `VanLeer` or `Superbee` | never | 7.5% of runs, by 7.3e-16 of it at worst |
-  | linear `SemiLagrangian` | never | 0.1%, by 1.6e-16 |
-  | `PFC` or `PFCNonUniform` on `[0, max]` | never | 5.0%, by 6.7e-16 |
-  | `PFC` on `[0, 1.5 max]` | never | 27%, by 0.115 |
-  | `LaxWendroff`, `Godunov(PiecewiseLinear())` | 64%, by 0.33 | 29% and 31%, by 0.21 |
-  | quadratic and cubic `SemiLagrangian` | 63% and 62%, by 0.26 | 44% and 45%, by 0.24 |
-
-  The round-off at the maximum is not the mixing's: `PFC` does the same to its
-  own `fmax`, so the default meets it whatever partners it, and no run in either
-  suite does.
-
-  Two other ways of letting these calls run were measured and rejected.
-
-  * **Leaving the default's bounds unchecked** keeps a limiter that data outside
-    its bounds turns inside out. Below `fmin`, `ξ(f − fmin)` goes negative and
-    reverses the slope it was to limit. On the case above with `LaxWendroff` in
-    `v`, `f` ends 16% of the peak away from the same run with no bounds at all
-    (11% with the cubic spline). Its mass still holds to 2.8e-16 and its minimum
-    is −0.041 against −0.104: corrupted, and looking the better for it.
-  * **Dropping the default's bounds**, `fmin = -Inf, fmax = Inf`, leaves PFC's
-    reconstruction with nothing to limit it, which takes anything and runs. But
-    it is not the default the docstring documents, and its effect would be
-    booked to the scheme the caller passed. It also changes what calls that ran
-    measure. On the 1% Landau case of `verification/scheme-comparison.jl`,
-    `scheme_x = LaxWendroff()` reads γ 0.156% above the root with the default `v`
-    bounded and 0.289% with its bounds dropped. `scheme_v = LaxWendroff()` there
-    does not move at all, to the bit, since at 1% the x limiter never engages.
-
-  The price of refusing is that calls that ran are refused. On that 1% case,
-  where `f` comes no nearer 0 than 1.3e-4, `LaxWendroff`, the unlimited `Godunov`
-  and the cubic spline stay inside the bounds in either direction and ran to the
-  end. That was the problem's doing rather than the call's: at 50% the same
-  calls stop. A check made before the run sees only the call. Each comes back by
-  passing the other scheme too. It can be the same one, or a `PFCNonUniform` with
-  no bounds, as the message suggests. It can also be the default itself,
-  `f -> PFCNonUniform(cell_widths(x); fmin = 0.0, fmax = maximum(f))`: given, it
-  is not checked, and it runs exactly as before, to the end at 1% and to the
-  16th step at 50%. Nothing that runs computes anything it did not compute
-  before. 30 runs of 375 and 400 steps on the two cases are the same to the bit:
-  the defaults, with and without `BGK`, `LaxWendroff` in both directions, and
-  every accepted scheme given alone in either.
-
-  `test/test_driver.jl` refuses both of the calls above, in a one-step run as
-  well, which the old failure could not reach. It does so in either direction
-  and with collisions, and for a wider `PFC` and a scheme type of its own. It
-  runs the suggested partners past the step that stopped the default, and
-  checks the classification against a square pulse: the accepted schemes stay
-  inside `[0, 1]` and the refused ones leave it by 0.16 to 0.24.
-
-- **With `collisions`, the driver's defaults stopped valid runs at the
-  initial maximum of `f`; their upper bound is now lifted**
-  (`src/VlasovSolver/VlasovPoisson1D1V.jl`, `docs/driver-notes.md`,
-  `test/test_driver.jl`, `test/test_verification.jl`,
-  `verification/collisional-damping.jl`). The
-  defaults are a `PFCNonUniform` on `[0, maximum(f)]`, the bounds Liouville's
-  theorem keeps; collisions do not keep the upper one, since BGK relaxes a line
-  towards a Maxwellian whose peak can sit above the line's. Measured at the old
-  bound, each a `DomainError` from inside the step:
-  - a line flat over |v| < 2 under `BGK(0.1)`, on the 1st step at 0.4165
-    against 0.3846, 8.3% above;
-  - the sampled Maxwellian at ν = 1 on ±4 peaked 2.2% above, on the first
-    step, which `test_verification.jl` asserted as a `DomainError` and
-    `verification/collisional-damping.jl` worked around with 50% of headroom;
-  - a `Superbee` v sweep, which the check above passes, under `BGK(1.0)` on the
-    50% Landau case, on the 2nd step at 5.4e-8 of the bound above it.
-
-  With `collisions` the defaults are now `fmin = 0.0, fmax = Inf`, and a scheme
-  given alone is checked against `[0, Inf]`. The lower bound stays: the BGK
-  update `src·e + (1 − e)·M` keeps a positive line positive. A bound that ends
-  no run still clips the reconstruction in the peak cell, so the collisional
-  numbers move slightly: γ by up to 3e-5 (0.13408 → 0.13409 and 0.10737 →
-  0.10738 at ν = 0.1 and 0.3; +0.48% → +0.49% and +0.75% → +0.76% against the
-  root at ν = 0.3 and 1), the heat mode 0.43383 → 0.43377 (0.033% → 0.019% from
-  its root), and the Krook-with-drift operator's ω +0.04% → −0.10% from its
-  own root. Energy holds better: at ν = 1 the drift goes from 1.4e-7 to 8.0e-9
-  on ±8 and from 2.1e-7 to 8.0e-8 on ±4. Collisionless runs are unchanged.
-  In the same change the collision workspace takes the element type of `f`
-  rather than the operator's: `BGK(0.5f0)` on Float64 data stored its
-  Maxwellian in Float32, and mass held to about 1e-7.
-
-- **`two_stream(0.4)` ran on 95 cells rather than 96.** `two_stream` built its
-  grid as `collect(Δx:Δx:L)`, and a floating-point range works its length out
-  from its endpoints: at `a = 0.4`, `Δx + 95Δx` rounds past `L` and the range
-  stops a point short. The box was then `95Δx = 46.63` against `L = 47.12`, its
-  fundamental `k·96/95` — `a = 0.4042`, where the warm root is 0.30536 rather
-  than 0.30362 — and the seeded `cos kx`, a 96-point period on 95 points, left
-  0.76% of its amplitude outside that fundamental. The −0.39% the test reported
-  against the root at 0.4 was −0.95% against the root of the wavenumber the run
-  actually had.
-
-  The grid is now `range(Δx; step = Δx, length = Nx)`, `Nx` points by
-  construction. On 96 cells the rate is 0.30173: −0.63% from the warm root and
-  −2.10% from the cold, fitted over t ∈ [15.50, 21.60], inside the 3% tolerance
-  and still below the peak at a = 0.6. What `growth_rate` and `two_stream` quote
-  at a = 0.4 moved with it: fixed time windows give 10.65%, 6.43%, 3.99% and
-  0.19% from the cold root (were 9.75%, 5.63%, 4.35% and 0.55%); the spread over
-  start points is 41.4% over one beat period and 9.4% over two (were 39.6% and
-  9.0%); `cos ω₊t` and `sin ω₊t` in the band fit move it from −2.10% to −3.24%,
-  1.1 points where the note said at most one; continued past its fit, the
-  velocity sweep first passes its Courant limit at t = 23.25 (was 23.20), and it
-  is at 0.528 when `ε_e` first reaches 5.0 (was 0.524), which takes the range
-  the Courant-bound entry below quotes for the fits to 0.53 to 0.73; and the
-  growth plot's single-γ line peels 6.0× below the curve (was
-  6.1×).
-
-  Every other periodic grid in the extended suite and in
-  `verification/scheme-comparison.jl` was built the same way and had its length
-  right. They are built by length now too, and are the same grids to the bit —
-  checked on Julia 1.10 and 1.13 — so nothing else moves. `[j*Δx for j = 1:Nx]`,
-  the obvious alternative, rounds `jΔx` once where the range rounds
-  `Δx + (j − 1)Δx` twice, and would have moved points of every grid here but the
-  two stable two-stream cases by an ulp. The colon form is a trap rather than a
-  one-off: at the two-stream construction it comes up short for 14 of the 156
-  values of `a` in `0.05:0.01:1.6`.
-
-  One quote was wrong on its own account. `growth_rate`'s note credited fitting
-  "over an integer number of beat periods instead of an arbitrary window" with
-  the drop in that spread; the measurement behind it compared one beat period
-  with two, and the note now says so.
-
-- **`Godunov(PiecewiseLinear())` is second order, and total-variation
-  diminishing to `|c| = 1`.** Its flux was the reconstruction's value at the
-  interface, `|c|(fᵢ₋₁ + φ(r)(fᵢ − fᵢ₋₁)/2)`, which makes the update forward
-  Euler on a limited slope. It is now the reconstruction averaged over the strip
-  that crosses the interface in one step. That strip's midpoint lies `|c|Δx/2`
-  upwind of the interface, `(1 − |c|)Δx/2` downwind of the cell's centre, so the
-  slope term gains a factor `(1 − |c|)`, and the scheme becomes what its name
-  says: Godunov's
-  reconstruct–evolve–average with a linear reconstruction, which is Sweby's
-  flux-limited Lax–Wendroff. The old flux is Sweby's as well, with the limiter
-  `φ/(1 − c)` in place of `φ` (the two agree to 6.7e-16 after 50 steps), and
-  that one substitution accounts for all of its behaviour:
-
-  * **It was stable only to `|c| ≤ 1/2`**, the limit to which `φ/(1 − c)`
-    satisfies Harten's condition. With `VanLeer` at N = 128, 200 steps
-    multiplied a square pulse's total variation by 2.05 at `c = 0.6`, 39 at
-    0.7, 4.8e5 at 0.8 and 1.0e7 at 0.9. `0.5(1 + sin)` went negative in one
-    step from `c = 0.58`, to −9.0e-6. `1 + 0.5 sin` was 84 from the exact
-    answer after 300 steps at 0.7, and 893 after 100 at 0.9. Now the pulse's
-    total-variation ratio is 0.999992 to 1 at every `c` from 0.5 to 1 in both
-    directions, `f` stays inside `[0, 1]`, and the sine stays non-negative
-    through 1000 steps (`test_invariants.jl`). In the same two runs
-    `1 + 0.5 sin` is 3.5e-3 and 1.1e-3 from the exact answer.
-  * **It was first order.** `φ/(1 − c)` is `1/(1 − c)` at `r = 1`, where second
-    order needs 1, so it steepened every smooth slope. At `c = 0.4` the L¹, L²
-    and L∞ orders were 1.00, 1.01 and 0.82; the last had been quoted as 0.69.
-    They are now 2.09, 1.77 and 1.42, and `test_convergence.jl` holds the L¹
-    order to 2 where it held it to 1.
-  * **Without a limiter it was unstable at every `c`.** `NoLimiter`'s 1 made
-    the flux centred, `|g| = √(1 + c²sin²θ)`, and it reached 1.4e25 times its
-    amplitude in four traversals at `c = 0.4`. It is now `LaxWendroff`: 2.2e-16
-    from it after one step and 1.4e-14 after 1280, and `test_amplification.jl`
-    checks it against Lax–Wendroff's symbol mode by mode.
-
-  At `|c| = 1` the factor vanishes and the step is an exact shift. It is now one
-  ulp from `circshift`; it was 2.4e-3 off without a limiter and 2.7e-3 with
-  `VanLeer`, and `test_contracts.jl` no longer excuses it. The `|c| ≤ 1` that
-  `advect!` enforces is now this scheme's real limit.
-
-  The same substitution is what made the old scheme good at a jump. From
-  `c = 1/3` up, `VanLeer/(1 − c)` lies above Superbee, the most compressive
-  limiter inside Sweby's region, at every `r`, and it steepened the pulse just
-  as it steepened the sine. With `VanLeer` at N = 512 and `c = 0.4`, the L²
-  error after one traversal (`test_comparison.jl`) moves as follows:
-
-  * sine: 7.03e-3 → 8.55e-5;
-  * gaussian: 1.61e-2 → 9.50e-4;
-  * square pulse: 8.45e-3 → 2.77e-2, a rise. The scheme led that column and now
-    sits fourth of six.
-
-  Superbee itself, which keeps the scheme second order and total-variation
-  diminishing to `|c| = 1`, measures 1.58e-2 on the pulse; it is now a limiter
-  of its own (see Added). In the Landau damping comparison
-  (`verification/scheme-comparison.jl`) the rate error goes from 3.99% to 1.43%
-  and the frequency error from 16.0% to 0.54%. In the work–precision report,
-  at the step's cost as it then was, the scheme was dominated on every profile
-  by `PFC`; the faster kernel under Changed puts it on the gaussian's and the
-  pulse's frontiers.
-
-  The factor costs one subtraction and one multiplication per flux. The
-  `VanLeer` step, then 17 ns per cell on the sine and 9 on the pulse (about 1
-  since; see Changed), measured 2% to 9% slower with it. Those are medians of three alternations at N = 512 and
-  10000, and the step was slower in every configuration. `LaxWendroff` and
-  `Upwind`, whose code is untouched, moved by −11% to +10% over the same runs.
-  Without a limiter the step costs 0.4 ns per cell and did not move measurably.
-
-  `test/data/golden.txt` is regenerated for `Godunov_linear` and
-  `Godunov_linear_VanLeer`. The other seven lines are unchanged bit for bit.
-
-  Found on the way: `test_amplification.jl` quoted its three-point schemes as
-  agreeing with their symbols to 8.9e-15. They agree to 1.6e-14 to 1.8e-14, on
-  Julia 1.10.12 and 1.13.0 alike, and the quote is corrected.
-
-- **`advect!` refuses a step past the scheme's Courant limit.** `_validate`
-  checked aliasing, the lengths and the workspace, and not the one bound every
-  explicit scheme here has. `Upwind`, `LaxWendroff`, `Godunov` and `PFC` are
-  unstable past `|c| = 1`, and they fail plausibly, because what grows is
-  round-off at the grid scale. One step on `1 + 0.5 sin` at N = 128, against the
-  exact shift, with the worst per-step growth over every mode of the grid and
-  the error a hundred steps later:
-
-  | scheme | c = 0.9 | 1.0 | 1.2 | 2.0 | growth at 1.2 | 100 steps at 1.2 |
-  |---|---|---|---|---|---|---|
-  | `Upwind` | 5.4e-5 | 0 | 1.4e-4 | 1.2e-3 | 1.40 | 2.7e-2, and 2.0e27 at 300 |
-  | `Godunov(PiecewiseConstant())` | 5.4e-5 | 2.2e-16 | 1.4e-4 | 1.2e-3 | 1.40 | 6.8e-2, and 5.2e27 at 300 |
-  | `LaxWendroff` | 1.7e-6 | 2.2e-16 | 5.2e-6 | 5.9e-5 | 1.88 | 9.1e10 |
-  | `Godunov(PiecewiseLinear(), VanLeer())` | 1.4e-5 | 2.2e-16 | 3.6e-5 | 3.0e-4 | (nonlinear) | 2.2e10 |
-  | `PFC` | 2.3e-8 | 2.2e-16 | 5.1e-8 | 8.9e-16 | 1.18 | 5.1e-6, and 4.9e15 at 300 |
-  | `SemiLagrangian` cubic | 9.8e-10 | 2.2e-16 | 3.1e-9 | 2.2e-16 | 1.00 | 3.1e-7 |
-
-  The `Godunov(PiecewiseLinear(), VanLeer())` row is for the flux as corrected
-  in the entry above, measured past `|c| = 1` on a copy of the kernel that
-  matches it bit for bit where `advect!` accepts the step. Before the
-  correction the row read 5.5e-4, 6.8e-4, 9.6e-4, 2.6e-3 and 1.6e13.
-
-  `PFC` loses first the property it exists for: one step at 1.2 takes
-  `0.5(1 + sin)`, which touches zero, to −2.9e-5, and to 1 + 2.9e-5 against an
-  `fmax` of 1. Its exact answer at `c = 2` is a coincidence of the unlimited
-  reconstruction, which interpolates the primitive at the stencil's nodes and so
-  reproduces a whole-cell shift; at 1.5 it goes negative in one step and reaches
-  5.6e276 in a thousand. A free-streaming run whose fastest rows sat at
-  `c = 1.22` (`vmax = 6`, `Δt = 0.02`, `Δx = 4π/128`) returned silently from
-  every such call, and the first sign was `PFC`'s own `checked` assertion — 218
-  steps in, at `minimum(src) = −1.13e-10`, in a reproduction. With
-  `checked = false`, or with `LaxWendroff` or `Upwind`, there would have been
-  none.
-
-  `|c| > 1` is now a `DomainError`, raised before anything is written, and so is
-  `NaN`. `c = ±1` is accepted: it is an exact one-cell shift for every bounded
-  scheme. The bounded method is the default, and
-  `SemiLagrangian`, whose characteristic tracing has no Courant limit, opts out,
-  so a scheme added later is checked unless it says otherwise. `PFCNonUniform`
-  takes a displacement and is held to its narrowest cell, stored at
-  construction: every cell gives up its flux alone, and on a 1:2 grid a step of
-  1.1 narrow widths — only 0.55 of the wide one — takes data with an exact zero
-  to −7.6e-6. The check does not depend on `checked`. It is one comparison
-  outside the loop, under 3 ns as a call on its own — 0.16% of `Upwind`'s 1.9 µs
-  step at N = 10000 — and inside the step it is lost in the noise of timing it:
-  with it and without, alternated eight times at N = 10000, the schemes ran
-  0.3% to 7.3% faster *with* it, against a 2.2% shift in a scheme it does not
-  touch. `PFC`'s `checked` pass, timed alongside, reads 8.0% where its docstring
-  quotes 13%.
-
-  Two runs in the extended suite, and the notebooks that mirror them, had been
-  taking such steps; a probe on every `advect!` call of both suites and every
-  notebook found no others, the largest being 0.94 in the `a = 1.0` two-stream
-  run. The Landau x-sweeps sit at 0.32 to 0.41, being Strang half-steps; it is
-  the velocity sweeps, full steps driven by the field, that crossed:
-
-  * the two-stream runs keep growing after their fits, and the velocity sweep
-    reached 217 cells a step before the `a = 0.6` run went to `NaN` at
-    t = 24.15, which is what bounded `tmax` from above;
-  * the strong-damping run on the notebook's non-uniform velocity grid starts
-    with the field at 1.0017 and `Δt` equal to the narrow cells' width, so its
-    first step asks for 1.0017 of them.
-
-  `line_advector` now splits a displacement wider than the narrowest cell into
-  the fewest sub-steps that fit, and `verification/landau-damping-1d1v.jl` does
-  the same. No fitted number moves: every two-stream fit ends at a velocity
-  Courant number of 0.53 to 0.73, before the first split, so the rates are
-  bit-identical, and the strong-damping run's four split calls move γ₁ and γ₂ in
-  the sixth digit. The two-stream runs now saturate instead of diverging — `ε_e`
-  peaks at 106 for `a = 0.6` — and are finite to t = 40, so `tmax` has no upper
-  bound left. `test_invariants.jl` marched `Upwind` at c = 1.05 for 2000 steps
-  to show the instability; it asserts the refusal instead.
-
-  Measured on the way: `Godunov(PiecewiseLinear())` was stable only to
-  `|c| ≤ 1/2`, because its flux lacked a `(1 − |c|)` factor. That is fixed in
-  its own entry above, and `|c| ≤ 1` is now its limit as well.
-  And the velocity Courant number `growth_rate` quoted for the two-stream fits,
-  0.46 to 0.65, was the single-mode estimate `√(2ε_e/L)·Δt/Δv`; the largest over
-  `x` is 0.53 to 0.73.
-
-- **A full test run evaluates each shared test file once.** `runtests.jl`
-  includes every test file into `Main`, and the files several of them share were
-  evaluated once per file that included them: `scheme_cases.jl` ten times,
-  `dispersion.jl` six, `echo.jl` three and `verification_harness.jl` twice. Each
-  repeat redefined the file's methods, and `Pkg.test` runs with
-  `--warn-overwrite=yes`: 150 warnings, in the default run and the extended one
-  alike, among which one that mattered would not have been read. Each include of
-  a shared file in `test/` is now guarded on a function that file defines —
-  `@isdefined(march!) || include(…)`, the idiom Julia's own test suite uses for
-  its helpers — so every test file still runs on its own and a full run prints
-  none of the 150. Guarded on a name rather than on the path, because an
-  `include_once` helper would itself have to be included, and guarded, by every
-  file that used it. The name is one a session would not have for itself:
-  `dispersion.jl` is guarded on `landau_root` rather than `Z`, whose skip made
-  `test_dispersion.jl` test a session's own `Z(x) = x` — 12 failures — where the
-  file would have replaced it. The scripts in `verification/` and `benchmark/`
-  keep their plain `include`: each is the first thing in its process to include
-  the file. The harness's own includes are guarded as well, so a script that
-  includes it now evaluates `dispersion.jl` once where it did twice.
-  `test_allocations.jl`, which included `scheme_cases.jl` but keeps its own list
-  — the canonical one less the two spline schemes, whose prefilter allocates and
-  is bounded apart — no longer includes it. Pass and broken counts are
-  unchanged: 1499 and 2 by default, 1632 and 2 extended.
-
-- **`test_free_streaming.jl` replaced the harness's `mode_amplitude` for every
-  file that ran after it.** Its own `mode_amplitude(n, x, k)`, the real `cos kx`
-  projection, had the signature of the harness's complex one, and a full run
-  puts both files in `Main`: from there on, a mode the harness measured would
-  have come back as its real part alone. Nothing measures one after it yet; the
-  warning `Pkg.test` printed for it was the one of 151 that was not a repeat. The
-  free-streaming helper is `cos_amplitude` now, and neither run prints a
-  method-overwrite warning.
-
+- **The z-polarised FDTD source launched its pulse into the absorbing layer**;
+  both polarisations launch rightwards. `test/MaxwellSolver/test_fdtd_1d.jl`.
+- **`workspace(BGK(τ), n)` was a `MethodError`**; the collision operators extend
+  `Vasilek.workspace`.
+- **`BGK` filled an empty or cold velocity line with NaN**; a line colder than
+  the grid resolves, `T < Δv²`, passes through unchanged.
+- **`PML` coefficients**: `r₂` is taken through `expm1`, and a negative `N` or
+  `σ_max` is refused.
+- **`make_advance_fields` refused inconsistent arguments**; `Yee1D` has since
+  replaced it (Breaking).
+- **The harness's Poisson solve threw on about a quarter of grids**; it takes
+  `rfftfreq`, tested over every `Nx` in 8:512.
+- **The verification environment can load the harness again**, with
+  `NumericalIntegration` back in `verification/Project.toml`.
+- **The charge rescaling is the sums the solver conserves**, `Σ f ΔvΔx` and
+  `Σ nᵢ Δx`: 1 to round-off, where the trapezoid scaled `ωₚ²` by up to 7.9e-3.
+  See [the driver notes](docs/src/driver-notes.md).
+- **What the charge fix moved, and quotes stale before it**, corrected
+  throughout, and a test pins the strong-damping seed's mass to 4e-15; the
+  figures before and after are in the git history.
+- **The energy histories are the sums the schemes conserve, at one instant**:
+  the kinetic energy is centred on the kick, so `ε` is sampled at `t[k] + Δt/2`
+  as `ε_e` is. See [invariants](docs/src/verification.md#invariants).
+- **`PFCNonUniform` checks its data against its bounds, as `PFC` does**, for 5%
+  of a step on Julia 1.13; data outside them was corrupted without an error.
+  `test/test_contracts.jl`.
+- **A non-positive scheme given for one direction, the other the default, is
+  refused before the first step**: `keeps_bounds` decides. See
+  [the driver notes](docs/src/driver-notes.md).
+- **With `collisions`, the driver's defaults lift their upper bound**, since BGK
+  raises a line past its maximum. See
+  [collisional damping](docs/src/verification.md#collisional-damping).
+- **`two_stream(0.4)` ran on 95 cells rather than 96**, a float range coming up
+  a point short; periodic grids are built by length. See
+  [the two-stream instability](docs/src/verification.md#the-two-stream-instability).
+- **`Godunov(PiecewiseLinear())` is second order, and TVD to `|c| = 1`**: its
+  flux gained the strip average's `(1 − |c|)`, which also makes the unlimited
+  scheme `LaxWendroff`. `test/test_convergence.jl`, `test/test_invariants.jl`.
+- **`advect!` refuses a step past the scheme's Courant limit**, a `DomainError`
+  before anything is written; `SemiLagrangian` opts out, and `PFCNonUniform` is
+  held to its narrowest cell. `test/test_invariants.jl`.
+- **A full test run evaluates each shared test file once**: each include is
+  guarded on a name the file defines, and a full run prints none of the 150
+  method-overwrite warnings.
+- **`test_free_streaming.jl` replaced the harness's `mode_amplitude`** for every
+  file run after it; its own helper is `cos_amplitude`.
 - **`PFC` in the remaining verification runs is bounded by the distribution it
-  carries.** The harness took its own defaults' bounds from `f` above; the runs
-  that pass `PFC` in explicitly still bounded it at 0.5 (`test_echo.jl`,
-  `test_free_streaming.jl`, `verification/plasma-echo.jl`) or 1
-  (the reversibility ranking in `test_verification.jl`,
-  `verification/scheme-comparison.jl`). A bound taken from `f₀` by the caller
-  cannot work where the driver rescales `f` before running — by 0.8% at α = 0.5
-  then, and still by one to four ulps since the rescaling became exact to
-  round-off (see Fixed), above the bound, into `PFC`'s own check — so
-  `vlasov_poisson`, `ballistic_echo` and `free_stream` now also take a scheme
-  as a function of the initial `f`, `f -> PFC(fmin = 0.0, fmax = maximum(f))`,
-  and call it with the `f` they start from.
-
-  The numbers barely move: the
-  echo's PFC error goes from 1.23e-3 to 1.25e-3 of the peak (and 9.83e-3 to
-  1.03e-2 at 64 × 121), its orders from 2.87 and 2.72 to 2.89 and 2.78, PFC's
-  L² loss in the α = 0.5 round trip from 0.047 to 0.048, and in the scheme
-  comparison the uniform `PFC` row now equals `PFCNonUniform`'s, 1.31% where it
-  read 1.45%. Free streaming does not move at all. Left as they are, on purpose:
-  the unit tests of the schemes, where a bound is an input of the contract under
-  test rather than the maximum of an evolving distribution, and the
-  rigid-rotation test, whose Gaussian's analytic peak is the 1 it is given.
-
-- **`docs/normalization.md` gave the Poisson equation with the wrong sign.** It
-  read `∂E/∂x = nᵢ − nₑ` beside `∂f/∂t + v∂f/∂x + E∂f/∂v = 0`, a pair under which
-  electrons attract one another. Every Poisson call in the package and the
-  verification runs solves `∂E/∂x = nₑ − nᵢ`, `E` being the force on an electron
-  — minus the physical field — as the transverse section of the same page already
-  had it. It was found by building on it: ions made for a nonlinear equilibrium
-  under the documented sign hold exactly the reversed field, `E/E₀ = −1.000` from
-  the first sample, and the run leaves the equilibrium by 16% of its peak.
-
-- **The verification harness gave PFC an upper bound of 1 whatever `f` was.**
-  `vlasov_poisson` built its default `PFCNonUniform` schemes with `fmax = 1.0`,
-  a number nothing chose, and `PFCNonUniform` did not then check its data
-  against it (it does now; above). A trapped population at half the passing
-  temperature peaks at 1.79, and the limiter took it 43.6% of its peak away
-  from equilibrium by t = 50. The
-  bounds are now those of `f` on entry, 0 and its maximum, which by Liouville
-  the exact solution keeps: that run holds to 0.99%. The same goes for the
-  other two places the harness chose a bound — the echo's kick (1) and
-  `two_stream` (3, set once to clear the 1) — and for the Landau and
-  plasma-oscillation notebooks, which the harness mirrors. No run exceeds its
-  bound: a new `fmax` history tops out exactly at it or below, to the bit.
-
-  Every earlier run sat under the old bound, where the limiter never engaged.
-  At the maximum it now does, and the price is measured: the α = 0.05
-  reversibility round trip converges at second order, 2.82e-3 → 6.48e-4 →
-  1.58e-4, where it went 1.97e-3 → 3.44e-4 → 4.85e-5 at third, and its
-  threshold is now 3.5× per halving rather than 4×. The rest moved little —
-  the three Landau rates by 0.2% at most (0.5% on the coarsest level of the
-  refinement ladder), ω at k = 0.5 from 0.14% to 0.26% off the root, the
-  two-stream rates in the fifth decimal place — and every quoted number is updated
-  to the new runs. Six that were already stale are corrected with them: the
-  trapezoid's mass drift in the invariants note (1.6e-4 quoted, 2.4e-4 measured
-  every step, under either bound); the recurrence window ratio (116 quoted, 119
-  at the old bound); the stable two-stream cases' decay (3.36e-5 and 7.02e-6
-  quoted, 2.54e-6 and 1.2e-9 measured) and the unstable case they are set
-  against; the `a = 1.0` row of the warm-root table (≈0.088, from before that
-  case ran to `tmax = 80`, against 0.09516); and the recurrence table's floor
-  and `two_stream`'s "peak ε_e of 61", which no definition reproduces and which
-  are replaced by measured quantities.
-
-- **The "linear" Landau case at k = 0.3 was not linear, and the agreement it
-  reported was two errors cancelling.** At the 1% perturbation this suite used,
-  the local damping rate leaves the analytic value at t ≈ 35, reaches zero at
-  t ≈ 73 and goes *negative* after that: the field grows again as trapped
-  particles slosh. The fit ran to t = 50, inside that, and came out 0.42%
-  **below** the analytic rate — the only measurement in the suite that sat low,
-  where numerical dissipation can only push high.
-
-  The note on file said the flattening was "the estimator running out of signal,
-  not the physics changing", and offered as evidence that it does not move when
-  Δx, Δv and Δt are halved. That is evidence for the opposite: a numerical
-  artefact moves under refinement and physics does not.
-
-  At α = 1e-3 the same column is flat to t = 95, the window widens to [10, 90]
-  with thirty maxima, and the measurement reads 0.70% *above* — as do the other
-  two, which is what a dissipative scheme should do. The three cases now run at
-  α = 1e-3 and are 0.70%, 1.14% and 0.95% on γ, 0.08%, 0.22% and 0.26% on ω,
-  with window spreads of 0.17%, 0.05% and 0.04% (they were up to 1.45%).
-
-  `trapping_phase` is the guard, asserted per case: `(√α/γ)(1 - exp(-γT))`, the
-  bounce phase accumulated before the mode damps away, evaluated at the
-  amplitude each run actually used. It is calibrated by the new trapping testset
-  rather than assumed: in its own units the damping departs at about 2.8 and
-  stops at 4.3 to 5.7, and the three cases sit at 0.21, 0.45 and 1.70 where the
-  old k = 0.3 setup sat at 3.7. (The testset's headline invariant is the
-  undamped `√α·t₀`, 7.1 to 8.0 at the arrest — a different number, not to be
-  compared with these.)
-
-- **The recurrence in the Landau notebook is the second harmonic's, not the
-  seeded mode's.** The text explained the rise in `ε_e` at t ≈ 62 as the mode
-  returning at "π/(kΔv)". The right expression is `2π/(kΔv)` = 125.7; what
-  arrives at 62.8 is the k = 1 harmonic, generated nonlinearly, recurring at
-  half the time because its wavenumber is twice as large.
-
-  `vlasov_poisson` gained a `modes` keyword for this — complex field amplitudes
-  per mode, since `ε_e` sums the box and cannot tell two modes apart. Asserted:
-  the seeded mode peaks at t = 128.6 against 125.7 and comes back with 52% of
-  its amplitude, the harmonic at 64.3 against 62.8 from a round-off floor
-  (6.3e-17 as CI runs the suite), and over t ∈ [58, 72] the harmonic peaks at
-  21 times the mode that was seeded. The notebook runs to t = 140 now so that
-  both recurrences are inside it, plots them separately, and takes its theory
-  curve from `landau_root` — the asymptotic it plotted before is a rate for the
-  energy, 2γ, which is why it looked right against `ε_e` while being twice γ.
-
-- **The laser in the wakefield study was travelling six percent slow, and the
-  explanation on file was wrong.** `wake_wavelength` said there was no closed
-  form to predict the driver with, because a one-cycle pulse "has a bandwidth of
-  order its own carrier and no single ω₀ describes it" — the measured 0.886
-  against a continuum `√(1-n)` of 0.949 was put down to that.
-
-  Measured, the bandwidth is worth half a percent: averaging the continuum group
-  velocity over the pulse's own spectrum gives 0.9438 against 0.9487. The other
-  six percent was the Yee grid at ten cells per wavelength. `vg_pulse` — the
-  group velocity of the *discrete* relation, averaged over the same spectrum —
-  predicts 0.8993 there, against 0.8858 measured; at twenty cells it predicts
-  0.9329 against 0.9261.
-
-  So `Δx` halves, to twenty cells per laser wavelength, at about four times the
-  wall clock: `Δt` halves with it, so both `Nx` and `Nt` double.
-  It matters because the wake keeps station with the driver: a driver six
-  percent slow is a wake whose phase velocity is six percent wrong, `γ_φ ≈ 2.2`
-  against 3.0, which is a different statement about trapping and dephasing.
-
-  Nothing in the testset could see it. The wake's frequency is set by the
-  plasma, not the laser's grid, and moves by 0.02% between the two resolutions;
-  the comparison against `linear_wake` is blind by construction, since that
-  reference is driven by the `Φ` of the run it is checking, so both sides shift
-  together. What was needed was a closed form for the driver and a second
-  resolution, and the testset now has both: the pulse speed is asserted against
-  `vg_pulse` at each grid, and refining is asserted to move it toward the
-  continuum.
-
-  Re-measured at the new default: ω 0.23% from Bohm–Gross (was 0.36%), λ 0.37%
-  from the measured driver and 1.12% from the predicted one, phase locking
-  0.58%, amplitude 6.4% under linear theory with pointwise rms 6.4%, the `a₀²`
-  ratio 4.13, the unlit control 36× down, `Δε/ε` 13.7%. The wake itself is 39%
-  larger than the coarse grid gave — it was the most resolution-sensitive number
-  in the study and nothing had been comparing it across grids.
-
-  The `a₀²` ladder gained a rung and lost a claim: continuing to `a₀ = 0.075`
-  gives ratios of 3.80 and 3.33 at the two resolutions, because the unlit
-  control's 3.4e-4 is 43% of that wake. The law is tested where the signal
-  dominates, and the few percent left at the top is recorded rather than
-  explained.
-
+  carries**: the driver, `ballistic_echo` and `free_stream` take a scheme as a
+  function of the initial `f`.
+- **`docs/src/normalization.md` gave the Poisson equation with the wrong sign**;
+  it is `∂E/∂x = nₑ − nᵢ`, as every solve takes it. See
+  [the BGK equilibrium](docs/src/verification.md#the-bgk-equilibrium).
+- **The verification harness gave PFC an upper bound of 1 whatever `f` was**;
+  the bounds are those of `f` on entry, and every bounded run stays inside them.
+  See [the BGK equilibrium](docs/src/verification.md#the-bgk-equilibrium).
+- **The "linear" Landau case at k = 0.3 was not linear**, and its agreement was
+  two errors cancelling; the cases run at α = 1e-3, guarded by `trapping_phase`.
+  See [Landau damping](docs/src/verification.md#landau-damping-and-dispersion).
+- **The recurrence in the Landau notebook is the second harmonic's**, and
+  `vlasov_poisson` records modes through `modes`. See
+  [recurrence](docs/src/verification.md#recurrence).
+- **The laser in the wakefield study was travelling six percent slow**, the Yee
+  grid's dispersion, which `vg_pulse` predicts. See
+  [the laser wakefield](docs/src/verification.md#the-laser-wakefield).
 - **"Finite temperature cannot make a beam grow faster than a cold one" is
-  false**, and it was load-bearing: it is why the +0.31% overshoot at
-  `a = 0.8` was attributed to the beat ripple rather than to physics, and why a
-  sweep in `vt` that crossed the cold value was treated as an artefact of the
-  estimator. The warm root crosses *above* the cold one between `a = 0.75` and
-  `a = 0.8`, and past `a = 1` the cold branch is identically zero while warm
-  beams still grow — which the same testset had been measuring all along, at
-  `a = 1.0`, without the two statements being put side by side. Against the warm
-  root the `a = 0.8` measurement is +0.09% and there is nothing left to explain.
-
-  The estimator's ripple is real and the note in `growth_rate` about it stands;
-  what changed is that it is no longer asked to account for a discrepancy that
-  belongs to the theory the measurement was being compared against.
-
-- **The two-stream growth rate appeared to overshoot the cold limit at small
-  beam temperature, and does not.** The sweep quoted alongside the test was
-  measured with a fixed time window of `t ∈ [10, 20]` — the exploratory
-  estimator, not the amplitude band the test actually uses — and it crossed
-  zero, reading +0.40% and +0.56% at `vt` = 0.2 and 0.15. Finite temperature
-  cannot make a beam grow faster than a cold one, so the crossing was an
-  artefact either way; under the estimator in use the sweep is monotone and
-  entirely below the cold value.
-
-  **The mechanism.** `ε_e` is not one exponential. The quadratic behind
-  `γ_cold` has four roots — the growing pair `±iγ` and an oscillating pair
-  `±ω₊` — and an initial perturbation excites all of them. The cross term puts
-  a ripple on `ε_e` at `ω₊`, and its size *relative to* the growing mode falls
-  only as `exp(−γt)`, so it survives any window one can afford. Measured at
-  `a = 0.6`, the instantaneous rate oscillates with period 4.5 against the
-  `2π/ω₊ = 4.626` predicted, swinging between 0.21 and 0.41 about a `γ_cold` of
-  0.353. Changing `vt` changes `γ` slightly, moving the ripple's phase within a
-  fixed window and dragging the fitted rate across the cold value with it.
-
-  Fitting over two beat periods instead of one cuts the spread over start
-  points from 41.4%, 14.4% and 22.3% to 9.4%, 5.6% and 4.8%. The amplitude band
-  already spans 1.15 to 2.22 periods and needs no such help: adding
-  `cos ω₊t`/`sin ω₊t` to the design matrix — still linear, `ω₊` being in closed
-  form — moves its results by 1.1 points at most and was not kept.
-
-  Three other explanations were measured and rejected: refining `Δv` moves the
-  result by 1e-5; the driver's renormalisation left the effective density at
-  1.0000158, worth 0.0007% to 0.0008% on `γ` across the scan (it leaves it at
-  1 − 1.7e-9 now; see Fixed); and although the second harmonic at `a = 0.4`
-  really is the more unstable of the two (`γ(0.8) = 0.311` against
-  `γ(0.4) = 0.308`), it starts at `O(α²)` and gains 13% over the run against a
-  head start of 1e-6.
-
-  The test now asserts the relative statement — a colder beam grows faster at
-  fixed wavenumber — rather than the tidier "every rate lies below `γ_cold`",
-  which is false: `a = 0.8` comes out 0.30% above. The residual ripple biases
-  either way depending on how much of a beat period the band leaves unaveraged,
-  so the sign at any single wavenumber is not a property worth asserting.
-  Comparing two temperatures at the same wavenumber holds the band fixed and
-  leaves only the physics.
-
-- **The Landau damping rate was fitted with an estimator that its own window
-  chose the answer for.** `ε_e ∝ exp(−2γt)·cos²(ωt + φ)`, and the fit ran a
-  least squares over `log ε_e` at *every* sample — so it was fitting
-  `log cos²`, which has a pole at every null of the oscillation. The window it
-  used, `t ∈ [5.9, 29.9]`, began exactly on a minimum. That is the entire
-  reason it reported γ = 0.1498, 2.3% below the tabulated 0.15336; moving the
-  start one step, to 6.0, gives 0.1532 on the same data.
-
-  Sweeping plausible windows moved the old estimate over 0.14837 to 0.15755, a
-  spread of 6.2% — larger than the 5% tolerance it was being held to, so the
-  test was passing on the strength of where its window happened to land.
-  Fitting through the local maxima instead removes the `cos²` entirely: the
-  same sweep now gives 0.15451 to 0.15571, a spread of 0.8%, consistently about
-  1% above the analytic value. That residue is numerical damping and does not
-  move when Δx, Δv and Δt are all halved.
-
-  A window-sensitivity assertion is now part of the test, so this class of
-  failure cannot come back silently.
-
-- **`local_extrema` skipped the last interior point it was asked about.** The
-  helper iterated `2:length(y)-2`, but the strict-interior comparison is
-  well-defined up to `length(y)-1`, where the right neighbour is `y[end]`. On
-  its own documented terms — "the strict interior local maxima … or minima of
-  `y`" — it was one short: `[10, 20, 5]` returned nothing at all, and
-  `[1, 3, 2, 4, 1]` returned only the first of its two peaks. No measured value
-  moves, because both callers read `ε_e` from `vlasov_poisson`, which pads
-  `ε_e[end] = ε_e[end-1]`, so a strict inequality at index `end-1` compares
-  against an equal neighbour and cannot fire — an invariant that lived in the
-  caller and was not stated on the helper.
-
+  false**: `a = 0.8` overshoots by physics, the `vt` sweep only under a fixed
+  window. See [two-stream](docs/src/verification.md#the-two-stream-instability).
+- **The Landau damping rate was fitted with an estimator its own window chose
+  the answer for**; it is fitted through the maxima. See
+  [Landau damping](docs/src/verification.md#landau-damping-and-dispersion).
+- **`local_extrema` skipped the last interior point it was asked about.**
+  `test/test_harness.jl`.
 - **The `(h, h₀)` methods of `LaxWendroff` sized their loops from the captured
-  array** rather than from the pair passed to them, so a differently sized
-  pair read and wrote out of range. The same mistake `PFC` had. Both now
-  have a regression test, which neither did.
-- `Godunov.generate_Φ` and `Limiters.generate_limiter` returned `nothing` for
-  an unrecognised option, surfacing as a call on `nothing` from inside the
-  hot loop. Both now throw `ArgumentError` at construction.
-
-- **`SemiLagrangian` rebuilt its interpolation on every step.** `interpolate`
-  copies its input and runs the B-spline prefilter on the copy, costing 80 kB
-  per step at N = 1000 for linear and 173 kB for quadratic and cubic. The
-  buffer is now allocated once and prefiltered in place: linear drops to zero,
-  quadratic and cubic to about 100 kB, all of it inside the periodic prefilter
-  in Interpolations itself. Output is bit-identical, confirmed by the golden
-  tests.
-- **`BGK` allocated six temporaries per step** (39 kB at 801 velocity points).
-  Two reusable buffers and fused in-place broadcasts take it to zero, with
-  bit-identical output over 100 steps.
-- Benchmark measurements were invalid: `@benchmarkable` interpolated only `N`,
-  leaving a non-`const` global `Dict` lookup inside the timed region. The
-  closures are now interpolated directly.
-- The benchmark driver ran only the Vlasov group, so the Maxwell group was
-  tuned and never executed. `results.json` stored every raw sample (4.4 MB);
-  it now stores the estimate (13 kB).
+  array**, as `PFC`'s did; the closures have gone since (Breaking).
+- `Godunov.generate_Φ` and `Limiters.generate_limiter` returned `nothing` for an
+  unrecognised option; both have gone since (Breaking).
+- **`SemiLagrangian` rebuilt its interpolation on every step**; it prefiltered a
+  buffer in place, and the package's own prefilter has since taken the splines
+  to zero allocations (Changed).
+- **`BGK` allocated six temporaries per step**; it allocates nothing, to the
+  same bits.
+- Benchmark measurements were invalid: `@benchmarkable` timed a global `Dict`
+  lookup. The closures are interpolated.
+- The benchmark driver ran only the Vlasov group; `results.json` stores the
+  estimate, 13 kB, where it stored 4.4 MB of samples.
 - The Cyrillic `c` (U+0441) in the benchmark keys is gone.
-
-- **`FDTD1D` read `f.hz[i-1]` in an `hy`-only stencil for `ez`.** Because `hz`
-  is non-zero throughout the existing tests, this actively injected `ez`,
-  which then drove `hy`, which fed back: seeding only the y polarization at
-  amplitude 1.0 gave `max|ez| = 7.84` after ten steps. The `(ey, hz)` pair
-  survived only because it never reads `hy`. Numerically breaking for any
-  z-polarized run.
-- `FDTD1D`'s `PML` default argument passed `Δt` and `Δx` in the wrong order.
-  Added a keyword constructor so the mistake is unrepresentable.
-- **`Landau1P` differentiated at the wrong index.** The inner loop computed
-  `Δfⱼ` but branched on `i` and read `f₀[i±1]`, so `Δfⱼ ≡ Δfᵢ`; and `J[j]` was
-  never assigned when `i == j`, leaving a stale or uninitialised value that
-  was then integrated. `L` and `Tₜ` are now keyword arguments.
-- **`PFCNonUniform` computed its limiter from the global spacing ratio,** so
-  one refined region tightened it everywhere (ξ ≈ 0.571 against 2 on the
-  notebooks' velocity grid). Now per cell triple. Energy drift of the
-  non-uniform plasma-oscillation case falls from a reported 12% to 4.75% at
-  t = 3000; the uniform grid is bit-identical, as it must be.
-- `PFCNonUniform` hardcoded `fₘᵢₙ = 0`, `fₘₐₓ = 1`; now required keywords, as
-  in `PFC`. **Breaking API change.**
-- **`PoissonFourier1D` returned a field too large by `1/Δx²`.** `rfftfreq(n)`
-  yields cycles per *sample*, so `Δx` never entered the spectrum while the
-  φ→E step divided by it once. Numerically breaking: any result computed with
-  this module before this change was wrong by that factor. Neither verification
-  notebook was affected — both define their own Poisson solver.
-- **`PFC`'s two `generate_solver` overloads computed different things.** The
-  keyword form defaulted `fₘₐₓ = 1` while the Courant-baked form used
-  `maximum(f₀)`; on data exceeding 1 the limiter returned a spurious slope
-  (measured divergence: a factor of 740). `fₘᵢₙ` and `fₘₐₓ` are now required
-  keywords on both, asserted to bracket `f₀`. **Breaking API change.**
+- **`FDTD1D` read `f.hz[i-1]` in an `hy`-only stencil for `ez`**, so the y
+  polarization drove `ez`: numerically breaking for any z-polarized run
+  (`test/MaxwellSolver/test_fdtd_1d.jl`).
+- `FDTD1D`'s `PML` default argument passed `Δt` and `Δx` in the wrong order; a
+  keyword constructor makes that unrepresentable.
+- **`Landau1P` differentiated at the wrong index**, and integrated an unassigned
+  `J[i]`; `L` and `Tₜ` are keywords (`test/BoltzmannSolver/test_damping_1v.jl`,
+  "Landau1P invariants").
+- **`PFCNonUniform` computed its limiter from the global spacing ratio**; per
+  cell, the non-uniform plasma oscillation drifts 4.75%, not 12%. See
+  [plasma oscillations](docs/src/verification.md#plasma-oscillation-frequency-and-energy).
+- `PFCNonUniform` hardcoded `fₘᵢₙ = 0`, `fₘₐₓ = 1`; they are required keywords,
+  as in `PFC`. A breaking change.
+- **`PoissonFourier1D` returned a field too large by `1/Δx²`**: numerically
+  breaking for anything computed with it before
+  (`test/MaxwellSolver/test_poisson_fourier_1d.jl`).
+- **`PFC`'s two `generate_solver` overloads computed different things**, a
+  factor of 740 on data above 1; `fₘᵢₙ` and `fₘₐₓ` are required. A breaking
+  change.
 - `PFC`'s three-argument `solve!(h, h₀, c)` sized its loops from the captured
-  array rather than from `h`, breaking whenever the two differed.
-- The Poisson test sampled 1001 points of a period-10 sine, so the input was
-  not periodic on the DFT window and leaked spectrally.
-- `test_damping_1v.jl` rebound a local in its stepping loop, so the closure kept
-  reading the original buffer and the "100 time steps" repeated step one a
-  hundred times. The `Landau1P` case is now `@test_broken`: with the loop
-  actually running, the known index bug surfaces (deviation 0.0022 → 0.31).
-- `test_fdtd_1d_current` had its assertion commented out and only printed.
-  Restored; it passes.
+  array.
+- The Poisson test sampled 1001 points of a period-10 sine, which leaked
+  spectrally.
+- `test_damping_1v.jl` rebound a local in its stepping loop, so its "100 time
+  steps" repeated step one; the `Landau1P` bug the running loop exposed is fixed
+  (Changed).
+- `test_fdtd_1d_current` had its assertion commented out; it is restored and
+  passes.
 
 ### Known issues
 
-- Rounding inside the flux itself can still leave `PFCNonUniform` an ulp above
-  `fmax` where a plateau at the bound meets rough data. That happened in 199 of
-  3600 twenty-step runs on such lines, down from 733 before the fix under Fixed.
-  None of the smooth profiles measured does it, flat-topped ones included.
+- Rounding inside the flux can still leave `PFCNonUniform` an ulp above `fmax`
+  where a plateau at the bound meets rough data, in 199 of 3600 twenty-step
+  runs. `test/VlasovSolver/test_nonuniform_advection.jl`.
