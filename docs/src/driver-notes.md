@@ -44,13 +44,12 @@ runs now exercise the solver the package ships.
 A scalar function rather than an `ifelse` inside the broadcast, because
 `ifelse` is an ordinary call and evaluates **both** arguments: written that way
 the guard does not guard, and `log` is handed the negative value anyway. That is
-not hypothetical here -- `LaxWendroff` and cubic `SemiLagrangian` drive `f` to
--0.093 and -0.105 on the large-amplitude case in
-`verification/scheme-comparison.jl`, against a peak of 0.6, and the entropy
-diagnostic threw `DomainError` on both until this was split out. That is an 18%
-undershoot of the peak rather than round-off leaking below zero, which is worth
-stating precisely: it is the size of the overshoot that makes the guard a
-statement about the schemes rather than about floating point.
+not hypothetical here -- `LaxWendroff` and cubic `SemiLagrangian` drive `f` 18%
+of the peak below zero on the large-amplitude case of the scheme comparison
+([the verification page](verification.md)), and the entropy diagnostic threw
+`DomainError` on both until this was split out. That is no round-off leaking
+below zero: it is the size of the undershoot that makes the guard a statement
+about the schemes rather than about floating point.
 
 ## `OnGrid`
 
@@ -176,23 +175,19 @@ a *phase* can, and does: removing a Doppler factor `exp(-ikut)` at `t[k]` leaves
 conserve: `PFC` is a flux form, so what leaves one cell enters its neighbour and
 the full-weight sum is preserved exactly. The trapezoid halves the two endpoint
 weights, which no flux conservation law protects, and measuring with it reports a
-drift that belongs to the quadrature rather than to the scheme. Measured over the
-k = 0.5 Landau run, 875 steps: mass drifts 1.6e-15 by the cell-width sum against
-**2.4e-4** by the trapezoid, and momentum stays at 2.2e-15 against 7.3e-4. Both
-trapezoid figures are the endpoint weighting, not the solver.
+drift that belongs to the quadrature rather than to the scheme: on the Landau
+run, eleven orders of magnitude of it ([the verification page](verification.md),
+under Invariants).
 
 The energies kept the trapezoid longer, on the grounds that the tolerances they
 meet are half a percent. For a standing wave that does little harm: the field
 `∝ sin kx` has a node on the seam, `x = L ≡ 0`, where the trapezoid's two
 half-weighted end points sit. A travelling wave crosses the seam, and the
-trapezoid books its passage as energy. On the bump-on-tail instability of Arber
-and Vann, seeded at 1e-6 on 64 × 361 cells, where `ε` is 61.8, it swung by
-−0.346 to +0.175 over t ∈ [60, 100], and by −0.185 to +0.093 at Nx = 128 --
-first order in Δx, where the sums here drift by 9.7e-3 and 1.0e-3. The x
-half-steps alone, which cannot change the kinetic energy, moved the trapezoid's
-by up to 3.9e-4 of it per half-step. The Galilean test's boosted mode travels
-too, and its fitted damping rate read 0.136% off the rest frame's through the
-same effect, where it now reads 0.014%.
+trapezoid books its passage as energy, first order in Δx: on the bump-on-tail
+instability the x half-steps alone, which cannot change the kinetic energy,
+moved the trapezoid's by up to 3.9e-4 of it per half-step. The Galilean test's
+boosted mode travels too. Both are measured on [the verification
+page](verification.md), under Invariants and The Doppler shift.
 
 **The kinetic energy in `ε` is centred on the kick.** It is summed after the
 step, the field was solved before the kick, and the x half-steps in between
@@ -201,9 +196,9 @@ bump-on-tail run -- so the kick is the only change, and the kinetic energy at
 `t[k] + Δt/2` is the mean of its two sides. Summed after the kick, as it was, `ε`
 counted half the kick's work early: an error first order in Δt that oscillates
 with the power the field exchanges with the particles. On the plasma oscillation
-the energy test runs, that alone swung `ε` by 1.2e-3 of itself within each plasma
-period, and by 1.7e-3 with the trapezoid, against the 3.8e-3 it drifts through
-t = 3000; centred, it swings by 6.6e-5.
+the energy test runs, that alone swung `ε` within each plasma period by eighteen
+times what it swings centred ([the verification page](verification.md), under
+Plasma oscillations).
 
 **The ions are a fixed background**, a Maxwellian's density on the grid unless
 `nᵢ` gives a profile over `x`. Without `nᵢ`, `f` is rescaled on entry so that the
@@ -241,14 +236,15 @@ keep a run between the bounds it is given, so they belong to the run rather than
 to the driver. They were the constant 1, which nothing chose and `PFCNonUniform`
 did not then check. Above it the limiter's `2(fmax − f)` goes negative and the
 scheme corrupted the run without a word: an equilibrium whose trapped population
-peaks at 1.79 ended 44% of its peak away from itself with the bound at 1 -- a run
-the scheme now refuses on its first call. Below it, where every run until then
+peaks above 1 was taken far from itself with the bound at 1, a run the scheme
+now refuses on its first call ([the verification page](verification.md), under
+The BGK equilibrium). Below it, where every run until then
 sat, the bound never engaged at all.
 
 Tight, it does engage, at the maximum, and that has a measured price: the limiter
 clips the reconstruction in the peak cell, and the α = 0.05 round trip in
-`test_verification.jl` converges at second order (×4.3, then ×4.1) where it
-converged at third (×5.7, ×7.1). Elsewhere the numbers moved little and are
+`test_verification.jl` converges at second order where it converged at third
+([the verification page](verification.md), under Reversibility). Elsewhere the numbers moved little and are
 updated where they are quoted. No run leaves its bound: the `fmax` history of a
 Landau, a strong Landau, a two-stream and an equilibrium run tops out exactly at
 it, or below, to the last bit. `PFCNonUniform` now checks every call it takes,
@@ -303,15 +299,11 @@ against a bound of 0.3846, 8.3% above. Both are a `DomainError` from inside the
 step, as before this check.
 
 Lifting the bound moved the collisional numbers slightly, though it had ended
-none of those runs: tight, it clipped the reconstruction in the peak cell. At
-ν = 0.1, 0.3 and 1, γ against the root on the grid's field went from +0.37%,
-+0.48%, +0.75% to +0.37%, +0.49%, +0.76% (γ by 3e-5 at most); the heat mode
-from 0.43383 to 0.43377 against the root's 0.43369; `PartialBGK{(:n, :u)}`'s ω
-from +0.04% to −0.10% of its own root. The energy holds better: at ν = 1 it
-drifts 8.0e-9 on ±8, where it drifted 1.4e-7, and 8.0e-8 on ±4, where it
-drifted 2.1e-7. The sampled Maxwellian on ±4, which the bound stopped on the
-first step and `verification/collisional-damping.jl` ran with 50% of headroom,
-now runs under the defaults and cools by the same −5.3%.
+none of those runs: tight, it clipped the reconstruction in the peak cell. γ
+moved by 3e-5 at most, the energy holds better, and the sampled Maxwellian on
+±4, which the bound stopped on the first step, now runs under the defaults. The
+figures are on [the verification page](verification.md), under Collisional
+damping.
 
 That refuses calls that ran. At 1% on ±4, where `f` comes no nearer 0 than
 1.3e-4, `LaxWendroff` and the cubic spline stay inside the bounds in either
