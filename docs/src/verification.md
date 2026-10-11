@@ -145,7 +145,7 @@ at one wavenumber. Both roots are measured at k = 0.3, 0.4 and 0.5 against
 `landau_root`, which solves the kinetic dispersion relation rather than quoting
 it (testset "Landau damping and dispersion"; `damping_rate`,
 `oscillation_frequency` and `trapping_phase` in the harness). The real frequency
-is about four times the sharper of the two, since it comes from counting nulls
+is four to nine times the sharper of the two, since it comes from counting nulls
 where `γ` comes from fitting an amplitude that numerical dissipation also acts
 on, so it is held to 1% where `γ` is held to 3%.
 
@@ -156,9 +156,9 @@ Three constraints shape the runs, and each cost time to rediscover:
   because the fastest row runs at `max|v|·Δt/Δx` against the scheme's Courant
   limit. The k = 0.5 case runs at 0.815.
 * **The fitting window stops before the floor** where recurrence and round-off
-  take over, and the floor arrives earlier in e-foldings the weaker the damping:
-  at k = 0.3 the mode has decayed only threefold by t = 50, and fitting past it
-  reports γ 22% low.
+  take over, and the floor arrives earlier in e-foldings the weaker the damping,
+  which is why each k has its own window; at α = 1e-2, where k = 0.3 had decayed
+  only threefold by t = 50, fitting past it read γ 22% low.
 * **The runs are linear.** At α = 1e-2 the k = 0.3 case is not: trapping stops
   its damping inside the fitting window (next section), and the γ it reported sat
   *below* the root, two errors cancelling, where dissipation can only push it
@@ -170,7 +170,7 @@ Three constraints shape the runs, and each cost time to rediscover:
 every sample, the `log cos²` nulls pull the slope by an amount that depends on
 where the window starts; that is what once read 0.1498 at k = 0.5. Both
 estimators are held to their windows: two windows agree in `γ` to 0.17%, 0.05%
-and 0.04%, and in `ω` to 0.066%, 0.000% and 0.300%. The thresholds sit in a gap.
+and 0.04%, and in `ω` to 0.066%, 0.000% and 0.300%. `ω`'s 1% sits in a gap.
 Below them is the estimator's own floor: a null is located only to within Δt,
 so two windows disagree by about `Δt/span` whatever the physics does, 0.4% at
 k = 0.5. Above them is the failure tested for: losing one null of ten rescales
@@ -536,11 +536,11 @@ kinetic root. The cold relation, `1 = ½/(ω − kv₀)² + ½/(ω + kv₀)²`, 
 in ω², `u± = [(2a² + 1) ± √(8a² + 1)]/2` with `a = kv₀`, unstable exactly when
 `a < 1`, with `γ = √(−u₋)`; it stays as the warm root's zero-temperature limit,
 checked against its relation to 1.4e-14. At a = 0.4, 0.6 and 0.8 the runs read
-−0.63%, −1.95% and +0.09% from the warm root; from the cold one they read 2.10%,
-3.15% and 0.30%, half a tolerance spent on a known approximation. `γ(a)` is not
-monotone and peaks near `a = √(3/8)`, so reproducing all three is a statement
-about the branch: a solver that merely amplified what it was given could not put
-the maximum in the right place.
+−0.63%, −1.95% and +0.09% from the warm root; from the cold one they read
+−2.10%, −3.15% and +0.30%, half a tolerance spent on a known approximation.
+`γ(a)` is not monotone and peaks near `a = √(3/8)`, so reproducing all three is
+a statement about the branch: a solver that merely amplified what it was given
+could not put the maximum in the right place.
 
 Finite temperature can make a beam grow faster than a cold one: the warm root
 crosses above the cold between a = 0.75 and 0.8, and past a = 1 the cold branch
