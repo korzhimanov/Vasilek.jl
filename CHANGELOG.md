@@ -1304,7 +1304,10 @@ migration guide, `docs/src/migration-0.2.md`, is the short version.
     vanishes at the walls, and second order on a stretched one, 3.98e-7 then
     9.97e-8 at N = 121 and 241.
   * **The time step.** Forward Euler on the operator's diffusion is stable for
-    `Δt ≲ Δv²/(4·L·A·max f)`, which the docstring now states. On the test line
+    `Δt ≲ δv²/(4·L·A·max f)`, `δv` the finest spacing, which the docstring
+    now states. On `8 sinh(3ξ)/sinh(3)`, N = 121, at `Tₜ = 0.16`, the bound at
+    the finest cell kept the line positive over t = 3, and the bound at the
+    coarsest let it grow to ±1.5e16 without a NaN. On the test line
     that is 0.0125 at Δv = 0.1; the run holds to 1.5 times it and ends in NaN
     at 2. The tests took Δt = 0.1, which the old operator survived and this
     one does not; they take 0.005. For a line cooling towards a narrow bath,

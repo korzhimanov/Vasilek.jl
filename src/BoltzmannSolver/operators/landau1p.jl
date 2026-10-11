@@ -31,7 +31,7 @@ end
     Landau1P(A; L = 20.0, Tₜ = 1.0)
 
 The Landau collision operator in one velocity dimension, the two transverse
-ones a Maxwellian bath at temperature `Tₜ > 0`, by default the thermal one:
+ones a Maxwellian bath at `Tₜ > 0`, by default thermal:
 
     ∂f/∂t = −∂F/∂v,  F(v) = L·A ∫ Φ(v − v′) [f ∂f′ − f′ ∂f − f f′ (v − v′)/Tₜ] dv′,
     Φ(u) = 2Tₜ/(u² + 2Tₜ)^(3/2),
@@ -49,8 +49,9 @@ So `Σ w f` is conserved to round-off, momentum to O(Δv²) and exactly on a
 uniform grid while `f` vanishes at the ends; the Maxwellian at `Tₜ` is
 stationary to O(Δv²), and the relative entropy falls until `f` is that close.
 The grid must resolve the bath: `Tₜ < Δv²` is refused, `Δv` the coarsest
-spacing, tails included, and `f` stays positive from about `Tₜ ≥ 4Δv²`. Forward Euler is stable for `Δt ≲ Δv²/(4·L·A·max f)`,
-`max f` over the run. A step is O(n²). Not exported.
+spacing, tails included, and `f` stays positive from about `Tₜ ≥ 4Δv²`.
+Forward Euler is stable for `Δt ≲ δv²/(4·L·A·max f)`, `δv` the finest
+spacing and `max f` over the run. O(n²) a step. Not exported.
 """
 struct Landau1P{T<:AbstractFloat} <: AbstractCollisionOperator
     A::T

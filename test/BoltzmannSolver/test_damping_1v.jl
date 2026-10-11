@@ -286,7 +286,7 @@ end
         @test abs(T - 1) < 2e-3 && minimum(f) > 0
     end
 
-    # The time-step bound the docstring gives, Δt ≲ Δv²/(4·L·A·max f), is
+    # The time-step bound the docstring gives, Δt ≲ δv²/(4·L·A·max f), is
     # sufficient with room to spare and not by much more: on h₀ at Δv = 0.1 it
     # is 0.0125, and 2000 steps stay positive and settle at a peak of 1.151,
     # the equilibrium's 1.150 to second order, up to 1.5 times it; at 1.6
@@ -300,6 +300,18 @@ end
     @test minimum(settled) > 0 && maximum(settled) < 1.16
     println("  Landau1P at twice the time-step bound, finite: ",
             all(isfinite, relax(op, v, 2bound, h₀, 2000)))
+    # δv is the finest spacing, where the diffusion is stiffest; the coarsest,
+    # which the resolution check uses, would be far too loose on a stretched
+    # grid. On 8 sinh(3ξ)/sinh(3), N = 121, cells 0.040 to 0.392, Tₜ = 0.16,
+    # from the thermal line over t = 3, max f the bath's peak: the bound at the
+    # finest cell, Δt = 0.002, kept f ≥ 2.9e-15; at the coarsest, Δt = 0.193,
+    # f reached ±1.5e16, still finite.
+    let vv = (ξ = range(-1, 1; length = 121); collect(@. 8*sinh(3ξ)/sinh(3))),
+        thin = Landau1P(1e-2; Tₜ = 0.16)
+        Δt₁ = minimum(diff(vv))^2/(4*thin.L*thin.A/sqrt(2π*0.16))
+        f = relax(thin, vv, Δt₁, (@. exp(-vv^2/2)/sqrt(2π)), round(Int, 3/Δt₁))
+        @test all(isfinite, f) && minimum(f) > 0
+    end
 end
 
 """
