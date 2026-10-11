@@ -22,29 +22,27 @@ As for now, the following functionality has been implemented:
 ## Verification
 
 The studies in `verification/` hold the solver to analytic theory and to the
-literature. Each runs on its own and writes its figures beside itself:
+literature, and the test suite asserts their claims; CI runs those assertions on
+every pull request. The headline rows:
 
-```bash
-julia --project=verification -e 'using Pkg; Pkg.instantiate()'   # once, Julia ≥ 1.11
-julia --project=verification verification/landau-damping-1d1v.jl  # or any other study there
-```
+| claim | asserted | measured |
+|---|---|---|
+| Landau damping rate, k = 0.3, 0.4, 0.5 | γ within 3% of the root of the kinetic dispersion relation | 0.70%, 1.14%, 0.95% |
+| Landau real frequency, same three k | ω within 1% of the same root | 0.08%, 0.22%, 0.26% |
+| the Vlasov–Poisson flow runs backwards | round-trip error after v → −v falls by at least 3.5× when the grid is halved, at α = 0.05 | 2.82e-3 → 6.48e-4, ×4.3: second order, the limiter clipping the peak |
+| strong Landau damping, α = 0.5 | γ₁ in the literature's −0.281…−0.292; γ₂ within 0.070…0.090, just under the cited 0.0815…0.0858, and refining moves it toward them | 0.2863, 0.0787 (0.0813 at twice the resolution) |
+| collisional Landau damping, `BGK` at ν = 0.1, 0.3, 1 | γ within 1.5% and ω within 0.3% of the collisional root on the grid's field, and γ *falling* as ν rises | +0.37%, +0.49%, +0.76%; +0.05%, +0.08%, +0.03%; 0.1547 → 0.1341 → 0.1074 → 0.0660 |
+| plasma oscillation frequency | ω within 0.2% of Bohm–Gross √(1+3k²), and the cold ωₚ excluded | 0.018%, against 0.57% for cold |
+| two-stream growth rate, kv₀ = 0.4, 0.6, 0.8 | γ within 3% of the warm kinetic root, and the peak in the right place | 0.63%, 1.95%, 0.09% |
+| bump-on-tail growth, Arber and Vann's beam | γ and ω within 0.05% and 0.01% of the kinetic root on the grid's field, 0.5% and 0.05% of the continuum's; the wave travels with the beam | 0.016%, 0.003%; 0.131%, 0.014% |
+| a plasma echo, field on, is second-order kinetic theory's | pointwise within 1% of `echo_second_order`, the peak within 1% of its size and two steps of its time | 0.48%, 0.48%, t = 29.05 on both |
+| a laser wakefield's size is the one linear theory gives | peak within 10% of `linear_wake`, pointwise rms under 15% | 6.4%, 6.4% |
 
-Their headline claims are asserted by the test suite rather than left in prose.
-CI runs this on every pull request; locally it is behind an environment variable
-so that a default `Pkg.test()` stays instant:
-
-```bash
-VASILEK_EXTENDED=1 julia --project=. -e 'using Pkg; Pkg.test()'
-```
-
-The [documentation](https://korzhimanov.github.io/Vasilek.jl/dev/) renders each
-study with its output and figures. Each claim, the tolerance it is held to and
-the value measured are tabulated in
-[docs/src/verification.md](docs/src/verification.md), with notes on the
-studies that needed more than a number.
-
-Unit conventions are in [docs/src/normalization.md](docs/src/normalization.md).
-
+The full table, the nine studies with their commands, and the measurements
+behind each claim are in [docs/src/verification.md](docs/src/verification.md),
+which the [documentation](https://korzhimanov.github.io/Vasilek.jl/dev/) renders
+with each study's output and figures. Unit conventions are in
+[docs/src/normalization.md](docs/src/normalization.md).
 
 ## Usage
 
@@ -98,33 +96,18 @@ These blocks are executed by the test suite, so they cannot drift from the API.
 
 ```
 julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
+julia --project=. -e 'using Pkg; Pkg.test(test_args = ["readme", "docs"])'  # only those files
+VASILEK_EXTENDED=1 julia --project=. -e 'using Pkg; Pkg.test()'             # the verification suite
+julia --project=verification verification/two-stream.jl                     # or any other study
+julia --project=docs docs/make.jl                                           # VASILEK_DOCS_EXECUTE=1 runs the studies
+julia --project=benchmark benchmark/runbenchmarks.jl                        # advisory
+julia --project=benchmark benchmark/workprecision.jl                        # advisory
 ```
 
-Benchmarks live in their own environment:
+The `verification`, `benchmark` and `docs` environments take the package from
+this checkout through `[sources]`, so they need Julia ≥ 1.11 and an
+`instantiate` each, and the benchmark baseline in `benchmark/results.json` was
+recorded on the development machine, so `runbenchmarks.jl --strict` means
+something only there.
 
-```
-julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'   # once, Julia ≥ 1.11
-julia --project=benchmark benchmark/runbenchmarks.jl
-julia --project=benchmark benchmark/workprecision.jl
-```
-
-`runbenchmarks.jl` times each kernel against a stored baseline, measured on the
-development machine, so a run anywhere else compares machines as much as code;
-it prints the baseline's Julia and BenchmarkTools versions beside its own.
-`workprecision.jl` pairs error with the cost of reaching it and prints the
-efficiency frontier per problem class — the schemes no other scheme beats on
-both axes. Both are advisory and exit 0; the accuracy half of the comparison is
-gated in `test/test_comparison.jl`, the timing half is not.
-
-The documentation builds with Documenter, in an environment of its own; the
-studies it renders load their packages from the verification environment:
-
-```
-julia --project=docs -e 'using Pkg; Pkg.instantiate()'           # once, Julia ≥ 1.11
-julia --project=verification -e 'using Pkg; Pkg.instantiate()'   # once
-julia --project=docs docs/make.jl                                # into docs/build, studies not run
-VASILEK_DOCS_EXECUTE=1 julia --project=docs docs/make.jl         # studies run, as CI does
-```
-
-See [CHANGELOG.md](CHANGELOG.md) for recent changes, including several
-numerically breaking fixes.
+See [CHANGELOG.md](CHANGELOG.md) for the changes.
