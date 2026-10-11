@@ -218,6 +218,9 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Changed
 
+- **The normalization notes keep the conventions and link the measurements**:
+  the Poisson sign, the Yee group velocity and Bohm–Gross point to their
+  sections of `docs/src/verification.md` instead of repeating the figures.
 - **The measurements have one home**: `docs/src/verification.md` gathers them by
   study; the README keeps ten rows of its table, held to it by
   `test/test_readme.jl`, and this file one to three lines an entry.
