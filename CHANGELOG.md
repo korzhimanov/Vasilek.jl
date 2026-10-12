@@ -218,9 +218,9 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Changed
 
-- **The normalization notes link three measurements instead of repeating
-  them**: the Poisson sign, the Yee group velocity and Bohm–Gross point to their
-  sections of `docs/src/verification.md`; the conventions and advice stay.
+- **The normalization notes link three measurements to the verification page**,
+  and the README links the built notes; the harness's `em_omega` and `wakefield`
+  docstrings keep the carrier's 4.5% apart from the pulse's 5.2% and 6.6%.
 - **The measurements have one home**: `docs/src/verification.md` gathers them by
   study; the README keeps ten rows of its table, held to it by
   `test/test_readme.jl`, and this file one to three lines an entry.

@@ -331,9 +331,10 @@ because the two are far apart at the resolutions this package runs. Writing
 
 and the relation above follows. The plasma enters only through `Δt²n/4`, so at
 the small `cfl` the wakefield study uses it is the *spatial* term that carries
-the error: at ten cells per wavelength the group velocity comes out 4.5% below
-`√(1-n)`, which is a laser pulse arriving late and a wake with the wrong phase
-velocity, not a rounding difference.
+the error: at ten cells per wavelength the carrier's group velocity comes out
+4.5% below `√(1-n)`. A pulse travels at [`vg_discrete`](@ref) averaged over its
+spectrum, [`vg_pulse`](@ref), and so arrives late and writes a wake with the
+wrong phase velocity: not a rounding difference.
 
 Real for `cfl²sin²(kΔx/2) + nΔt²/4 ≤ 1`, which is the stability condition; the
 plasma term is what tightens it slightly below the familiar `cfl ≤ 1`.

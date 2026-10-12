@@ -42,9 +42,9 @@ The full table, the nine studies with their commands, and the measurements
 behind each claim are in [docs/src/verification.md](docs/src/verification.md),
 which the [documentation](https://korzhimanov.github.io/Vasilek.jl/dev/) renders
 with each study's output and figures. Unit conventions are in the
-[normalization notes](https://korzhimanov.github.io/Vasilek.jl/dev/normalization/),
-whose links to the measurements work there rather than in their source,
-[docs/src/normalization.md](docs/src/normalization.md).
+[normalization notes](https://korzhimanov.github.io/Vasilek.jl/dev/normalization/)
+(source: [docs/src/normalization.md](docs/src/normalization.md), whose `@ref`
+links to the measurements resolve only on the built site).
 
 ## Usage
 

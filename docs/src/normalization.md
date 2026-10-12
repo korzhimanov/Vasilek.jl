@@ -1,10 +1,11 @@
 # Normalization conventions
 
 Every quantity in this package is dimensionless. The conventions were once
-recorded only in the prose of the verification studies — and the
-`PoissonFourier1D` bug that returned a field too large by `1/Δx²` came directly
-from that gap: the module and the studies disagreed about what a wavenumber
-meant, and nothing said which was right.
+recorded only in the prose of the verification notebooks, since replaced by the
+studies in `verification/` — and the `PoissonFourier1D` bug that returned a
+field too large by `1/Δx²` came directly from that gap: the module and the
+notebooks disagreed about what a wavenumber meant, and nothing said which was
+right.
 
 ## Base units
 
@@ -146,11 +147,13 @@ is the spatial term, and it is not decorative: at ten cells per vacuum
 wavelength the group velocity this relation gives the carrier is several
 percent below `√(1-n)`, and a pulse travels at the discrete group velocity
 averaged over its spectrum. The pulse therefore arrives late and drives a wake
-whose phase velocity is wrong by as much as the pulse's speed, and whose
+whose phase velocity is wrong by about as much as the pulse's speed, and whose
 `γ_φ = 1/√(1 − v_φ²)` is wrong by far more (see [The laser wakefield](@ref) on
-the verification page). Resolve the laser wavelength with twenty cells or
-better, or read the pulse speed off `vg_pulse` in the harness, which averages
-`vg_discrete` over the pulse's spectrum, rather than off the continuum formula.
+the verification page). Twenty cells per wavelength brings the pulse within a
+few percent of `√(1-n)`, which still leaves `γ_φ` well off; where `γ_φ` matters,
+resolve further, or read the speed the run has off `vg_pulse` in the harness,
+which averages `vg_discrete` over the pulse's spectrum, rather than off the
+continuum formula.
 
 The frequency of the longitudinal oscillation is asserted rather than
 asserted-about: `test/test_verification.jl` holds it to the Bohm–Gross
