@@ -1,10 +1,11 @@
 # Normalization conventions
 
-Every quantity in this package is dimensionless. The conventions were, until
-now, recorded only in the prose of the verification notebooks — and the
-`PoissonFourier1D` bug that returned a field too large by `1/Δx²` came directly
-from that gap: the module and the notebooks disagreed about what a wavenumber
-meant, and nothing said which was right.
+Every quantity in this package is dimensionless. The conventions were once
+recorded only in the prose of the verification notebooks, since replaced by the
+studies in `verification/` — and the `PoissonFourier1D` bug that returned a
+field too large by `1/Δx²` came directly from that gap: the module and the
+notebooks disagreed about what a wavenumber meant, and nothing said which was
+right.
 
 ## Base units
 
@@ -33,11 +34,11 @@ the package and the verification runs computes, from `nₑ - nᵢ`. The transver
 section below uses the same field: `∂p/∂t = +E`. The second line read
 `nᵢ - nₑ` until the equilibrium test in `test_verification.jl` built its ions
 from it: under the code's sign those ions hold a field exactly opposite to the
-equilibrium's, `E/E₀ = −1.000` from the first sample, and the run leaves the
-state it was meant to keep by 16% of the peak. Taken literally, with the `+E`
-above, that sign makes electrons attract one another.
+equilibrium's, and the run leaves the state it was meant to keep (see
+[The BGK equilibrium](@ref) on the verification page). Taken literally, with the
+`+E` above, that sign makes electrons attract one another.
 
-and the total energy is `∬ f v²/2 dv dx + ∫ E²/2 dx`. What the driver and the
+The total energy is `∬ f v²/2 dv dx + ∫ E²/2 dx`. What the driver and the
 verification runs report, as `ε` and `ε_e`, is **twice** that, the cell-width
 sums
 
@@ -116,7 +117,7 @@ peak field of `1.0e22` against a source amplitude of `1.0` before it was
 corrected.
 
 Sign convention, taken from the longitudinal direction that the
-plasma-oscillation notebook verifies against the analytic plasma frequency:
+plasma-oscillation study verifies against Bohm–Gross:
 
 ```
 ∂p/∂t = +E        ∂E/∂t = -n·p
@@ -143,20 +144,22 @@ Courant numbers and four wavenumbers.
 
 The plasma enters only through `nΔt²/4`, so at a small Courant number the error
 is the spatial term, and it is not decorative: at ten cells per vacuum
-wavelength the group velocity this relation gives is 4.5% below `√(1-n)`. A
-laser pulse therefore arrives late and drives a wake whose phase velocity is
-wrong by the same amount, which for a wakefield study is the difference between
-`γ_φ ≈ 2.2` and `≈ 3.0`. Resolve the laser wavelength with twenty cells or
-better, or read the pulse speed off `em_omega` rather than off the continuum
-formula.
+wavelength the group velocity this relation gives the carrier is several
+percent below `√(1-n)`, and a pulse travels at the discrete group velocity
+averaged over its spectrum. The pulse therefore arrives late and drives a wake
+whose phase velocity is wrong by about as much as the pulse's speed, and whose
+`γ_φ = 1/√(1 − v_φ²)` is wrong by far more (see [The laser wakefield](@ref) on
+the verification page). Twenty cells per wavelength brings the pulse within a
+few percent of `√(1-n)`, which still leaves `γ_φ` well off; where `γ_φ` matters,
+resolve further, or read the speed the run has off `vg_pulse` in the harness,
+which averages `vg_discrete` over the pulse's spectrum, rather than off the
+continuum formula.
 
-The frequency of the longitudinal oscillation is now asserted rather than
-asserted-about:
-`test/test_verification.jl` measures it at `ω = 1.005719` against the
-Bohm–Gross `√(1 + 3k²) = 1.005904` at `k = 2π/100`, which is 0.018% — and
-0.57% from the cold `ωₚ = 1`, so the thermal correction is resolved rather than
-merely tolerated. Until that test was written this paragraph was the only place
-the claim existed.
+The frequency of the longitudinal oscillation is asserted rather than
+asserted-about: `test/test_verification.jl` holds it to the Bohm–Gross
+`√(1 + 3k²)` closely enough to tell it from the cold `ωₚ = 1`, so the thermal
+correction is resolved rather than merely tolerated (see
+[Plasma oscillation frequency and energy](@ref) on the verification page).
 
 ## Boundaries in the FDTD solver
 
@@ -181,10 +184,9 @@ Two consequences for callers:
   entries of `j.y` and `j.z` are ignored; they exist so the arrays index
   alongside `f.ey`.
 
-The second of those was wrong until recently: the current was added over
-`1:Nx`, so node 1 was driven while node `Nx+1` was not. It broke the symmetry
-the energy identity rests on, and injected a source into a conductor at one end
-only.
+The second of those was once wrong: the current was added over `1:Nx`, so node
+1 was driven while node `Nx+1` was not. It broke the symmetry the energy
+identity rests on, and injected a source into a conductor at one end only.
 
 ## Bounds for the PFC schemes
 

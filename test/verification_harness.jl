@@ -331,9 +331,10 @@ because the two are far apart at the resolutions this package runs. Writing
 
 and the relation above follows. The plasma enters only through `Δt²n/4`, so at
 the small `cfl` the wakefield study uses it is the *spatial* term that carries
-the error: at ten cells per wavelength the group velocity comes out 4.5% below
-`√(1-n)`, which is a laser pulse arriving late and a wake with the wrong phase
-velocity, not a rounding difference.
+the error: at ten cells per wavelength the carrier's group velocity comes out
+4.5% below `√(1-n)`. A pulse travels at [`vg_discrete`](@ref) averaged over its
+spectrum, [`vg_pulse`](@ref), and so arrives late and writes a wake with the
+wrong phase velocity: not a rounding difference.
 
 Real for `cfl²sin²(kΔx/2) + nΔt²/4 ≤ 1`, which is the stability condition; the
 plasma term is what tightens it slightly below the familiar `cfl ≤ 1`.
@@ -452,10 +453,12 @@ current is the right expression any more.
 
 `Δx = 0.05·2π` is twenty cells per vacuum wavelength. It was ten, and ten is not
 a resolution this model can be read at: the Yee dispersion relation
-[`em_omega`](@ref) puts the driver's group velocity 4.5% below `√(1 - n)` there,
-so the pulse arrives late and the wake it writes has a phase velocity wrong by
-the same amount -- `γ_φ ≈ 2.2` against the 3.0 the physics gives, which is the
-difference between two different statements about trapping and dephasing.
+[`em_omega`](@ref) puts the carrier's group velocity 4.5% below `√(1 - n)` there,
+and [`vg_pulse`](@ref) the pulse's, averaged over its spectrum, 5.2% below. The
+pulse arrives late, 6.6% as measured, and the wake it writes has a phase
+velocity wrong by about as much -- `γ_φ ≈ 2.2` against the 3.0 the physics
+gives, which is the difference between two different statements about trapping
+and dephasing.
 Measured across the two, at about four times the wall clock -- halving `Δx` halves
 `Δt` with it, so `Nx` and `Nt` both double (2.5 s against 10 s, timed back to back):
 
