@@ -1,9 +1,9 @@
 # Normalization conventions
 
 Every quantity in this package is dimensionless. The conventions were once
-recorded only in the prose of the verification notebooks — and the
+recorded only in the prose of the verification studies — and the
 `PoissonFourier1D` bug that returned a field too large by `1/Δx²` came directly
-from that gap: the module and the notebooks disagreed about what a wavenumber
+from that gap: the module and the studies disagreed about what a wavenumber
 meant, and nothing said which was right.
 
 ## Base units
@@ -37,7 +37,7 @@ equilibrium's, and the run leaves the state it was meant to keep (see
 [The BGK equilibrium](@ref) on the verification page). Taken literally, with the
 `+E` above, that sign makes electrons attract one another.
 
-and the total energy is `∬ f v²/2 dv dx + ∫ E²/2 dx`. What the driver and the
+The total energy is `∬ f v²/2 dv dx + ∫ E²/2 dx`. What the driver and the
 verification runs report, as `ε` and `ε_e`, is **twice** that, the cell-width
 sums
 
@@ -116,7 +116,7 @@ peak field of `1.0e22` against a source amplitude of `1.0` before it was
 corrected.
 
 Sign convention, taken from the longitudinal direction that the
-plasma-oscillation notebook verifies against the analytic plasma frequency:
+plasma-oscillation study verifies against Bohm–Gross:
 
 ```
 ∂p/∂t = +E        ∂E/∂t = -n·p
@@ -144,12 +144,13 @@ Courant numbers and four wavenumbers.
 The plasma enters only through `nΔt²/4`, so at a small Courant number the error
 is the spatial term, and it is not decorative: at ten cells per vacuum
 wavelength the group velocity this relation gives the carrier is several
-percent below `√(1-n)`, and a pulse's, averaged over its spectrum, lower still.
-The pulse therefore arrives late and drives a wake whose phase velocity is
-wrong by as much as the pulse's, and whose `γ_φ = 1/√(1 − v_φ²)` is wrong by
-far more (see [The laser wakefield](@ref) on the verification page). Resolve the
-laser wavelength with twenty cells or better, or read the pulse speed off
-`em_omega` rather than off the continuum formula.
+percent below `√(1-n)`, and a pulse travels at the discrete group velocity
+averaged over its spectrum. The pulse therefore arrives late and drives a wake
+whose phase velocity is wrong by as much as the pulse's speed, and whose
+`γ_φ = 1/√(1 − v_φ²)` is wrong by far more (see [The laser wakefield](@ref) on
+the verification page). Resolve the laser wavelength with twenty cells or
+better, or read the pulse speed off `vg_pulse` in the harness, which averages
+`vg_discrete` over the pulse's spectrum, rather than off the continuum formula.
 
 The frequency of the longitudinal oscillation is asserted rather than
 asserted-about: `test/test_verification.jl` holds it to the Bohm–Gross
