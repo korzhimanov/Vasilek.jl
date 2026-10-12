@@ -452,10 +452,12 @@ current is the right expression any more.
 
 `Δx = 0.05·2π` is twenty cells per vacuum wavelength. It was ten, and ten is not
 a resolution this model can be read at: the Yee dispersion relation
-[`em_omega`](@ref) puts the driver's group velocity 4.5% below `√(1 - n)` there,
-so the pulse arrives late and the wake it writes has a phase velocity wrong by
-the same amount -- `γ_φ ≈ 2.2` against the 3.0 the physics gives, which is the
-difference between two different statements about trapping and dephasing.
+[`em_omega`](@ref) puts the carrier's group velocity 4.5% below `√(1 - n)` there,
+and [`vg_pulse`](@ref) the pulse's, averaged over its spectrum, 5.2% below. The
+pulse arrives late, 6.6% as measured, and the wake it writes has a phase
+velocity wrong by about as much -- `γ_φ ≈ 2.2` against the 3.0 the physics
+gives, which is the difference between two different statements about trapping
+and dephasing.
 Measured across the two, at about four times the wall clock -- halving `Δx` halves
 `Δt` with it, so `Nx` and `Nt` both double (2.5 s against 10 s, timed back to back):
 

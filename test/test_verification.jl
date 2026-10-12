@@ -1258,7 +1258,7 @@ end
         @testset "Plasma oscillations, Bohm–Gross frequency" begin
             # `docs/src/normalization.md` says the plasma-oscillation study verifies
             # the analytic plasma frequency. Nothing measured a frequency
-            # anywhere in the repository until now -- only the energy drift
+            # anywhere in the repository before this test -- only the energy drift
             # below, which a solver oscillating at entirely the wrong rate would
             # pass without difficulty.
             #

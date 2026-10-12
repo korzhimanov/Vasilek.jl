@@ -10,7 +10,7 @@ using FFTW
 # history of: a field wrong by a factor of `Δx²` from a wavenumber convention
 # mismatch. `docs/src/normalization.md` already states the exact discrete identity
 # the scheme satisfies and claims the test asserts it to machine precision --
-# until now it did not.
+# before this suite it did not.
 @testset "Test 1D Poisson solvers" begin
     Δx = 0.01
     ρ = [sin(2π*i*Δx) for i = 0:999]
