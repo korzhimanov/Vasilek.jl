@@ -83,25 +83,32 @@ cells' width. It crossed, at 1.0017, while the driver still rescaled `f` by the
 trapezoid, 0.79% up at that amplitude.
 
 The uniform-grid schemes are split as well, which `line_advector` did not do.
-Inside a cell the count is 1 -- `|α| < h` exactly when `α/h` rounds below 1 --
-and `α/1` is `α`, so every call that ran before takes the same step to the bit
-but one of exactly a cell; a call past `c = 1`, which was a `DomainError`, now
-runs in sub-steps. Nothing here asks a uniform scheme for more than `c = 0.50`.
-`SemiLagrangian`, which has no Courant limit, takes any step whole.
+Within a cell the count is 1 -- `|α| ≤ h` exactly when `α/h` rounds to at most 1
+-- and `α/1` is `α`, so every call that ran before takes the same step to the
+bit, but a `PFC`'s step of exactly a cell; a call past `c = 1`, which was a
+`DomainError`, now runs in sub-steps. Nothing here asks a uniform scheme for
+more than `c = 0.50`. `SemiLagrangian`, which has no Courant limit, takes any
+step whole.
 
-**No sub-step is exactly a cell**: one cell is two halves, and `m` cells
-`m + 1` parts. At `|c| = 1` every flux is its upwind cell's whole value, and a
-cell takes `f[i] + (f[i−1] − f[i])`, which rounds unless the two are within a
-factor of two of each other: the shift is right to within an ulp of the
-larger, and from data that touches a `PFC`'s bounds it can leave a cell outside
-them. `OnGrid(PFCNonUniform(fill(0.1, 6); fmin = 0, fmax = 1))` took `α = 0.2`
-in two steps of exactly 0.1, and the second refused the −1.7e-18 the first left
-in a cell that had held 0. On random lines of 8 cells of a random uniform
-width, bounded at their own extrema, a `PFCNonUniform` step of exactly the
-width took 1351 of 20000 above them and 974 below. `PFC` at `c = 1` took none
-out, but `[0.195, 0.694, 0.566, 0.987]` under `fmax = 0.987` goes to
+**No `PFC` or `PFCNonUniform` sub-step is exactly a cell**: one cell is two
+halves, and `m` cells `m + 1` parts. At `|c| = 1` every flux is its upwind
+cell's whole value, and a cell takes `f[i] + (f[i−1] − f[i])`, which rounds
+unless the two are within a factor of two of each other: the shift is right to
+within an ulp of the larger, and from data that touches a `PFC`'s bounds it can
+leave a cell outside them. `OnGrid(PFCNonUniform(fill(0.1, 6); fmin = 0, fmax =
+1))` took `α = 0.2` in two steps of exactly 0.1, and the second refused the
+−1.7e-18 the first left in a cell that had held 0. On random lines of 8 cells of
+a random uniform width, bounded at their own extrema, a `PFCNonUniform` step of
+exactly the width took 1351 of 20000 above them and 974 below. `PFC` at `c = 1`
+took none out, but `[0.195, 0.694, 0.566, 0.987]` under `fmax = 0.987` goes to
 `0.9870000000000001`: the misses are rounding ties, which random data rarely
 holds and decimal data often does.
+
+The split is theirs alone, as checking their bounds is. It was every scheme's
+for a while, and a unit spike under `OnGrid(Upwind())` at `α = h` came out as
+0.25, 0.5, 0.25 rather than shifted, a Gaussian 0.053 off its shift; `Upwind`,
+`Godunov` and `LaxWendroff` take their own step at `c = ±1` again, and an ulp
+they leave beside a default is the round-off the default allows for below.
 
 A sub-step a few ulps short of a cell still does it, more rarely, and `OnGrid`
 does not split that. `PFCNonUniform` took the lines above in 255, 176, 166, 77,
@@ -411,23 +418,31 @@ to 0.24; a `PFC` bounded at 1.5 times the maximum took it above in 27%, by up
 to 0.115.
 
 **Round-off is what the default allows for beside a given scheme: its upper
-bound is two ulps above `maximum(f)`**, in its own type. With no scheme given
-it keeps `maximum(f)` itself, and those runs are as they were to the bit. The
-default bounded at the maximum refused the line a partner left an ulp above,
-and the run stopped, which the measurement above did not show. `Godunov` added
-a cell's inflow and subtracted its outflow in turn, the source of its 7.3e-16:
-from a constant line of 16 cells at 1/√(2π) it left the line an ulp up at 492
-of 2001 Courant numbers across `[-1, 1]`, 346 at 0.2631… and 214 at 0.7, and a
-waterbag uniform in x stopped on its first step under any `Godunov` in x. It
-now takes the difference of its two fluxes, as `PFC` does, and keeps a
-constant line to the bit. On the five kinds of data above, scaled to a maximum
-that is not a power of two (a maximum of 1 no rounding passes), `Godunov` took
-the maximum up in 577 of 10080 runs, by up to 10 ulps and in 134 by more than
-two; now in 14, by one ulp, all at `|c| = 1` and the same 14 as `Upwind` and
-`PFC`. The linear `SemiLagrangian` is left as it is, Interpolations' linear
-spline to the bit: it lifts a constant line at 1/√(2π) an ulp at 425 of the
-2001 Courant numbers, and no further in 200 steps, but a waterbag with its own
-ions stopped on that ulp too.
+bound is two ulps above `maximum(f)`**, in the type the lines are worked in,
+Float64 at least. In the default's own type, BigFloat on a BigFloat v grid, two
+ulps were nothing to a Float64 line, and the waterbag below stopped as before.
+With no scheme given it keeps `maximum(f)` itself, and those runs are as they
+were to the bit; so it does beside a `PFC` or `PFCNonUniform`, which holds the
+data to bounds of its own. A `PFCNonUniform` bounded two ulps above the peak of
+a line lets it up to there: one step took random lines above their peak in 2406
+of 20000, where bounded at the peak it did in 1, and a given `PFC` bounded at
+`maximum(f)` would refuse what such a default handed it. The default bounded at
+the maximum refused the line a partner left an ulp above, and the run stopped,
+which the measurement above did not show. `Godunov` added a cell's inflow and
+subtracted its outflow in turn, the source of its 7.3e-16: from a constant line
+of 16 cells at 1/√(2π) it left the line an ulp up at 492 of 2001 Courant numbers
+across `[-1, 1]`, 346 at 0.2631… and 214 at 0.7, and a waterbag uniform in x
+stopped on its first step under any `Godunov` in x. It now takes the difference
+of its two fluxes, as `PFC` does, and keeps a constant line to the bit; the
+constant reconstruction takes it factored, `|c|(f[i−1] − f[i])`, and is `Upwind`
+to the bit. On the five kinds of data above, scaled to a maximum that is not a
+power of two (a maximum of 1 no rounding passes), `Godunov` took the maximum up
+in 577 of 10080 runs, by up to 10 ulps and in 134 by more than two; now in 14,
+by one ulp, all at `|c| = 1` and the same 14 as `Upwind` and `PFC`. The linear
+`SemiLagrangian` is left as it is, Interpolations' linear spline to the bit: it
+lifts a constant line at 1/√(2π) an ulp at 425 of the 2001 Courant numbers, and
+no further in 200 steps, but a waterbag with its own ions stopped on that ulp
+too.
 
 On the README's grid to `t = 20`, waterbags flat or perturbed in x by 1e-12 to
 5%, Landau at 1% and 50%, a two-stream case and Maxwellians capped at 0.2 to
@@ -438,13 +453,14 @@ with a `DomainError`, and none does now. None of the first 200 stops to
 `t = 60` either.
 
 Two ulps is not a bound on what a limiter can do where a plateau at a line's
-maximum meets values just below it. On lines of 8 to 32 cells, half at the
-maximum and the rest up to 1e-12, 1e-9 or 1e-6 of it below, after 20 steps at
-a random Courant number, `Godunov` with `VanLeer` had passed it by more than two
-ulps in 13, 14 and 13 of 3000 runs, by up to 8, and with `Superbee` in 25, 21
-and 10, by up to 11; before the change 168, 70 and 44, and 197, 101 and 57, by
-up to 15. The constant reconstruction, `Upwind` and the linear
-`SemiLagrangian` never did. `PFC` bounded at the maximum passed it in 3 of the
-3000 at 1e-12, which is the default's own known issue. A wider default would
-change its limiter beside every partner, to cover a case no driver run above
-reached.
+maximum meets values just below it, and no fixed margin is: the excess builds
+from step to step. On lines of 8 to 32 cells, half at the maximum and the rest
+up to 1e-12, 1e-9 or 1e-6 of it below, after 20 steps at a random Courant
+number, `Godunov` with `VanLeer` had passed it by more than two ulps in 13, 14
+and 13 of 3000 runs, by up to 8, and with `Superbee` in 25, 21 and 10, by up to
+11; before the change 168, 70 and 44, and 197, 101 and 57, by up to 15. Over
+200 steps, the peak of each run passed two ulps in 44 of 6000 runs with
+`VanLeer`, by up to 50, and in 66 with `Superbee`, by up to 90. The constant
+reconstruction, `Upwind` and the linear `SemiLagrangian` never did. `PFC`
+bounded at the maximum passed it in 3 of the 3000 at 1e-12, which is the
+default's own known issue. No driver run above reached it.

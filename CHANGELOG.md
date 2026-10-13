@@ -346,12 +346,14 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 - **A scheme given for one direction no longer stops the run in the other's
   default**: `Godunov` takes `f + (Φin − Φout)`, and the default beside a given
-  scheme is bounded two ulps above `maximum(f)`. `docs/src/driver-notes.md`.
-- **`Godunov` keeps a constant line to the bit**; its four golden lines move by
-  up to 4 ulps (7.0e-16 relative), the other six not at all.
-  `test/test_contracts.jl`.
-- **`OnGrid` takes no sub-step of exactly a cell**, which `PFCNonUniform` took
-  an ulp outside its bounds; `substeps(2h, h)` is 3. `docs/src/driver-notes.md`.
+  scheme but a PFC is bounded two ulps above `maximum(f)`.
+  `docs/src/driver-notes.md`.
+- **`Godunov` keeps a constant line to the bit**, the constant reconstruction as
+  `Upwind` to the bit; its four golden lines move by up to 4 ulps (7.0e-16
+  relative), the other six not at all. `test/test_contracts.jl`.
+- **`OnGrid` gives `PFC` and `PFCNonUniform` no sub-step of exactly a cell**,
+  which took a cell an ulp outside their bounds; `substeps(2h, h; inside = true)`
+  is 3. `docs/src/driver-notes.md`.
 - **`vlasov_poisson` runs in the data's type, `T = float(eltype(f₀))`**: field,
   density, histories and `E_modes` follow it, and the lines are worked in
   Float64. `test/test_driver.jl`.
@@ -507,7 +509,8 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 - `Godunov` with a limiter can take a plateau at a line's maximum past the
   default's two ulps where values just below meet it: by up to 11 ulps in 0.3%
-  to 0.8% of twenty-step runs on such lines. `docs/src/driver-notes.md`.
+  to 0.8% of twenty-step runs on such lines, 90 in 200.
+  `docs/src/driver-notes.md`.
 - A step a few ulps short of a cell can still leave `PFC` and `PFCNonUniform` an
   ulp outside bounds at the data's own extrema. `docs/src/driver-notes.md`.
 - Rounding inside the flux can still leave `PFCNonUniform` an ulp above `fmax`

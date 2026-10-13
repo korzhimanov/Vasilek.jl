@@ -91,8 +91,9 @@ Whether `scheme` keeps data that starts inside `[lo, hi]` inside it, to
 round-off, which the default's bracket allows for: what
 [`vlasov_poisson`](@ref) asks of a scheme given for one direction while the
 other is left to its default, a `PFCNonUniform` built on `[0, maximum(f)]` --
-its upper bound two ulps above `maximum(f)`, beside a given scheme -- that
-refuses a line outside them.
+its upper bound two ulps above `maximum(f)` beside any scheme but a `PFC` or
+`PFCNonUniform`, which holds the data to bounds of its own -- that refuses a
+line outside them.
 
 True for the schemes that keep their data between its own extrema -- `Upwind`,
 `Godunov` with a constant reconstruction or a limiter, the linear
@@ -117,13 +118,18 @@ function keeps_bounds(s::Union{PFC, PFCNonUniform}, lo, hi)
     return T(lo, RoundDown) ≤ s.fmin && s.fmax ≤ T(hi, RoundUp)
 end
 
+# Whether a given scheme holds the data to bounds of its own, which the default
+# beside it then keeps exactly; see `setup`.
+bounded(s) = s isa Union{PFC, PFCNonUniform}
+bounded(og::OnGrid) = bounded(og.scheme)
+
 # A scheme given for one direction while the other is left to its default has to
 # keep `f` inside the default's bounds; see `vlasov_poisson`.
 function refuse_unbounded(given, name, other, bound)
     keeps_bounds(given, 0.0, bound) && return nothing
     throw(ArgumentError(
-        "$name = $(sprint(show, given)) may take f outside [0, $bound], " *
-        "the bounds of the PFCNonUniform that $other defaults to, which stops the run at " *
+        "$name = $(sprint(show, given)) may take f outside [0, $bound], the bounds, to " *
+        "round-off, of the PFCNonUniform that $other defaults to, which stops the run at " *
         "the first line handed to it outside them. Pass $other as well: the same scheme, " *
         "or a PFCNonUniform with bounds both sweeps keep (fmin = -Inf, fmax = Inf for none)"))
 end
@@ -142,7 +148,8 @@ Strang-split electrostatic Vlasov–Poisson for electrons over fixed ions, from
   * `scheme_x`, `scheme_v`: advection schemes, or functions of the starting `f`
     that return one. Both default to `PFCNonUniform` on their grid, in Float64
     at least, bounded by `[0, maximum(f)]` (below only with `collisions`, and
-    two ulps above `maximum(f)` beside a scheme given for the other direction);
+    two ulps above `maximum(f)` beside a scheme given for the other direction,
+    unless that is a `PFC` or `PFCNonUniform`);
     each is put on its grid by [`OnGrid`](@ref), which takes the step as a
     displacement and splits one wider than a cell.
   * `nᵢ`: the ion density over `x`; by default the Maxwellian's `Σ M Δv`,
@@ -382,27 +389,33 @@ function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants
     # line's own, so the upper bound is not the run's to keep: the defaults then
     # bound `f` below only.
     bound = collisions === nothing ? maximum(f) : Inf
+    # The lines are worked in Float64 at least and rounded into `f` once a step,
+    # whatever `f`'s own type; see the defaults below.
+    work = promote_type(Float64, T)
+    given(s) = s === nothing ? nothing : s isa AbstractAdvection1D ? s : s(f)
+    gx, gv = given(scheme_x), given(scheme_v)
     # A scheme given for the other direction keeps `f` inside `[0, bound]` only
     # to round-off (`keeps_bounds`), and a default bounded at `bound` itself
     # refused the line it left an ulp above: a waterbag with its own ions under
-    # a `SemiLagrangian(LinearSpline())` x sweep stopped on its first step. Beside
-    # a given scheme the default's upper bound is two ulps above, in the
-    # default's own type. Below, the schemes `keeps_bounds` takes stay at or
-    # above 0 to the bit, and a run with no scheme given keeps `bound` itself.
-    partnered = scheme_x !== nothing || scheme_v !== nothing
-    # The defaults are Float64 at least, as the step works the line (`work`
-    # below): a Float32 one rounds each flux difference, and can leave a cell an
-    # ulp outside its bounds, which the next checked call refuses -- one
-    # subnormal below 0 at the edge of a plateau, as `docs/src/driver-notes.md`
-    # measures.
-    function default(widths)
-        S = promote_type(Float64, eltype(widths))
-        top = partnered ? nextfloat(convert(S, bound), 2) : convert(S, bound)
-        return PFCNonUniform(convert(Vector{S}, widths); fmin = 0.0, fmax = top)
-    end
-    pick(s, widths) = s === nothing ? default(widths) :
-                      s isa AbstractAdvection1D ? s : s(f)
-    sx, sv = pick(scheme_x, Δx), pick(scheme_v, Δv)
+    # a `SemiLagrangian(LinearSpline())` x sweep stopped on its first step.
+    # Beside such a scheme the default's upper bound is two ulps above, in the
+    # type the lines are worked in, where that round-off is: in the widths'
+    # type, BigFloat on a BigFloat grid, two ulps were nothing to a Float64
+    # line. Beside a `PFC` or `PFCNonUniform`, which holds the data to bounds of
+    # its own, the default keeps `bound` itself, as a run with no scheme given
+    # does: a default bounded above `maximum(f)` can take a line there, which
+    # the given one, bounded at it, would refuse. Below, the schemes
+    # `keeps_bounds` takes stay at or above 0 to the bit.
+    partner = gx === nothing ? gv : gx
+    top = partner === nothing || bounded(partner) ? bound : nextfloat(convert(work, bound), 2)
+    # The defaults are Float64 at least, as the step works the line: a Float32
+    # one rounds each flux difference, and can leave a cell an ulp outside its
+    # bounds, which the next checked call refuses -- one subnormal below 0 at the
+    # edge of a plateau, as `docs/src/driver-notes.md` measures.
+    default(widths) = PFCNonUniform(convert(Vector{promote_type(Float64, eltype(widths))}, widths);
+                                    fmin = 0.0, fmax = top)
+    sx = gx === nothing ? default(Δx) : gx
+    sv = gv === nothing ? default(Δv) : gv
     # A default stops the run at the first line it is handed outside its bounds;
     # a scheme given for the other direction that need not keep them is refused
     # here instead, before the first step. See the docstring.
@@ -415,10 +428,8 @@ function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants
     # than a cell; a uniform scheme on a non-uniform grid is refused here.
     ox, ov = OnGrid(sx, Δx), OnGrid(sv, Δv)
     # The step runs on `f[x, v]`, whose columns are the x lines, and sweeps v over
-    # the transpose it keeps. The lines are worked in Float64 at least and
-    # rounded into `f` once a step, whatever `f`'s own type; see the defaults.
+    # the transpose it keeps, the lines in `work`.
     fxv = permutedims(f)
-    work = promote_type(Float64, T)
     ws = workspace(ox, ov, fxv, collisions, work)
 
     Nx, Nv = length(x), length(v)

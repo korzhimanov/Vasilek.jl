@@ -89,20 +89,22 @@ end
 # multiplication. Evaluating it for both faces of every cell costs less than
 # carrying it, which takes two vector shuffles per four cells: the loop above
 # measured 8% to 27% slower on this reconstruction, on Julia 1.10 and 1.13.
-# The update is the same difference of the two fluxes.
+# The difference of the two fluxes is taken factored, `|c|*(f[i∓1] - f[i])`:
+# one multiplication fewer, zero on a constant line all the same, and
+# `Upwind`'s update to the bit, which this reconstruction reduces to.
 function _godunov!(dest, src, c, ::PiecewiseConstant, _)
     n = length(dest)
     a = abs(c)
     if c > 0
-        dest[1] = src[1] + (a*src[n] - a*src[1])
+        dest[1] = src[1] + a*(src[n] - src[1])
         @inbounds @simd for i = 2:n
-            dest[i] = src[i] + (a*src[i-1] - a*src[i])
+            dest[i] = src[i] + a*(src[i-1] - src[i])
         end
     else
         @inbounds @simd for i = 1:n-1
-            dest[i] = src[i] + (a*src[i+1] - a*src[i])
+            dest[i] = src[i] + a*(src[i+1] - src[i])
         end
-        dest[n] = src[n] + (a*src[1] - a*src[n])
+        dest[n] = src[n] + a*(src[1] - src[n])
     end
     return dest
 end

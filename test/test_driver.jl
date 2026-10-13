@@ -254,18 +254,20 @@ end
     x = collect(range(2π/k/Nx; step = 2π/k/Nx, length = Nx))
     P = Vasilek.PoissonFourier1D
 
-    # A line advanced by the displacement α as the driver advances it: a
+    # A line advanced by the displacement α as the driver advances it: a PFC or
     # PFCNonUniform in the fewest equal sub-steps narrower than its narrowest
-    # cell, any other scheme in one step at the Courant number α/Δz[1]. Returns
-    # the number of steps taken. The count is written out rather than taken from
-    # `substeps`, so that a change to it shows here instead of moving both sides.
+    # cell, at the Courant number (α/m)/Δz[1] for a PFC, any other scheme in one
+    # step at the Courant number α/Δz[1], which the cases below keep within a
+    # cell. Returns the number of steps taken. The count is written out rather
+    # than taken from `substeps`, so that a change to it shows here instead of
+    # moving both sides.
     function line!(line, α, scheme, Δz, buf, ws)
-        if scheme isa PFCNonUniform
-            h = minimum(Δz)
+        if scheme isa Union{PFC, PFCNonUniform}
+            h = scheme isa PFC ? Δz[1] : minimum(Δz)
             m = max(1, ceil(Int, abs(α)/h))
             abs(α/m) ≥ h && (m += 1)
             for _ in 1:m
-                advect!(buf, line, scheme, α/m, ws)
+                advect!(buf, line, scheme, scheme isa PFC ? (α/m)/h : α/m, ws)
                 copyto!(line, buf)
             end
             return m
@@ -285,10 +287,14 @@ end
         f .*= sum(nᵢ .* Δx)/sum(f .* (Δv .* Δx'))
         bound = collisions === nothing ? maximum(f) : Inf
         # a scheme given as a function is built from the rescaled f
-        sx = scheme_x isa Function ? scheme_x(f) :
-             something(scheme_x, PFCNonUniform(Δx; fmin = 0.0, fmax = bound))
-        sv = scheme_v isa Function ? scheme_v(f) :
-             something(scheme_v, PFCNonUniform(Δv; fmin = 0.0, fmax = bound))
+        gx = scheme_x isa Function ? scheme_x(f) : scheme_x
+        gv = scheme_v isa Function ? scheme_v(f) : scheme_v
+        # beside a given scheme but a PFC, the default's bound two ulps above
+        partner = gx === nothing ? gv : gx
+        top = partner === nothing || partner isa Union{PFC, PFCNonUniform} ? bound :
+              nextfloat(bound, 2)
+        sx = something(gx, PFCNonUniform(Δx; fmin = 0.0, fmax = top))
+        sv = something(gv, PFCNonUniform(Δv; fmin = 0.0, fmax = top))
         wsx, wsv = workspace(sx, Nx), workspace(sv, Nv)
         bx, bv, cbuf = similar(x), similar(v), similar(v)
         cws = collisions === nothing ? nothing : workspace(collisions, Nv, eltype(f))
@@ -369,6 +375,29 @@ end
         r = vlasov_poisson(x, uniform, f₀(uniform), t; schemes..., collisions)
         @test r.f == ref
         @test r.ε_e == ref_ε_e
+    end
+
+    # A scheme given for one direction, the other left to its default: bounded
+    # two ulps above maximum(f) beside Godunov or the linear SemiLagrangian, and
+    # at maximum(f) itself beside a PFC, which the driver splits where a step
+    # would be exactly a cell. The PFC's x steps reach 1.9 cells.
+    for (v, partner) in ((uniform, (; scheme_x = Godunov(PiecewiseLinear(), VanLeer()))),
+                         (stretched, (; scheme_x = Godunov(PiecewiseLinear(), VanLeer()))),
+                         (uniform, (; scheme_v = SemiLagrangian(LinearSpline())))),
+            collisions in (nothing, BGK(0.5))
+        ref, ref_ε_e = written_out(v, f₀(v), t; partner..., collisions)
+        r = vlasov_poisson(x, v, f₀(v), t; partner..., collisions)
+        @test r.f == ref
+        @test r.ε_e == ref_ε_e
+    end
+    t = [0.0, 0.25, 0.4, 0.65, 0.8, 1.05]
+    for v in (uniform, stretched)
+        partner = (; scheme_x = f -> PFC(fmin = 0.0, fmax = maximum(f)))
+        ref, ref_ε_e, most_x = written_out(v, f₀(v), t; partner...)
+        r = vlasov_poisson(x, v, f₀(v), t; partner...)
+        @test r.f == ref
+        @test r.ε_e == ref_ε_e
+        @test most_x > 1
     end
 end
 
@@ -599,7 +628,8 @@ end
     end
 
     # Without a scheme given the default keeps maximum(f) itself, so no run
-    # that gives none moves; with one, two ulps above, in the default's type.
+    # that gives none moves; with one, two ulps above, in the type the lines
+    # are worked in, Float64 at least.
     prob, = setup(x, v, waterbag, t; nᵢ)
     @test prob.ox.scheme.fmax == prob.ov.scheme.fmax == M
     for kw in ((; scheme_x = Upwind()), (; scheme_v = Upwind()))
@@ -609,4 +639,25 @@ end
     end
     prob, = setup(x, v, Float32.(waterbag), t; nᵢ, scheme_x = Upwind())
     @test prob.ov.scheme.fmax == nextfloat(Float64(maximum(Float32.(waterbag))), 2)
+    # A BigFloat v grid makes the default BigFloat, and its two ulps were taken
+    # in BigFloat, nothing to the Float64 lines: under the linear
+    # SemiLagrangian the waterbag stopped on its first step again.
+    prob, = setup(x, big.(v), waterbag, t; nᵢ, scheme_x = SemiLagrangian(LinearSpline()))
+    @test prob.ov.scheme.fmax == nextfloat(M, 2)
+    r = vlasov_poisson(x, big.(v), waterbag, t; scheme_x = SemiLagrangian(LinearSpline()), nᵢ,
+                       invariants = true)
+    @test maximum(r.fmax) ≤ nextfloat(M, 2)
+    # Beside a PFC or PFCNonUniform the default keeps maximum(f) itself. Bounded
+    # two ulps above, its limiter lets a line up to there, and the given one,
+    # bounded at maximum(f), refuses it: one step of a PFCNonUniform so bounded
+    # took random lines peaking at their bound above it in 2406 of 20000, where
+    # bounded at the peak it did in 1.
+    Δx = cell_widths(x)
+    for kw in ((; scheme_x = f -> PFCNonUniform(Δx; fmin = 0.0, fmax = maximum(f))),
+               (; scheme_x = OnGrid(PFC(fmin = 0.0, fmax = M), Δx)),
+               (; scheme_v = PFCNonUniform(Δv; fmin = 0.0, fmax = M)))
+        prob, = setup(x, v, waterbag, t; nᵢ, kw...)
+        default = haskey(kw, :scheme_x) ? prob.ov.scheme : prob.ox.scheme
+        @test default.fmax == M
+    end
 end
