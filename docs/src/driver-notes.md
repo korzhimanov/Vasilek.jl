@@ -85,38 +85,34 @@ trapezoid, 0.79% up at that amplitude.
 The uniform-grid schemes are split as well, which `line_advector` did not do.
 Within a cell the count is 1 -- `|α| ≤ h` exactly when `α/h` rounds to at most 1
 -- and `α/1` is `α`, so every call that ran before takes the same step to the
-bit, but a `PFC`'s step of exactly a cell; a call past `c = 1`, which was a
-`DomainError`, now runs in sub-steps. Nothing here asks a uniform scheme for
-more than `c = 0.50`. `SemiLagrangian`, which has no Courant limit, takes any
-step whole.
+bit; a call past `c = 1`, which was a `DomainError`, now runs in sub-steps.
+Nothing here asks a uniform scheme for more than `c = 0.50`. `SemiLagrangian`,
+which has no Courant limit, takes any step whole.
 
-**No `PFC` or `PFCNonUniform` sub-step is exactly a cell**: one cell is two
-halves, and `m` cells `m + 1` parts. At `|c| = 1` every flux is its upwind
-cell's whole value, and a cell takes `f[i] + (f[i−1] − f[i])`, which rounds
-unless the two are within a factor of two of each other: the shift is right to
-within an ulp of the larger, and from data that touches a `PFC`'s bounds it can
-leave a cell outside them. `OnGrid(PFCNonUniform(fill(0.1, 6); fmin = 0, fmax =
-1))` took `α = 0.2` in two steps of exactly 0.1, and the second refused the
-−1.7e-18 the first left in a cell that had held 0. On random lines of 8 cells of
-a random uniform width, bounded at their own extrema, a `PFCNonUniform` step of
-exactly the width took 1351 of 20000 above them and 974 below. `PFC` at `c = 1`
-took none out, but `[0.195, 0.694, 0.566, 0.987]` under `fmax = 0.987` goes to
-`0.9870000000000001`: the misses are rounding ties, which random data rarely
-holds and decimal data often does.
+**A step of exactly a cell is a one-cell shift only to within an ulp.** At `|c|
+= 1` every flux is its upwind cell's whole value, and a cell takes `f[i] +
+(f[i−1] − f[i])`, which rounds unless the two are within a factor of two of each
+other, to within an ulp of the larger, and from data that touches a `PFC`'s
+bounds it left a cell outside them. `OnGrid(PFCNonUniform(fill(0.1, 6); fmin =
+0, fmax = 1))` took `α = 0.2` in two steps of exactly 0.1, and the second
+refused the −1.7e-18 the first left in a cell that had held 0. On random lines
+of 8 cells of a random uniform width, bounded at their own extrema, a
+`PFCNonUniform` step of exactly the width took 1351 of 20000 above them and 974
+below; `PFC` at `c = 1` took none out, but `[0.195, 0.694, 0.566, 0.987]` under
+`fmax = 0.987` went to `0.9870000000000001`, a rounding tie, which random data
+rarely holds and decimal data often does. A few ulps short of a cell it did too,
+more rarely: `PFCNonUniform` in 255, 176, 166, 77, 9 and 1 of the 20000 above at
+1, 2, 4, 16, 256 and 4096 ulps short, 190 below at one, and none at 2²⁰; `PFC`
+in 38, 30, 4 and 1 above at 4, 16, 256 and 4096 ulps short of `c = 1`, and none
+at 1, 2 or 2²⁰.
 
-The split is theirs alone, as checking their bounds is. It was every scheme's
-for a while, and a unit spike under `OnGrid(Upwind())` at `α = h` came out as
-0.25, 0.5, 0.25 rather than shifted, a Gaussian 0.053 off its shift; `Upwind`,
-`Godunov` and `LaxWendroff` take their own step at `c = ±1` again, and an ulp
-they leave beside a default is the round-off the default allows for below.
-
-A sub-step a few ulps short of a cell still does it, more rarely, and `OnGrid`
-does not split that. `PFCNonUniform` took the lines above in 255, 176, 166, 77,
-9 and 1 of the 20000 at 1, 2, 4, 16, 256 and 4096 ulps short, below in 190 at
-one ulp short and none further, and out in none at 2²⁰; `PFC` above in 38, 30,
-4 and 1 at 4, 16, 256 and 4096 ulps short of `c = 1`, and in none at 1, 2 or
-2²⁰. A displacement that is a multiple of the cell is the one a caller writes
-down, and the one the split catches; one within 1e-10 of it is not.
+**A checked `PFC` or `PFCNonUniform` clamps what it returns into its bounds**,
+and none of those steps leaves them. For a while `OnGrid` split those two
+schemes' steps of exactly a cell in two instead, which a step a few ulps short
+still beat, and before that every scheme's, which took `Upwind`, `Godunov` and
+`LaxWendroff` off their own step at `c = ±1`: a unit spike under
+`OnGrid(Upwind())` at `α = h` came out as 0.25, 0.5, 0.25 rather than shifted, a
+Gaussian 0.053 off its shift. Every scheme takes its own step at `c = ±1` here.
 
 **The line is worked in Float64**, its buffer and the scheme's scratch alike,
 and rounded into `f` once per step: the driver asks `strang_step!`'s workspace
@@ -471,14 +467,14 @@ default would have stopped the run, and moves the mass by what it cuts, a few
 ulps of a cell. A clamped `Superbee` line stays inside where the bare one went
 37 ulps over in 142 steps. The step still allocates nothing.
 
-No driver run reached that excess, though, and the runs that do stop on such
-data stop on the default's own rounding, the known issue `PFC` shares: a
-`PFCNonUniform` bounded at the plateau leaves a cell an ulp above it, and its
-next call refuses the line. Rows of 32 cells, half at 1/√(2π) and the rest up to
-1e-12 or 1e-9 below it, the same at every |v| ≤ 3, with their own ions, to
-`t = 40` at steps of 0.1 and 0.25: with no scheme given, 101 of 400 runs stopped, and
-with `Godunov` (`VanLeer`, `Superbee`) or `Upwind` given in x, none. Rows that
-differ from each other, the rest up to 1e-12 below, to `t = 30` at steps of
+No driver run reached that excess, though. The runs that stopped on such data
+stopped on the default's own rounding: a `PFCNonUniform` bounded at the plateau
+left a cell an ulp above it, and its next call refused the line, until a checked
+one clamped what it returned. Rows of 32 cells, half at 1/√(2π) and the rest up
+to 1e-12 or 1e-9 below it, the same at every |v| ≤ 3, with their own ions, to `t
+= 40` at steps of 0.1 and 0.25: with no scheme given, 101 of 400 runs stopped,
+and with `Godunov` (`VanLeer`, `Superbee`) or `Upwind` given in x, none. Rows
+that differ from each other, the rest up to 1e-12 below, to `t = 30` at steps of
 0.37: with no scheme given all 150 stopped, and with `Superbee` or `Upwind`
-given in v, the default in x stopped 57 of them (71 before the clamp), the same
-57 for either partner.
+given in v, the default in x stopped 57 of them (71 before the partner was
+clamped), the same 57 for either. Clamped in the kernel, none of them stops.

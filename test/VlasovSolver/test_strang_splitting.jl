@@ -201,8 +201,7 @@ end
 
     @testset "OnGrid splits a step wider than a cell into equal ones" begin
         # `m` sub-steps of `α/m`, each taken as the scheme takes it, to the bit;
-        # within a cell, the scheme's own single step, but for a PFCNonUniform
-        # step of exactly a cell, which is two halves. `h` is the narrowest
+        # within a cell, the scheme's own single step. `h` is the narrowest
         # cell, 0.2 on the stretched grid.
         n = 40
         src = [exp(-((i - 15)/4)^2) for i in 1:n]
@@ -216,7 +215,7 @@ end
             argument(a) = scheme isa PFCNonUniform ? a : a/h
             for α in (2.5h, -2.5h, 0.7h, -h)
                 m = nsubsteps(og, α)
-                @test m == (abs(α) > h ? 3 : abs(α) == h && scheme isa PFCNonUniform ? 2 : 1)
+                @test m == (abs(α) > h ? 3 : 1)
                 ref, buf = copy(src), similar(src)
                 for _ in 1:m
                     advect!(buf, ref, scheme, argument(α/m), inner)
@@ -235,43 +234,45 @@ end
               advect!(similar(src), src, s, 2.5, workspace(s, n))
     end
 
-    @testset "OnGrid gives a PFC no step of exactly a cell" begin
+    @testset "a checked PFC's step of exactly a cell stays inside its bounds" begin
         # A step of exactly a cell is a one-cell shift only to within an ulp,
-        # and from data that touches a PFC's bounds it can leave a cell outside
-        # them. `substeps` split 0.2 over cells of 0.1 into two steps of exactly
-        # 0.1: the first took the line below to -1.7e-18 in its second cell,
-        # and the second refused it with a DomainError. For PFC and
-        # PFCNonUniform it is three steps now, each inside a cell, and a step
-        # of exactly a cell is two.
+        # and from data that touches a PFC's bounds it left a cell outside them:
+        # OnGrid took 0.2 over cells of 0.1 in two steps of exactly 0.1, the
+        # first took the line below to -1.7e-18 in its second cell, and the
+        # second refused it with a DomainError. A checked PFC or PFCNonUniform
+        # clamps what it returns into its bounds, and OnGrid takes the steps as
+        # any scheme's. (For a while it split them into parts shorter than a
+        # cell instead, three for this one.)
         h = 0.1
         src = [0, 0.01268125, 0.01268125, 0, 0, 0.01268125]
-        substeps = Vasilek.Advection.substeps
-        @test substeps(2h, h) == 2 && substeps(2h, h; inside = true) == 3
-        @test substeps(h, h; inside = true) == 2 && substeps(prevfloat(h), h; inside = true) == 1
+        @test Vasilek.Advection.substeps(2h, h) == 2
         s = PFCNonUniform(fill(h, 6); fmin = 0, fmax = 1)
         for og in (OnGrid(s), OnGrid(PFC(fmin = 0, fmax = 1), fill(h, 6)))
-            @test nsubsteps(og, 2h) == 3 && nsubsteps(og, h) == 2 && nsubsteps(og, prevfloat(h)) == 1
+            @test nsubsteps(og, 2h) == 2 && nsubsteps(og, h) == 1
             for α in (2h, -2h, h, -h)
                 out = advect!(similar(src), src, og, α, workspace(og, 6))
                 @test minimum(out) ≥ 0 && maximum(out) ≤ 1
                 @test sum(out) ≈ sum(src) rtol = 1e-14
             end
         end
-        # Alone, the scheme takes the step of exactly a cell OnGrid splits.
-        @test minimum(advect!(similar(src), src, s, h, workspace(s, 6))) < 0
+        # Unchecked, the scheme returns what the arithmetic gives.
+        raw = PFCNonUniform(fill(h, 6); fmin = 0, fmax = 1, checked = false)
+        @test minimum(advect!(similar(src), src, raw, h, workspace(raw, 6))) < 0
+        @test minimum(advect!(similar(src), src, s, h, workspace(s, 6))) == 0
     end
 
-    @testset "and every other scheme its own step of exactly a cell" begin
-        # The split is a PFC's alone. For a while it was every scheme's, and a
-        # unit spike under OnGrid(Upwind()) at α = h came out as 0.25, 0.5,
-        # 0.25 rather than shifted; a Gaussian was 0.053 off its shift. At
-        # α = ±h every other scheme takes its own step at c = ±1, to the bit,
-        # and on a smooth line that is the shift itself.
+    @testset "and every scheme its own step of exactly a cell" begin
+        # For a while OnGrid split every scheme's step of exactly a cell in
+        # two, and a unit spike under OnGrid(Upwind()) at α = h came out as
+        # 0.25, 0.5, 0.25 rather than shifted; a Gaussian was 0.053 off its
+        # shift. At α = ±h every scheme takes its own step at c = ±1, to the
+        # bit, and on a smooth line that is the shift itself.
         n = 32
         g = [exp(-((i - 12)/3)^2) for i in 1:n]
         h = 0.5
         for scheme in (Upwind(), Godunov(PiecewiseConstant()), Godunov(PiecewiseLinear()),
-                       Godunov(PiecewiseLinear(), VanLeer()), LaxWendroff()), sgn in (1, -1)
+                       Godunov(PiecewiseLinear(), VanLeer()), LaxWendroff(),
+                       PFC(fmin = 0.0, fmax = 1.0)), sgn in (1, -1)
             og = OnGrid(scheme, fill(h, n))
             @test nsubsteps(og, sgn*h) == 1
             out = advect!(similar(g), g, og, sgn*h, workspace(og, n))

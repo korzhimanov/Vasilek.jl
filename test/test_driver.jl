@@ -255,7 +255,7 @@ end
     P = Vasilek.PoissonFourier1D
 
     # A line advanced by the displacement α as the driver advances it: a PFC or
-    # PFCNonUniform in the fewest equal sub-steps narrower than its narrowest
+    # PFCNonUniform in the fewest equal sub-steps no wider than its narrowest
     # cell, at the Courant number (α/m)/Δz[1] for a PFC, any other scheme in one
     # step at the Courant number α/Δz[1], which the cases below keep within a
     # cell. Returns the number of steps taken. The count is written out rather
@@ -265,7 +265,7 @@ end
         if scheme isa Union{PFC, PFCNonUniform}
             h = scheme isa PFC ? Δz[1] : minimum(Δz)
             m = max(1, ceil(Int, abs(α)/h))
-            abs(α/m) ≥ h && (m += 1)
+            abs(α/m) > h && (m += 1)
             for _ in 1:m
                 advect!(buf, line, scheme, scheme isa PFC ? (α/m)/h : α/m, ws)
                 copyto!(line, buf)
@@ -384,8 +384,8 @@ end
 
     # A scheme given for one direction, the other left to its default: bounded
     # two ulps above maximum(f) beside Godunov or the linear SemiLagrangian, and
-    # at maximum(f) itself beside a PFC, which the driver splits where a step
-    # would be exactly a cell. The PFC's x steps reach 1.9 cells.
+    # at maximum(f) itself beside a PFC, whose x steps reach 1.9 cells and are
+    # split in two.
     for (v, partner) in ((uniform, (; scheme_x = Godunov(PiecewiseLinear(), VanLeer()))),
                          (stretched, (; scheme_x = Godunov(PiecewiseLinear(), VanLeer()))),
                          (uniform, (; scheme_v = SemiLagrangian(LinearSpline())))),
@@ -588,6 +588,36 @@ end
         f₀ = fill(c, length(v), Nx)
         @test vlasov_poisson(x, v, f₀, t; nᵢ = vec(sum(f₀ .* Δv, dims = 1))).f == f₀
     end
+end
+
+@testset "a plateau at the bound meeting rough data runs" begin
+    # Rows of f with half their cells at maximum(f) and the rest up to 1e-12
+    # below it, different in every row over |v| ≤ 3: the default PFCNonUniform,
+    # bounded at maximum(f), left a cell an ulp above it, and its next call
+    # stopped the run with a DomainError on the 2nd step, with no scheme given;
+    # of 150 such runs to t = 30 at steps of 0.37, all stopped. A checked
+    # PFCNonUniform clamps what it returns into its bounds, and none does.
+    function lcg_uniforms(seed, n)    # Knuth's MMIX generator, not Julia's RNG
+        s, u = UInt64(seed), Vector{Float64}(undef, n)
+        for i in 1:n
+            s = s*0x5851f42d4c957f2d + 0x14057b7ef767814f
+            u[i] = (s >> 11)*2.0^-53
+        end
+        return u
+    end
+    k = 0.5
+    Nx = 32
+    x = collect(range(2π/k/Nx; step = 2π/k/Nx, length = Nx))
+    v = collect(-4.0:0.2:4.0)
+    M = 1/sqrt(2π)
+    u = lcg_uniforms(1, 2*length(v)*Nx)
+    rough = [abs(vj) ≤ 3 ? (u[2(j + length(v)*(i-1))-1] < 0.5 ? M :
+                            M*(1 - 1e-12*u[2(j + length(v)*(i-1))])) : 0.0
+             for (j, vj) in enumerate(v), i in 1:Nx]
+    nᵢ = vec(sum(rough .* cell_widths(v), dims = 1))
+    r = vlasov_poisson(x, v, rough, collect(0.0:0.25:5.0); nᵢ, invariants = true)
+    @test maximum(r.fmax) ≤ M && minimum(r.fmin) ≥ 0
+    @test maximum(abs, r.mass .- r.mass[1])/r.mass[1] < 1e-13
 end
 
 @testset "a scheme given for one direction partners the default" begin

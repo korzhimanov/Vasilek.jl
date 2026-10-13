@@ -77,6 +77,46 @@ using Vasilek
     end
 end
 
+# A checked PFC refuses data outside its bounds, and the limiter keeps the data
+# inside them in exact arithmetic. Rounding took a cell an ulp out -- at c = 1,
+# a few ulps short of it, and where a plateau at a bound met rough data -- and
+# the next checked call refused the line it had itself returned. A checked call
+# now clamps what it returns into its bounds; an unchecked one does not.
+@testset "a checked PFC returns a line inside its bounds" begin
+    p = PFC(fmin = 0, fmax = 0.987)
+    line = [0.195, 0.694, 0.566, 0.987]
+    raw = advect!(similar(line), line, PFC(fmin = 0, fmax = 0.987, checked = false), 1.0)
+    @test maximum(raw) > 0.987                      # 0.9870000000000001
+    out = advect!(similar(line), line, p, 1.0)
+    @test maximum(out) == 0.987
+    @test advect!(similar(out), out, p, 1.0) isa Vector{Float64}    # was a DomainError
+
+    # Random lines of 8 cells bounded at their own extrema, at Courant numbers
+    # 0 to 4096 ulps short of 1, and PFCNonUniform at displacements as short of
+    # its width: unchecked, 2 of these 600 PFC steps and 17 of the 600
+    # PFCNonUniform ones left the bounds, and checked, none does.
+    state = Ref(UInt64(7))
+    uniform() = (state[] = state[]*0x5851f42d4c957f2d + 0x14057b7ef767814f; (state[] >> 11)*2.0^-53)
+    outside = Dict(false => [0, 0], true => [0, 0])
+    for _ in 1:100, short in (0, 1, 4, 16, 256, 4096)
+        M = 0.5 + 0.5uniform()
+        g = [M*uniform() for _ in 1:8]
+        g[1 + floor(Int, 8uniform())] = M
+        g[1 + floor(Int, 8uniform())] = 0.0
+        h = 0.5 + uniform()
+        for checked in (false, true)
+            q = PFC(fmin = 0.0, fmax = M; checked)
+            o = advect!(similar(g), g, q, prevfloat(1.0, short))
+            outside[checked][1] += maximum(o) > M || minimum(o) < 0
+            qn = PFCNonUniform(fill(h, 8); fmin = 0.0, fmax = M, checked)
+            o = advect!(similar(g), g, qn, prevfloat(h, short), workspace(qn, 8))
+            outside[checked][2] += maximum(o) > M || minimum(o) < 0
+        end
+    end
+    @test all(>(0), outside[false])
+    @test outside[true] == [0, 0]
+end
+
 # `Godunov` partners the driver's default `PFCNonUniform`, which refuses a line
 # an ulp above its bound, and `keeps_bounds` vouches for it with a constant
 # reconstruction or a limiter. It added a cell's inflow and subtracted its

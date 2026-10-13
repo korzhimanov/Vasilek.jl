@@ -351,9 +351,9 @@ guide `docs/src/migration-0.2.md`, or a test.
 - **`Godunov` keeps a constant line to the bit**, the constant reconstruction as
   `Upwind` to the bit; its four golden lines move by up to 4 ulps (7.0e-16
   relative), the other six not at all. `test/test_contracts.jl`.
-- **`OnGrid` gives `PFC` and `PFCNonUniform` no sub-step of exactly a cell**,
-  which took a cell an ulp outside their bounds; `substeps(2h, h; inside = true)`
-  is 3. `docs/src/driver-notes.md`.
+- **A checked `PFC` or `PFCNonUniform` returns a line inside its bounds**: it
+  clamps the ulp that rounding took past them, at `|c| = 1`, a few ulps short
+  of it and on a plateau at a bound. `test/test_contracts.jl`.
 - **`vlasov_poisson` runs in the data's type, `T = float(eltype(f₀))`**: field,
   density, histories and `E_modes` follow it, and the lines are worked in
   Float64. `test/test_driver.jl`.
@@ -504,12 +504,3 @@ guide `docs/src/migration-0.2.md`, or a test.
   (Changed).
 - `test_fdtd_1d_current` had its assertion commented out; it is restored and
   passes.
-
-### Known issues
-
-- A step a few ulps short of a cell can still leave `PFC` and `PFCNonUniform` an
-  ulp outside bounds at the data's own extrema. `docs/src/driver-notes.md`.
-- Rounding inside the flux can still leave `PFCNonUniform` an ulp above `fmax`
-  where a plateau at the bound meets rough data, in 199 of 3600 twenty-step
-  runs, and a driver run on such data stops, with a scheme given or none.
-  `test/VlasovSolver/test_nonuniform_advection.jl`, `docs/src/driver-notes.md`.

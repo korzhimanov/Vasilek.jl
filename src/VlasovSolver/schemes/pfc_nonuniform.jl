@@ -32,7 +32,8 @@ function advect!(dest, src, p::PFCNonUniform{T,Checked}, α,
     Δx, ξ, lo, hi = p.Δx, p.ξ, p.fmin, p.fmax
     if Checked
         # PFC's minimum/maximum pass, about 5% of this step at N = 10000 on
-        # Julia 1.13 and 10% on 1.10. Compiled away when checked = false.
+        # Julia 1.13 and 10% on 1.10. Compiled away when checked = false, as
+        # the clamp below is.
         _check_bounds(src, lo, hi)
     end
     n = length(Δx)
@@ -71,5 +72,9 @@ function advect!(dest, src, p::PFCNonUniform{T,Checked}, α,
         acc[end-1] = src[end-1] + (Φ - Φₙ)/Δx[end-1]
         acc[end] = src[end] + (Φₙ - Φ₁)/Δx[end]
     end
-    return copyto!(dest, acc)
+    # As `PFC`, `_hold!`: a checked call returns what it takes, a line inside
+    # [fmin, fmax]. Rounding left a cell an ulp out where a plateau at a bound
+    # met rough data and at a step of a narrowest cell, and the next call
+    # refused the line. The clamp is the copy out of the accumulator.
+    return Checked ? _hold!(dest, acc, lo, hi) : copyto!(dest, acc)
 end
