@@ -255,7 +255,7 @@ end
     P = Vasilek.PoissonFourier1D
 
     # A line advanced by the displacement α as the driver advances it: a
-    # PFCNonUniform in the fewest equal sub-steps no wider than its narrowest
+    # PFCNonUniform in the fewest equal sub-steps narrower than its narrowest
     # cell, any other scheme in one step at the Courant number α/Δz[1]. Returns
     # the number of steps taken. The count is written out rather than taken from
     # `substeps`, so that a change to it shows here instead of moving both sides.
@@ -263,7 +263,7 @@ end
         if scheme isa PFCNonUniform
             h = minimum(Δz)
             m = max(1, ceil(Int, abs(α)/h))
-            abs(α/m) > h && (m += 1)
+            abs(α/m) ≥ h && (m += 1)
             for _ in 1:m
                 advect!(buf, line, scheme, α/m, ws)
                 copyto!(line, buf)

@@ -159,7 +159,11 @@ end
     f₀ = inv_smooth()
 
     # c = 1 is a pure one-cell translation: f[i] - 1*(f[i] - f[i-1]) = f[i-1].
-    # Exactly, in floating point.
+    # Exactly in floating point only where f[i] - f[i-1] is exact, as it is
+    # here, every neighbour within a factor of two of the next (Sterbenz). On
+    # rough data the difference rounds, and the shift is right to within an
+    # ulp of the larger neighbour, for Upwind as for the flux-form schemes,
+    # whose update at c = 1 is the same rounding; see `_validate_courant`.
     @test march!(f₀, Upwind(), 1.0, 1) == circshift(f₀, 1)
     # and after a full lap it returns to the initial data bit-for-bit
     @test march!(f₀, Upwind(), 1.0, INV_N) == f₀

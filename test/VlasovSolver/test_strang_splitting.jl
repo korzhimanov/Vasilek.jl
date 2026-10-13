@@ -201,8 +201,9 @@ end
 
     @testset "OnGrid splits a step wider than a cell into equal ones" begin
         # `m` sub-steps of `α/m`, each taken as the scheme takes it, to the bit;
-        # within a cell, the scheme's own single step. `h` is the narrowest
-        # cell, 0.2 on the stretched grid.
+        # inside a cell, the scheme's own single step, and a step of exactly a
+        # cell in two halves. `h` is the narrowest cell, 0.2 on the stretched
+        # grid.
         n = 40
         src = [exp(-((i - 15)/4)^2) for i in 1:n]
         uniform = fill(0.5, n)
@@ -215,7 +216,7 @@ end
             argument(a) = scheme isa PFCNonUniform ? a : a/h
             for α in (2.5h, -2.5h, 0.7h, -h)
                 m = nsubsteps(og, α)
-                @test m == (abs(α) > h ? 3 : 1)
+                @test m == (abs(α) > h ? 3 : abs(α) == h ? 2 : 1)
                 ref, buf = copy(src), similar(src)
                 for _ in 1:m
                     advect!(buf, ref, scheme, argument(α/m), inner)
@@ -232,6 +233,28 @@ end
         @test nsubsteps(og, 1.25) == 1
         @test advect!(similar(src), src, og, 1.25, workspace(og, n)) ==
               advect!(similar(src), src, s, 2.5, workspace(s, n))
+    end
+
+    @testset "OnGrid takes no step of exactly a cell" begin
+        # A step of exactly a cell is a one-cell shift only to within an ulp,
+        # and from data that touches a PFC's bounds it can leave a cell outside
+        # them. `substeps` split 0.2 over cells of 0.1 into two steps of exactly
+        # 0.1: the first took the line below to -1.7e-18 in its second cell,
+        # and the second refused it with a DomainError. It is three steps now,
+        # each inside a cell, and a step of exactly a cell is two.
+        h = 0.1
+        s = PFCNonUniform(fill(h, 6); fmin = 0, fmax = 1)
+        og = OnGrid(s)
+        src = [0, 0.01268125, 0.01268125, 0, 0, 0.01268125]
+        @test Vasilek.Advection.substeps(2h, h) == 3
+        @test nsubsteps(og, 2h) == 3 && nsubsteps(og, h) == 2 && nsubsteps(og, prevfloat(h)) == 1
+        for α in (2h, -2h, h, -h)
+            out = advect!(similar(src), src, og, α, workspace(og, 6))
+            @test minimum(out) ≥ 0 && maximum(out) ≤ 1
+            @test sum(out) ≈ sum(src) rtol = 1e-14
+        end
+        # Alone, the scheme takes the step of exactly a cell OnGrid now splits.
+        @test minimum(advect!(similar(src), src, s, h, workspace(s, 6))) < 0
     end
 
     @testset "OnGrid refuses a grid its scheme cannot take" begin

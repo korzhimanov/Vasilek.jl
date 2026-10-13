@@ -83,11 +83,33 @@ cells' width. It crossed, at 1.0017, while the driver still rescaled `f` by the
 trapezoid, 0.79% up at that amplitude.
 
 The uniform-grid schemes are split as well, which `line_advector` did not do.
-Within a cell the count is 1 -- `|α| ≤ h` exactly when `α/h` rounds to at most 1
--- and `α/1` is `α`, so every call that ran before takes the same step to the
-bit; a call past `c = 1`, which was a `DomainError`, now runs in sub-steps.
-Nothing here asks a uniform scheme for more than `c = 0.50`. `SemiLagrangian`,
-which has no Courant limit, takes any step whole.
+Inside a cell the count is 1 -- `|α| < h` exactly when `α/h` rounds below 1 --
+and `α/1` is `α`, so every call that ran before takes the same step to the bit
+but one of exactly a cell; a call past `c = 1`, which was a `DomainError`, now
+runs in sub-steps. Nothing here asks a uniform scheme for more than `c = 0.50`.
+`SemiLagrangian`, which has no Courant limit, takes any step whole.
+
+**No sub-step is exactly a cell**: one cell is two halves, and `m` cells
+`m + 1` parts. At `|c| = 1` every flux is its upwind cell's whole value, and a
+cell takes `f[i] + (f[i−1] − f[i])`, which rounds unless the two are within a
+factor of two of each other: the shift is right to within an ulp of the
+larger, and from data that touches a `PFC`'s bounds it can leave a cell outside
+them. `OnGrid(PFCNonUniform(fill(0.1, 6); fmin = 0, fmax = 1))` took `α = 0.2`
+in two steps of exactly 0.1, and the second refused the −1.7e-18 the first left
+in a cell that had held 0. On random lines of 8 cells of a random uniform
+width, bounded at their own extrema, a `PFCNonUniform` step of exactly the
+width took 1351 of 20000 above them and 974 below. `PFC` at `c = 1` took none
+out, but `[0.195, 0.694, 0.566, 0.987]` under `fmax = 0.987` goes to
+`0.9870000000000001`: the misses are rounding ties, which random data rarely
+holds and decimal data often does.
+
+A sub-step a few ulps short of a cell still does it, more rarely, and `OnGrid`
+does not split that. `PFCNonUniform` took the lines above in 255, 176, 166, 77,
+9 and 1 of the 20000 at 1, 2, 4, 16, 256 and 4096 ulps short, below in 190 at
+one ulp short and none further, and out in none at 2²⁰; `PFC` above in 38, 30,
+4 and 1 at 4, 16, 256 and 4096 ulps short of `c = 1`, and in none at 1, 2 or
+2²⁰. A displacement that is a multiple of the cell is the one a caller writes
+down, and the one the split catches; one within 1e-10 of it is not.
 
 **The line is worked in Float64**, its buffer and the scheme's scratch alike,
 and rounded into `f` once per step: the driver asks `strang_step!`'s workspace

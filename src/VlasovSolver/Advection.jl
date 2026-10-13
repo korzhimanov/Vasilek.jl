@@ -188,6 +188,14 @@ With `checked = true` every call verifies `fmin ≤ minimum(src)` and
 `maximum(src) ≤ fmax` and throws a `DomainError` otherwise, at the cost of one
 `minimum`/`maximum` pass. `checked` is a type parameter, so `checked = false`
 compiles the check away for runs whose bounds are known good.
+
+A step of exactly one cell, `|c| = 1`, is a one-cell shift only to within an
+ulp (see [`_validate_courant`](@ref)), and at or a few ulps short of it the
+limiter keeps the data inside `[fmin, fmax]` only as closely: with a bound at
+the data's own extremum a cell can land an ulp outside, and the next checked
+call refuses the line. Under `fmax = 0.987`, `c = 1` takes
+`[0.195, 0.694, 0.566, 0.987]` to a first cell of `0.9870000000000001`.
+[`OnGrid`](@ref) takes no step of exactly a cell.
 """
 struct PFC{T<:AbstractFloat, Checked} <: AbstractAdvection1D
     fmin::T
@@ -224,6 +232,12 @@ non-uniform grid has none, and it is bounded by the *narrowest* cell:
 `|α| ≤ minimum(Δx)`. Every cell gives up its outgoing flux alone, so a wider
 step is wrong in the narrowest cell however wide its neighbours are.
 [`OnGrid`](@ref) splits a longer step into sub-steps.
+
+At `|α| = minimum(Δx)` the narrowest cells take a step of exactly one cell, and
+[`PFC`](@ref)'s caveat holds for them, at that step and a few ulps short of it:
+with `fmin = 0` and data that touches it, `α = 0.1` over `fill(0.1, 6)` takes
+`[0, 0.01268125, 0.01268125, 0, 0, 0.01268125]` to `-1.7e-18` in its second
+cell. [`OnGrid`](@ref) takes no step of exactly a cell.
 """
 struct PFCNonUniform{T<:AbstractFloat, Checked} <: AbstractAdvection1D
     Δx::Vector{T}
@@ -581,8 +595,14 @@ its narrowest cell. `c = ±1` exactly is accepted; so is any finite `c` by
 `Upwind`, `LaxWendroff`, `Godunov` and `PFC` are explicit, and none survives a
 characteristic crossing more than one cell per step: past `|c| = 1` round-off
 at the grid scale grows every step, slowly enough for the first steps to look
-right, and `PFC` loses positivity first. At `|c| = 1` each is an exact one-cell
-shift.
+right, and `PFC` loses positivity first. At `|c| = 1` each is a one-cell shift
+to within an ulp of the larger of the two cells involved: every flux is then
+its upwind cell's whole value, and a cell takes `f[i] + (f[i−1] − f[i])` --
+`Upwind`'s `f[i] − (f[i] − f[i−1])` is the same rounding -- which is `f[i−1]`
+exactly only where the difference is exact, as it is between neighbours within
+a factor of two of each other. `LaxWendroff` rounds more terms. That ulp can
+take a cell outside a `PFC`'s bounds, so [`OnGrid`](@ref) never takes a step of
+exactly a cell; see [`substeps`](@ref).
 
 The bounded method is the default, so a new scheme is checked unless it opts
 out, as `SemiLagrangian` does: one that forgets to opt out is refused loudly,
@@ -625,12 +645,13 @@ whatever `scheme` takes:
 An `OnGrid` given again with a grid, `OnGrid(og, Δz)`, is `og` if `Δz` is its
 grid to the same `1e-12`, and refused otherwise.
 
-A step wider than a cell -- the narrowest one, for `PFCNonUniform` -- is split
-into the fewest equal sub-steps that fit, [`substeps`](@ref), since `advect!`
-refuses it whole and a translation by `α` is `m` translations by `α/m`. A
-scheme with no Courant limit, `SemiLagrangian`, takes it in one step; see
-[`nsubsteps`](@ref). Every step a scheme takes on its own is one step here, to
-the bit: within a cell `m = 1`, and `α/1` is `α`.
+A step as wide as a cell or wider -- the narrowest one, for `PFCNonUniform` --
+is split into the fewest equal sub-steps that each stay inside it,
+[`substeps`](@ref), since `advect!` refuses a wider step whole, a translation by
+`α` is `m` translations by `α/m`, and a step of exactly a cell can leave the
+data an ulp outside a `PFC`'s bounds. A scheme with no Courant limit,
+`SemiLagrangian`, takes it in one step; see [`nsubsteps`](@ref). A step inside
+a cell is the scheme's own single step, to the bit: `m = 1`, and `α/1` is `α`.
 
 `workspace(og, n[, T])` is scratch for the scheme and a line buffer for the
 sub-steps, in the grid's element type unless `T` is given; `n` is the grid's
@@ -710,13 +731,22 @@ end
 """
     substeps(α, h)
 
-The fewest equal parts of `α` that are each no longer than `h`, and one for an
+The fewest equal parts of `α` that are each shorter than `h`, and one for an
 `α` that is not finite, which `advect!` then refuses itself.
+
+Shorter, not no longer: a part of exactly `h` is a step of `|c| = 1`, a
+one-cell shift only to within an ulp (see [`_validate_courant`](@ref)), and it
+took a cell of data that touches a `PFC`'s or a `PFCNonUniform`'s bounds an ulp
+outside them. `OnGrid(PFCNonUniform(fill(0.1, 6); fmin = 0, fmax = 1))` split
+`α = 0.2` into two steps of exactly 0.1, and the second refused what the first
+had left, `-1.7e-18` in a cell that had held 0. `substeps(2h, h)` is 3.
 """
 function substeps(α, h)
     isfinite(α) || return 1
     m = max(1, ceil(Int, abs(α)/h))
-    return abs(α/m) > h ? m + 1 : m    # the quotient can round below the integer
+    # `≥`: the quotient can round below the integer, and a part of exactly `h`
+    # is one cell, which the part has to stay inside; see above.
+    return abs(α/m) ≥ h ? m + 1 : m
 end
 
 """
@@ -727,10 +757,11 @@ How many equal sub-steps [`OnGrid`](@ref) takes the displacement `α` in:
 with no Courant limit. `SemiLagrangian` has a method returning 1; a scheme of
 another type that has none adds one.
 
-`|α/m| ≤ h` is what `PFCNonUniform` checks, and for a scheme that takes a
-Courant number it gives `|(α/m)/h| ≤ 1`, division being monotone. Where `α`
-fits a cell, `|α| ≤ h` exactly when `|α/h| ≤ 1` after rounding, so `m = 1`
-wherever the step alone would have been taken.
+`|α/m| < h` is inside what `PFCNonUniform` checks, `|α/m| ≤ h`, and for a
+scheme that takes a Courant number it gives `|(α/m)/h| < 1`: a float below `h`
+divided by `h` rounds below 1. Where `α` lies inside a cell, `|α| < h`, `m = 1`,
+and the step is the one the scheme takes alone. A step of exactly a cell,
+which the scheme would take alone at `|c| = 1`, is two half-steps here.
 """
 nsubsteps(og::OnGrid, α) = substeps(α, og.h)
 nsubsteps(::OnGrid{<:SemiLagrangian}, α) = 1
