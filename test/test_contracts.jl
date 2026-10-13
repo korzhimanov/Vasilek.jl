@@ -77,6 +77,25 @@ using Vasilek
     end
 end
 
+# `Godunov` partners the driver's default `PFCNonUniform`, which refuses a line
+# an ulp above its bound, and `keeps_bounds` vouches for it with a constant
+# reconstruction or a limiter. It added a cell's inflow and subtracted its
+# outflow in turn, and on a constant line of 16 cells the two roundings left
+# the line an ulp above itself: at 492 of these 2001 Courant numbers from
+# 1/√(2π), 346 from 0.2631… and 214 from 0.7, the same for the four
+# reconstructions and limiters. A cell now takes the difference of the two
+# fluxes, which is zero.
+@testset "Godunov keeps a constant line to the bit" begin
+    N = 16
+    for v in (1/sqrt(2π), 0.26314733827217923, 0.7),
+            scheme in (Godunov(PiecewiseConstant()), Godunov(PiecewiseLinear()),
+                       Godunov(PiecewiseLinear(), VanLeer()), Godunov(PiecewiseLinear(), Superbee()))
+        line = fill(v, N)
+        @test all(c -> advect!(similar(line), line, scheme, c) == line,
+                  range(-1, 1; length = 2001))
+    end
+end
+
 # `PFCNonUniform` takes the same bounds and builds them into the same limiter,
 # and checked none of them: the verification harness bounded every run at
 # `fmax = 1`, an equilibrium peaking at 1.79 went through it, and it ended 43.6%
@@ -299,14 +318,24 @@ end
     end
 
     @testset "c = ±1 exactly is accepted, and is a one-cell shift" begin
-        # The bound is `≤`. Measured at c = ±1: Upwind exact; LaxWendroff, the
-        # three Godunov and PFC at most one ulp (2.2e-16) from circshift.
-        # Godunov(PiecewiseLinear()) is a shift here because its slope term
-        # carries (1 − |c|), which vanishes. Before it did, the scheme was 2.4e-3
-        # off without a limiter and 2.7e-3 with VanLeer, and this test excused it.
+        # The bound is `≤`. Godunov(PiecewiseLinear()) is a shift here because
+        # its slope term carries (1 − |c|), which vanishes. Before it did, the
+        # scheme was 2.4e-3 off without a limiter and 2.7e-3 with VanLeer, and
+        # this test excused it.
+        #
+        # At c = ±1 every flux is its upwind cell's whole value, and a cell
+        # takes f[i] + (f[i∓1] - f[i]), Upwind's rounding too. That is f[i∓1]
+        # to the bit where the difference is exact, as here, every neighbour
+        # within a factor of two of the next (Sterbenz), and to within an ulp
+        # of the larger neighbour on rough data; see `_validate_courant`. Since
+        # Godunov and PFC take the difference of their two fluxes, all of them
+        # but LaxWendroff are exact here. LaxWendroff is one ulp (2.2e-16) off,
+        # and so were the four Godunov while they added the inflow and
+        # subtracted the outflow in turn.
         for (name, scheme) in bounded, c in (1.0, -1.0)
             out = march!(f, scheme, c, 1)
             @test maximum(abs, out .- circshift(f, Int(c))) ≤ 2eps()
+            name == "LaxWendroff" || @test out == circshift(f, Int(c))
         end
     end
 

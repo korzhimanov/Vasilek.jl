@@ -44,8 +44,15 @@ end
 # through face i-½. Evaluating both faces of every cell, as this used to, did
 # the limiter's two divisions twice. `Φ₋` and `Φ₊` are the fluxes through faces
 # i-½ and i+½, and `Φ½` the one through the periodic face between cells n and 1.
-# A cell's update is (value + inflow) - outflow, the expression the per-cell
-# form evaluated, so the result is the same to the bit.
+#
+# A cell takes the difference of the fluxes through its two faces,
+# `src[i] + (Φin - Φout)`, as `PFC` and `PFCNonUniform` do, so that equal
+# fluxes cancel before they reach `f`: on a constant line every face carries
+# the same `|c|*f` to the bit, and the line stays constant to the bit. The
+# update was `(src[i] + Φin) - Φout`, which rounds twice: from a constant line
+# of 16 cells at 1/√(2π) it left the line an ulp above itself at 492 of 2001
+# Courant numbers across [-1, 1], and a default `PFCNonUniform` bounded at the
+# line refused it on the next call.
 #
 # No `@simd`: LLVM vectorizes the carried flux as a first-order recurrence
 # without it, and the kernel has no reduction for it to reassociate.
@@ -55,25 +62,25 @@ function _godunov!(dest, src, c, r, l)
         # face i+½'s upwind cell is i
         Φ½ = _Φ(src, 1, n, n-1, c, r, l)
         Φ₋ = _Φ(src, 2, 1, n, c, r, l)
-        dest[1] = src[1] + Φ½ - Φ₋
+        dest[1] = src[1] + (Φ½ - Φ₋)
         @inbounds for i = 2:n-1
             Φ₊ = _Φ(src, i+1, i, i-1, c, r, l)
-            dest[i] = src[i] + Φ₋ - Φ₊
+            dest[i] = src[i] + (Φ₋ - Φ₊)
             Φ₋ = Φ₊
         end
-        dest[n] = src[n] + Φ₋ - Φ½
+        dest[n] = src[n] + (Φ₋ - Φ½)
     else
         # the mirror image: face i+½'s upwind cell is i+1
         Φ½ = _Φ(src, n, 1, 2, c, r, l)
         Φ₋ = Φ½
         @inbounds for i = 1:n-2
             Φ₊ = _Φ(src, i, i+1, i+2, c, r, l)
-            dest[i] = src[i] + Φ₊ - Φ₋
+            dest[i] = src[i] + (Φ₊ - Φ₋)
             Φ₋ = Φ₊
         end
         Φ₊ = _Φ(src, n-1, n, 1, c, r, l)
-        dest[n-1] = src[n-1] + Φ₊ - Φ₋
-        dest[n] = src[n] + Φ½ - Φ₊
+        dest[n-1] = src[n-1] + (Φ₊ - Φ₋)
+        dest[n] = src[n] + (Φ½ - Φ₊)
     end
     return dest
 end
@@ -82,19 +89,20 @@ end
 # multiplication. Evaluating it for both faces of every cell costs less than
 # carrying it, which takes two vector shuffles per four cells: the loop above
 # measured 8% to 27% slower on this reconstruction, on Julia 1.10 and 1.13.
+# The update is the same difference of the two fluxes.
 function _godunov!(dest, src, c, ::PiecewiseConstant, _)
     n = length(dest)
     a = abs(c)
     if c > 0
-        dest[1] = src[1] + a*src[n] - a*src[1]
+        dest[1] = src[1] + (a*src[n] - a*src[1])
         @inbounds @simd for i = 2:n
-            dest[i] = src[i] + a*src[i-1] - a*src[i]
+            dest[i] = src[i] + (a*src[i-1] - a*src[i])
         end
     else
         @inbounds @simd for i = 1:n-1
-            dest[i] = src[i] + a*src[i+1] - a*src[i]
+            dest[i] = src[i] + (a*src[i+1] - a*src[i])
         end
-        dest[n] = src[n] + a*src[1] - a*src[n]
+        dest[n] = src[n] + (a*src[1] - a*src[n])
     end
     return dest
 end

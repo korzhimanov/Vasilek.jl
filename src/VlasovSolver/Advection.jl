@@ -134,8 +134,11 @@ which is Sweby's flux-limited Lax–Wendroff [Sweby, SIAM J. Numer. Anal. 21 (5)
 995 (1984)]. `φ = 1` gives [`LaxWendroff`](@ref) and `φ = 0` gives
 [`Upwind`](@ref). [`VanLeer`](@ref) and [`Superbee`](@ref) keep `φ(r) ≤ 2` and
 `φ(r)/r ≤ 2`, which makes the scheme total-variation diminishing for every
-`|c| ≤ 1`. At `|c| = 1` the correction vanishes and the step is an exact
-one-cell shift.
+`|c| ≤ 1`. At `|c| = 1` the correction vanishes and the step is a one-cell
+shift to within an ulp; see [`_validate_courant`](@ref).
+
+A cell takes the difference of the fluxes through its two faces,
+`f + (Φin − Φout)`, so a constant line stays constant to the bit.
 
 The `(1 − c)` factor is what makes the scheme second order; 0.1's
 `:Riemann_linear` lacked it and was first order, and TVD only to `|c| ≤ 1/2`.

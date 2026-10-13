@@ -344,6 +344,9 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Fixed
 
+- **`Godunov` keeps a constant line to the bit**; its four golden lines move by
+  up to 4 ulps (7.0e-16 relative), the other six not at all.
+  `test/test_contracts.jl`.
 - **`vlasov_poisson` runs in the data's type, `T = float(eltype(f₀))`**: field,
   density, histories and `E_modes` follow it, and the lines are worked in
   Float64. `test/test_driver.jl`.
