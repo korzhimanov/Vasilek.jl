@@ -10,7 +10,7 @@ that no user could run a Landau damping problem without copying it.
 """
 module VlasovPoisson1D1V
 
-using ..Advection: AbstractAdvection1D, PFCNonUniform, OnGrid,
+using ..Advection: AbstractAdvection1D, PFCNonUniform, OnGrid, _hold!,
                    Upwind, Godunov, PiecewiseConstant, PiecewiseLinear, VanLeer, Superbee,
                    SemiLagrangian, LinearSpline, PFC
 using ..StrangSplitting: strang_step!, Collide
@@ -89,13 +89,10 @@ mode_amplitude(e, x, k) = 2*sum(e[j]*cis(-k*x[j]) for j in eachindex(x))/length(
     keeps_bounds(scheme, lo, hi)
 
 Whether `scheme` keeps data that starts inside `[lo, hi]` inside it, to
-round-off, which the default's bracket allows for and the driver clamps what
-builds up past ([`Clamped`](@ref)): what
+round-off, which the driver clamps ([`Clamped`](@ref)): what
 [`vlasov_poisson`](@ref) asks of a scheme given for one direction while the
-other is left to its default, a `PFCNonUniform` built on `[0, maximum(f)]` --
-its upper bound two ulps above `maximum(f)` beside any scheme but a `PFC` or
-`PFCNonUniform`, which holds the data to bounds of its own -- that refuses a
-line outside them.
+other is left to its default, a `PFCNonUniform` built on `[0, maximum(f)]` that
+refuses a line outside them.
 
 True for the schemes that keep their data between its own extrema -- `Upwind`,
 `Godunov` with a constant reconstruction or a limiter, the linear
@@ -124,12 +121,12 @@ end
     Clamped(scheme, lo, hi)
 
 `scheme` with every step it takes clamped into `[lo, hi]`, as the driver runs a
-scheme given for one direction beside a default in the other: the default's
-bracket, two ulps above `maximum(f)`, allows for the round-off
-[`keeps_bounds`](@ref) vouches for, and the clamp for what builds up past it.
-`Godunov` with a limiter took a plateau at a line's maximum, meeting values
-just below it, up to 90 ulps above in 200 steps, and the default stops a run on
-the first line it is handed past its bracket. A line inside the bracket is left
+scheme given for one direction beside a default in the other: into the
+default's bounds, `[0, maximum(f)]`, which the default refuses a line outside.
+[`keeps_bounds`](@ref) vouches for the given scheme to round-off, and the
+round-off builds up: `Godunov` with a limiter took a plateau at a line's
+maximum, meeting values just below it, up to 90 ulps above in 200 steps, and
+the linear `SemiLagrangian` lifts a constant line an ulp. A line inside is left
 as it is, to the bit; `docs/src/driver-notes.md` has the measurements.
 """
 struct Clamped{S<:AbstractAdvection1D, T} <: AbstractAdvection1D
@@ -139,23 +136,23 @@ struct Clamped{S<:AbstractAdvection1D, T} <: AbstractAdvection1D
 end
 function advect!(dest, src, c::Clamped, α, ws)
     advect!(dest, src, c.scheme, α, ws)
-    return clamp!(dest, c.lo, c.hi)
+    return _hold!(dest, dest, c.lo, c.hi)
 end
 workspace(c::Clamped, n::Integer) = workspace(c.scheme, n)
 workspace(c::Clamped, n::Integer, ::Type{T}) where {T} = workspace(c.scheme, n, T)
 
-# Whether a given scheme holds the data to bounds of its own, which the default
-# beside it then keeps exactly; see `setup`.
-bounded(s) = s isa Union{PFC, PFCNonUniform}
-bounded(og::OnGrid) = bounded(og.scheme)
+@noinline _err_negative(m) = throw(DomainError(m,
+    "f has a value below 0, the lower bound of the PFCNonUniform the other direction defaults to, " *
+    "which refuses it, as a run with no scheme given does on its first step. Pass both schemes " *
+    "for data that is not a distribution"))
 
 # A scheme given for one direction while the other is left to its default has to
 # keep `f` inside the default's bounds; see `vlasov_poisson`.
 function refuse_unbounded(given, name, other, bound)
     keeps_bounds(given, 0.0, bound) && return nothing
     throw(ArgumentError(
-        "$name = $(sprint(show, given)) may take f outside [0, $bound], the bounds, to " *
-        "round-off, of the PFCNonUniform that $other defaults to, which stops the run at " *
+        "$name = $(sprint(show, given)) may take f outside [0, $bound], " *
+        "the bounds of the PFCNonUniform that $other defaults to, which stops the run at " *
         "the first line handed to it outside them. Pass $other as well: the same scheme, " *
         "or a PFCNonUniform with bounds both sweeps keep (fmin = -Inf, fmax = Inf for none)"))
 end
@@ -173,10 +170,9 @@ Strang-split electrostatic Vlasov–Poisson for electrons over fixed ions, from
   * `t`: at least two times; steps may differ.
   * `scheme_x`, `scheme_v`: advection schemes, or functions of the starting `f`
     that return one. Both default to `PFCNonUniform` on their grid, in Float64
-    at least, bounded by `[0, maximum(f)]` (below only with `collisions`).
-    Beside a scheme given for the other direction, other than a `PFC` or
-    `PFCNonUniform`, the bound is two ulps above `maximum(f)`, and that scheme's
-    lines are clamped into the bracket, [`Clamped`](@ref);
+    at least, bounded by `[0, maximum(f)]` (below only with `collisions`). A
+    scheme given for the other direction has its lines clamped into those
+    bounds, [`Clamped`](@ref);
     each is put on its grid by [`OnGrid`](@ref), which takes the step as a
     displacement and splits one wider than a cell.
   * `nᵢ`: the ion density over `x`; by default the Maxwellian's `Σ M Δv`,
@@ -227,7 +223,8 @@ round-off.)
 A scheme given for only one of `scheme_x`, `scheme_v` has to keep `f` inside the
 default's bounds, `[0, maximum(f)]` (`[0, Inf)` with `collisions`), to
 round-off, as [`keeps_bounds`](@ref) decides, or the
-call throws an `ArgumentError` before the first step. Pass both schemes, or a
+call throws an `ArgumentError` before the first step; a negative `f` is a
+`DomainError` then, as the default would make it on its first step. Pass both schemes, or a
 `PFCNonUniform` with bounds both sweeps keep (`fmin = -Inf, fmax = Inf` for
 none), for the other direction. With `collisions` the defaults have no upper
 bound, since a collision step can raise a line's peak above `maximum(f)`.
@@ -256,7 +253,7 @@ end
 What a run of [`vlasov_poisson`](@ref) is, fixed for the whole run: the grids
 `x` and `v` as given, their cell widths `Δx` and `Δv`, the ion density `nᵢ`,
 the two schemes on their grids, `ox` and `ov` ([`OnGrid`](@ref)s, a scheme
-given beside a default [`Clamped`](@ref) into the default's bracket), the collision
+given beside a default [`Clamped`](@ref) into the default's bounds), the collision
 operator or `nothing`, and the wavenumbers of the modes recorded. Built by
 [`setup`](@ref).
 
@@ -423,27 +420,23 @@ function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants
     given(s) = s === nothing ? nothing : s isa AbstractAdvection1D ? s : s(f)
     gx, gv = given(scheme_x), given(scheme_v)
     # A scheme given for the other direction keeps `f` inside `[0, bound]` only
-    # to round-off (`keeps_bounds`), and a default bounded at `bound` itself
-    # refused the line it left an ulp above: a waterbag with its own ions under
-    # a `SemiLagrangian(LinearSpline())` x sweep stopped on its first step.
-    # Beside such a scheme the default's upper bound is two ulps above, in the
-    # type the lines are worked in, where that round-off is: in the widths'
-    # type, BigFloat on a BigFloat grid, two ulps were nothing to a Float64
-    # line. Beside a `PFC` or `PFCNonUniform`, which holds the data to bounds of
-    # its own, the default keeps `bound` itself, as a run with no scheme given
-    # does: a default bounded above `maximum(f)` can take a line there, which
-    # the given one, bounded at it, would refuse. Below, the schemes
-    # `keeps_bounds` takes stay at or above 0 to the bit.
-    partner = gx === nothing ? gv : gx
-    alone = (gx === nothing) != (gv === nothing)    # a default beside it
-    roomy = alone && !bounded(partner)
-    top = roomy ? nextfloat(convert(work, bound), 2) : bound
+    # to round-off (`keeps_bounds`), and the default, bounded at `bound`, refused
+    # the line it left an ulp above: a waterbag with its own ions under a
+    # `SemiLagrangian(LinearSpline())` x sweep stopped on its first step. Its
+    # lines are clamped into the default's bounds below, and the default keeps
+    # them, as with no scheme given. The clamp would take a negative `f` to 0,
+    # which the default refuses; it is refused here.
+    alone = (gx === nothing) != (gv === nothing)    # a given scheme beside a default
+    if alone
+        m = minimum(f)
+        m ≥ 0 || _err_negative(m)
+    end
     # The defaults are Float64 at least, as the step works the line: a Float32
     # one rounds each flux difference, and can leave a cell an ulp outside its
     # bounds, which the next checked call refuses -- one subnormal below 0 at the
     # edge of a plateau, as `docs/src/driver-notes.md` measures.
     default(widths) = PFCNonUniform(convert(Vector{promote_type(Float64, eltype(widths))}, widths);
-                                    fmin = 0.0, fmax = top)
+                                    fmin = 0.0, fmax = bound)
     sx = gx === nothing ? default(Δx) : gx
     sv = gv === nothing ? default(Δv) : gv
     # A default stops the run at the first line it is handed outside its bounds;
@@ -457,10 +450,10 @@ function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants
     # Each scheme on its grid, taking a displacement and splitting a step wider
     # than a cell; a uniform scheme on a non-uniform grid is refused here.
     ox, ov = OnGrid(sx, Δx), OnGrid(sv, Δv)
-    # And the one given beside a default clamped into the default's bracket,
-    # which takes in what its round-off builds up; see `Clamped`.
-    if roomy
-        lo, hi = zero(work), convert(work, top)
+    # And the one given beside a default clamped into the default's bounds; see
+    # `Clamped`.
+    if alone
+        lo, hi = zero(work), convert(work, bound)
         gx === nothing || (ox = Clamped(ox, lo, hi))
         gv === nothing || (ov = Clamped(ov, lo, hi))
     end

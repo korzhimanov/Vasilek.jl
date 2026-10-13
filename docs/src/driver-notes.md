@@ -417,68 +417,68 @@ runs, by up to 0.33 of its maximum, and above the maximum in 29% to 45%, by up
 to 0.24; a `PFC` bounded at 1.5 times the maximum took it above in 27%, by up
 to 0.115.
 
-**Round-off is what the default allows for beside a given scheme: its upper
-bound is two ulps above `maximum(f)`**, in the type the lines are worked in,
-Float64 at least. In the default's own type, BigFloat on a BigFloat v grid, two
-ulps were nothing to a Float64 line, and the waterbag below stopped as before.
-With no scheme given it keeps `maximum(f)` itself, and those runs are as they
-were to the bit; so it does beside a `PFC` or `PFCNonUniform`, which holds the
-data to bounds of its own. A `PFCNonUniform` bounded two ulps above the peak of
-a line lets it up to there: one step took random lines above their peak in 2406
-of 20000, where bounded at the peak it did in 1, and a given `PFC` bounded at
-`maximum(f)` would refuse what such a default handed it. The default bounded at
-the maximum refused the line a partner left an ulp above, and the run stopped,
-which the measurement above did not show. `Godunov` added a cell's inflow and
-subtracted its outflow in turn, the source of its 7.3e-16: from a constant line
-of 16 cells at 1/√(2π) it left the line an ulp up at 492 of 2001 Courant numbers
-across `[-1, 1]`, 346 at 0.2631… and 214 at 0.7, and a waterbag uniform in x
-stopped on its first step under any `Godunov` in x. It now takes the difference
-of its two fluxes, as `PFC` does, and keeps a constant line to the bit; the
-constant reconstruction takes it factored, `|c|(f[i−1] − f[i])`, and is `Upwind`
-to the bit. On the five kinds of data above, scaled to a maximum that is not a
-power of two (a maximum of 1 no rounding passes), `Godunov` took the maximum up
-in 577 of 10080 runs, by up to 10 ulps and in 134 by more than two; now in 14,
-by one ulp, all at `|c| = 1` and the same 14 as `Upwind` and `PFC`. The linear
-`SemiLagrangian` is left as it is, Interpolations' linear spline to the bit: it
-lifts a constant line at 1/√(2π) an ulp at 425 of the 2001 Courant numbers, and
-no further in 200 steps, but a waterbag with its own ions stopped on that ulp
-too.
+**A scheme given beside a default has its lines clamped into the default's
+bounds**, `[0, maximum(f)]`, after every step it takes ([`Clamped`](@ref
+Vasilek.VlasovPoisson1D1V.Clamped)). The default refused the line such a scheme
+left an ulp above, and the run stopped, which the measurement above did not
+show. `Godunov` added a cell's inflow and subtracted its outflow in turn, the
+source of its 7.3e-16: from a constant line of 16 cells at 1/√(2π) it left the
+line an ulp up at 492 of 2001 Courant numbers across `[-1, 1]`, 346 at 0.2631…
+and 214 at 0.7, and a waterbag uniform in x stopped on its first step under any
+`Godunov` in x. It now takes the difference of its two fluxes, as `PFC` does,
+and keeps a constant line to the bit; the constant reconstruction takes it
+factored, `|c|(f[i−1] − f[i])`, and is `Upwind` to the bit. On the five kinds of
+data above, scaled to a maximum that is not a power of two (a maximum of 1 no
+rounding passes), `Godunov` took the maximum up in 577 of 10080 runs, by up to
+10 ulps and in 134 by more than two; now in 14, by one ulp, all at `|c| = 1` and
+the same 14 as `Upwind` and `PFC`. The linear `SemiLagrangian` is left as it is,
+Interpolations' linear spline to the bit: it lifts a constant line at 1/√(2π) an
+ulp at 425 of the 2001 Courant numbers, and a waterbag with its own ions stopped
+on that ulp too; the clamp cuts it.
+
+And the round-off builds up, past any fixed margin, where a plateau at a line's
+maximum meets values just below it. On lines of 8 to 32 cells, half at the
+maximum and the rest up to 1e-12, 1e-9 or 1e-6 of it below, after 20 steps at a
+random Courant number, `Godunov` with `VanLeer` had passed it by more than two
+ulps in 13, 14 and 13 of 3000 runs, by up to 8, and with `Superbee` in 25, 21
+and 10, by up to 11; before the change 168, 70 and 44, and 197, 101 and 57, by
+up to 15. Over 200 steps, the peak of each run passed two ulps in 44 of 6000
+runs with `VanLeer`, by up to 50, and in 66 with `Superbee`, by up to 90. The
+constant reconstruction, `Upwind` and the linear `SemiLagrangian` never did. A
+clamped `Superbee` line stays inside where the bare one went 37 ulps over in 142
+steps.
+
+A line inside the bounds is left as it is, to the bit, so a partnered run that
+went through takes the steps it took; the clamp acts only where the default
+would have stopped the run, and moves the mass by what it cuts. Its pass is 0.4%
+to 2% of a step at 64 × 81 and 128 × 161, and allocates nothing. The default
+keeps `maximum(f)` itself, its limiter as with no scheme given: for a while it
+was bounded two ulps above beside a given scheme instead, which let its limiter
+take a line up there, in 2406 of 20000 single steps on random lines peaking at
+their bound against 1 bounded at the peak, and the two ulps had to be taken in
+the lines' type, not the widths', BigFloat on a BigFloat grid. A `PFC` given is
+clamped as any other scheme is: one bounded a rounding above `maximum(f)` in its
+own type, which `keeps_bounds` takes, can take a line there. A negative `f`,
+which the clamp would take to 0, is refused before the first step, as the
+default refuses it on its first.
 
 On the README's grid to `t = 20`, waterbags flat or perturbed in x by 1e-12 to
 5%, Landau at 1% and 50%, a two-stream case and Maxwellians capped at 0.2 to
 0.38, each partnered by `Upwind`, the three `Godunov` `keeps_bounds` takes or
 the linear `SemiLagrangian` (most of the capped ones by the last three alone),
 in x or in v, with the default ions and with their own: 40 of 380 runs stopped
-with a `DomainError`, and none does now. None of the first 200 stops to
-`t = 60` either.
+with a `DomainError`, and none does now. None of the first 200 stops to `t = 60`
+either.
 
-Two ulps is not a bound on what a limiter can do where a plateau at a line's
-maximum meets values just below it, and no fixed margin is: the excess builds
-from step to step. On lines of 8 to 32 cells, half at the maximum and the rest
-up to 1e-12, 1e-9 or 1e-6 of it below, after 20 steps at a random Courant
-number, `Godunov` with `VanLeer` had passed it by more than two ulps in 13, 14
-and 13 of 3000 runs, by up to 8, and with `Superbee` in 25, 21 and 10, by up to
-11; before the change 168, 70 and 44, and 197, 101 and 57, by up to 15. Over 200
-steps, the peak of each run passed two ulps in 44 of 6000 runs with `VanLeer`,
-by up to 50, and in 66 with `Superbee`, by up to 90. The constant
-reconstruction, `Upwind` and the linear `SemiLagrangian` never did.
-
-**So the driver clamps the given scheme's lines into the default's bracket**,
-`[0, maximum(f)]` two ulps up, after every step it takes
-([`Clamped`](@ref Vasilek.VlasovPoisson1D1V.Clamped)). A line inside is left as
-it is, to the bit, and every run above takes the steps it took; the clamp acts only where the
-default would have stopped the run, and moves the mass by what it cuts, a few
-ulps of a cell. A clamped `Superbee` line stays inside where the bare one went
-37 ulps over in 142 steps. The step still allocates nothing.
-
-No driver run reached that excess, though, and the runs that do stop on such
-data stop on the default's own rounding, the known issue `PFC` shares: a
-`PFCNonUniform` bounded at the plateau leaves a cell an ulp above it, and its
-next call refuses the line. Rows of 32 cells, half at 1/√(2π) and the rest up to
-1e-12 or 1e-9 below it, the same at every |v| ≤ 3, with their own ions, to
-`t = 40` at steps of 0.1 and 0.25: with no scheme given, 101 of 400 runs stopped, and
-with `Godunov` (`VanLeer`, `Superbee`) or `Upwind` given in x, none. Rows that
-differ from each other, the rest up to 1e-12 below, to `t = 30` at steps of
-0.37: with no scheme given all 150 stopped, and with `Superbee` or `Upwind`
-given in v, the default in x stopped 57 of them (71 before the clamp), the same
-57 for either partner.
+No driver run reached the excess a limiter builds, though, and the runs that do
+stop on such data stop on the default's own rounding, the known issue `PFC`
+shares: a `PFCNonUniform` bounded at the plateau leaves a cell an ulp above it,
+and its next call refuses the line. Rows of 32 cells, half at 1/√(2π) and the
+rest up to 1e-12 or 1e-9 below it, the same at every |v| ≤ 3, with their own
+ions, to `t = 40` at steps of 0.1 and 0.25: with no scheme given, 101 of 400
+runs stopped, and with `Godunov` (`VanLeer`, `Superbee`) or `Upwind` given in x,
+none. Rows that differ from each other, the rest up to 1e-12 below, to `t = 30`
+at steps of 0.37: with no scheme given all 150 stopped, and with `Superbee` or
+`Upwind` given in v the default in x stopped 142 of them, the same for either:
+the clamp pins the given scheme's lines at the default's bound, which is where
+its rounding leaves it.

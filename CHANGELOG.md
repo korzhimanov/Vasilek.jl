@@ -345,9 +345,8 @@ guide `docs/src/migration-0.2.md`, or a test.
 ### Fixed
 
 - **A scheme given for one direction no longer stops the run in the other's
-  default**: `Godunov` takes `f + (Φin − Φout)`, and beside a given scheme but a
-  PFC the default is bounded two ulps above `maximum(f)` and handed the given
-  scheme's lines clamped into that bracket. `docs/src/driver-notes.md`.
+  default**: `Godunov` takes `f + (Φin − Φout)`, and the given scheme's lines
+  are clamped into the default's bounds. `docs/src/driver-notes.md`.
 - **`Godunov` keeps a constant line to the bit**, the constant reconstruction as
   `Upwind` to the bit; its four golden lines move by up to 4 ulps (7.0e-16
   relative), the other six not at all. `test/test_contracts.jl`.
@@ -509,7 +508,6 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 - A step a few ulps short of a cell can still leave `PFC` and `PFCNonUniform` an
   ulp outside bounds at the data's own extrema. `docs/src/driver-notes.md`.
-- Rounding inside the flux can still leave `PFCNonUniform` an ulp above `fmax`
-  where a plateau at the bound meets rough data, in 199 of 3600 twenty-step
-  runs, and a driver run on such data stops, with a scheme given or none.
-  `test/VlasovSolver/test_nonuniform_advection.jl`, `docs/src/driver-notes.md`.
+- Rounding can still leave `PFCNonUniform` an ulp above `fmax` where a plateau
+  at the bound meets rough data, and a driver run on such data stops, with a
+  scheme given or none. `docs/src/driver-notes.md`.

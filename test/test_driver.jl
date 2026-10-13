@@ -289,14 +289,11 @@ end
         # a scheme given as a function is built from the rescaled f
         gx = scheme_x isa Function ? scheme_x(f) : scheme_x
         gv = scheme_v isa Function ? scheme_v(f) : scheme_v
-        # beside a given scheme but a PFC, the default's bound two ulps above,
-        # and the given scheme's lines clamped into [0, top]
-        partner = gx === nothing ? gv : gx
-        roomy = (gx === nothing) != (gv === nothing) && !(partner isa Union{PFC, PFCNonUniform})
-        top = roomy ? nextfloat(bound, 2) : bound
-        clampx, clampv = roomy && gx !== nothing, roomy && gv !== nothing
-        sx = something(gx, PFCNonUniform(Δx; fmin = 0.0, fmax = top))
-        sv = something(gv, PFCNonUniform(Δv; fmin = 0.0, fmax = top))
+        # a scheme given beside a default has its lines clamped into [0, bound]
+        alone = (gx === nothing) != (gv === nothing)
+        clampx, clampv = alone && gx !== nothing, alone && gv !== nothing
+        sx = something(gx, PFCNonUniform(Δx; fmin = 0.0, fmax = bound))
+        sv = something(gv, PFCNonUniform(Δv; fmin = 0.0, fmax = bound))
         wsx, wsv = workspace(sx, Nx), workspace(sv, Nv)
         bx, bv, cbuf = similar(x), similar(v), similar(v)
         cws = collisions === nothing ? nothing : workspace(collisions, Nv, eltype(f))
@@ -309,7 +306,7 @@ end
             Δt = t[n+1] - t[n]
             for j in 1:Nv
                 most_x = max(most_x, line!(view(f, j, :), v[j]*Δt/2, sx, Δx, bx, wsx))
-                clampx && clamp!(view(f, j, :), 0.0, top)
+                clampx && clamp!(view(f, j, :), 0.0, bound)
             end
             P.solve!(e, vec(sum(f .* Δv, dims = 1)) - nᵢ, p, pws)
             for i in 1:Nx
@@ -319,7 +316,7 @@ end
                     copyto!(col, cbuf)
                 end
                 most_v = max(most_v, line!(col, e[i]*Δt, sv, Δv, bv, wsv))
-                clampv && clamp!(col, 0.0, top)
+                clampv && clamp!(col, 0.0, bound)
                 if collisions !== nothing
                     collide!(cbuf, col, collisions, v, Δt/2, cws)
                     copyto!(col, cbuf)
@@ -327,7 +324,7 @@ end
             end
             for j in 1:Nv
                 most_x = max(most_x, line!(view(f, j, :), v[j]*Δt/2, sx, Δx, bx, wsx))
-                clampx && clamp!(view(f, j, :), 0.0, top)
+                clampx && clamp!(view(f, j, :), 0.0, bound)
             end
             ε_e[n] = sum(e[j]^2*Δx[j] for j in eachindex(e))
         end
@@ -382,10 +379,10 @@ end
         @test r.ε_e == ref_ε_e
     end
 
-    # A scheme given for one direction, the other left to its default: bounded
-    # two ulps above maximum(f) beside Godunov or the linear SemiLagrangian, and
-    # at maximum(f) itself beside a PFC, which the driver splits where a step
-    # would be exactly a cell. The PFC's x steps reach 1.9 cells.
+    # A scheme given for one direction, the other left to its default: its
+    # lines clamped into the default's bounds, a PFC's too, which the driver
+    # splits where a step would be exactly a cell. The PFC's x steps reach 1.9
+    # cells.
     for (v, partner) in ((uniform, (; scheme_x = Godunov(PiecewiseLinear(), VanLeer()))),
                          (stretched, (; scheme_x = Godunov(PiecewiseLinear(), VanLeer()))),
                          (uniform, (; scheme_v = SemiLagrangian(LinearSpline())))),
@@ -598,8 +595,8 @@ end
     # DomainError under each Godunov in x, rescaled or not, and under the linear
     # SemiLagrangian with its own ions, at 1/√(2π) itself; f capped at 0.3 stopped
     # under the linear SemiLagrangian in x, and under VanLeer in v. Godunov now
-    # keeps a constant line to the bit, and beside a given scheme the default's
-    # upper bound is two ulps above maximum(f).
+    # keeps a constant line to the bit, and the given scheme's lines are clamped
+    # into the default's bounds.
     k = 0.5
     Nx = 32
     x = collect(range(2π/k/Nx; step = 2π/k/Nx, length = Nx))
@@ -614,14 +611,14 @@ end
               Godunov(PiecewiseLinear(), Superbee()), SemiLagrangian(LinearSpline()))
         r = vlasov_poisson(x, v, waterbag, t; scheme_x = s, invariants = true)
         @test minimum(r.fmin) ≥ 0
-        @test maximum(r.fmax) ≤ nextfloat(rescaled, 2)
+        @test maximum(r.fmax) ≤ rescaled
         # Its own ions, so nothing rescales it and its field is zero: each row
-        # is advanced in x alone. Godunov keeps each to the bit. The linear
-        # SemiLagrangian leaves some an ulp above; it is held to Interpolations'
-        # linear spline to the bit, and left as it is.
+        # is advanced in x alone. Godunov keeps a constant row to the bit. The
+        # linear SemiLagrangian, held to Interpolations' linear spline to the
+        # bit and left as it is, moves some an ulp either way; the clamp cuts
+        # the ulps above.
         r = vlasov_poisson(x, v, waterbag, t; scheme_x = s, nᵢ, invariants = true)
-        @test minimum(r.fmin) ≥ 0
-        @test maximum(r.fmax) ≤ nextfloat(M, 2)
+        @test minimum(r.fmin) ≥ 0 && maximum(r.fmax) ≤ M
         s isa Godunov && @test r.f == waterbag
     end
     maxwellian(u) = exp(-u^2/2)/sqrt(2π)
@@ -632,47 +629,40 @@ end
         @test minimum(r.fmin) ≥ 0
     end
 
-    # Without a scheme given the default keeps maximum(f) itself, so no run
-    # that gives none moves; with one, two ulps above, in the type the lines
-    # are worked in, Float64 at least.
-    prob, = setup(x, v, waterbag, t; nᵢ)
-    @test prob.ox.scheme.fmax == prob.ov.scheme.fmax == M
-    for kw in ((; scheme_x = Upwind()), (; scheme_v = Upwind()))
-        prob, = setup(x, v, waterbag, t; nᵢ, kw...)
-        default = haskey(kw, :scheme_x) ? prob.ov.scheme : prob.ox.scheme
-        @test default.fmax == nextfloat(M, 2) && default.fmin == 0
-    end
-    prob, = setup(x, v, Float32.(waterbag), t; nᵢ, scheme_x = Upwind())
-    @test prob.ov.scheme.fmax == nextfloat(Float64(maximum(Float32.(waterbag))), 2)
-    # A BigFloat v grid makes the default BigFloat, and its two ulps were taken
-    # in BigFloat, nothing to the Float64 lines: under the linear
-    # SemiLagrangian the waterbag stopped on its first step again.
-    prob, = setup(x, big.(v), waterbag, t; nᵢ, scheme_x = SemiLagrangian(LinearSpline()))
-    @test prob.ov.scheme.fmax == nextfloat(M, 2)
-    r = vlasov_poisson(x, big.(v), waterbag, t; scheme_x = SemiLagrangian(LinearSpline()), nᵢ,
-                       invariants = true)
-    @test maximum(r.fmax) ≤ nextfloat(M, 2)
-    # Beside a PFC or PFCNonUniform the default keeps maximum(f) itself. Bounded
-    # two ulps above, its limiter lets a line up to there, and the given one,
-    # bounded at maximum(f), refuses it: one step of a PFCNonUniform so bounded
-    # took random lines peaking at their bound above it in 2406 of 20000, where
-    # bounded at the peak it did in 1.
+    # The default keeps maximum(f) itself, with a scheme given or none, as it
+    # always did. For a while it was bounded two ulps above beside a given
+    # scheme, which let its own limiter take a line up there -- one step did,
+    # in 2406 of 20000 random lines peaking at their bound, against 1 bounded
+    # at the peak -- and two ulps were taken in the widths' type, nothing to a
+    # Float64 line on a BigFloat grid.
     Δx = cell_widths(x)
-    for kw in ((; scheme_x = f -> PFCNonUniform(Δx; fmin = 0.0, fmax = maximum(f))),
-               (; scheme_x = OnGrid(PFC(fmin = 0.0, fmax = M), Δx)),
+    for kw in ((;), (; scheme_x = Upwind()), (; scheme_v = Upwind()),
+               (; scheme_x = f -> PFCNonUniform(Δx; fmin = 0.0, fmax = maximum(f))),
                (; scheme_v = PFCNonUniform(Δv; fmin = 0.0, fmax = M)))
         prob, = setup(x, v, waterbag, t; nᵢ, kw...)
-        default = haskey(kw, :scheme_x) ? prob.ov.scheme : prob.ox.scheme
-        @test default.fmax == M
-        @test !(prob.ox isa Clamped) && !(prob.ov isa Clamped)
+        haskey(kw, :scheme_x) || @test prob.ox.scheme isa PFCNonUniform && prob.ox.scheme.fmax == M
+        haskey(kw, :scheme_v) || @test prob.ov.scheme isa PFCNonUniform && prob.ov.scheme.fmax == M
     end
+    r = vlasov_poisson(x, big.(v), waterbag, t; scheme_x = SemiLagrangian(LinearSpline()), nᵢ,
+                       invariants = true)
+    @test maximum(r.fmax) ≤ M
+    # A PFC given with its bound rounded outward, as keeps_bounds allows in its
+    # own type, is clamped like any other: a Float32 one 1e-8 above maximum(f)
+    # can take a line there, which the default refused.
+    prob, = setup(x, v, waterbag, t; nᵢ,
+                  scheme_x = f -> PFC(fmin = 0f0, fmax = Float32(maximum(f), RoundUp)))
+    @test prob.ox isa Clamped && prob.ox.hi == M && prob.ov.scheme.fmax == M
+    # The clamp would take a negative f to 0, which the default refuses; it is
+    # refused before the first step, as a run with no scheme given is on it.
+    # f at -1e-6 in one row ran to the end under Upwind, its mass cut.
+    negative = copy(waterbag); negative[3, :] .= -1e-6
+    @test_throws DomainError vlasov_poisson(x, v, negative, t; scheme_x = Upwind(), nᵢ)
+    @test_throws DomainError vlasov_poisson(x, v, negative, t; nᵢ)
 
-    # A scheme given beside a default hands it its lines clamped into the
-    # default's bracket: two ulps do not bound what builds up. Godunov with
-    # Superbee took two lines, each a plateau at 1/√(2π) meeting values up to
-    # 1e-12 below it, 5 ulps above in 13 steps and 37 in 142; clamped, it stays
-    # inside, and takes the bare scheme's steps to the bit until the bare one
-    # leaves.
+    # The clamp holds what builds up. Godunov with Superbee took two lines, each
+    # a plateau at 1/√(2π) meeting values up to 1e-12 below it, 5 ulps above in
+    # 13 steps and 37 in 142; clamped, it stays inside, and takes the bare
+    # scheme's steps to the bit until the bare one leaves.
     function lcg_uniforms(seed, n)    # Knuth's MMIX generator, not Julia's RNG
         s, u = UInt64(seed), Vector{Float64}(undef, n)
         for i in 1:n
@@ -681,7 +671,7 @@ end
         end
         return u
     end
-    hi = nextfloat(M, 2)
+    hi = M
     sb = Godunov(PiecewiseLinear(), Superbee())
     for seed in (114, 282)
         u = lcg_uniforms(seed, 33)
@@ -703,10 +693,10 @@ end
         end
         @test worst > hi
     end
-    # The driver puts the given scheme in it, and not a default or a PFC.
+    # The driver puts the given scheme in it, and not a default.
     for (kw, which) in (((; scheme_x = sb), :ox), ((; scheme_v = sb), :ov))
         prob, = setup(x, v, waterbag, t; nᵢ, kw...)
-        @test getfield(prob, which) isa Clamped && getfield(prob, which).hi == nextfloat(M, 2)
+        @test getfield(prob, which) isa Clamped && getfield(prob, which).hi == M
         @test !(getfield(prob, which === :ox ? :ov : :ox) isa Clamped)
     end
     for kw in ((;), (; scheme_x = sb, scheme_v = sb))

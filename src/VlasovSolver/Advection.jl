@@ -578,6 +578,26 @@ be compiled out, and this is part of the schemes' contract.
     return nothing
 end
 
+"""
+    _hold!(dest, src, lo, hi)
+
+`src` clamped into `[lo, hi]`, into `dest`, which may be `src` itself: in
+`dest`'s type, the bounds rounded inward into it, so that a narrower `dest`
+holds nothing past them. Comparisons and `ifelse`, so that it vectorizes, where
+`clamp!` cost a third of a `PFC` step at N = 10000. The driver clamps the lines
+of a scheme given beside a default with it.
+"""
+function _hold!(dest, src, lo, hi)
+    l, u = _inward(eltype(dest), lo, hi)
+    @inbounds @simd for i in eachindex(dest, src)
+        x = src[i]
+        dest[i] = ifelse(x > u, u, ifelse(x < l, l, x))
+    end
+    return dest
+end
+_inward(::Type{S}, lo, hi) where {S<:AbstractFloat} = (S(lo, RoundUp), S(hi, RoundDown))
+_inward(::Type{S}, lo, hi) where {S} = (convert(S, lo), convert(S, hi))
+
 @noinline _err_bound_low(lo, m) = throw(DomainError(m,
     "fmin = $lo exceeds minimum(src) = $m: the PFC limiter is built on [fmin, fmax]"))
 @noinline _err_bound_high(hi, M) = throw(DomainError(M,
