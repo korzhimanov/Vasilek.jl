@@ -26,24 +26,10 @@ _Φ⁻(f, i, i⁻, i⁺, c, lo, hi) = c*(f[i] - (1 + c)/3*(
 # limiter keeps it there in exact arithmetic, and rounding took a cell an ulp
 # out: at `c = 1` from data touching the bounds, a few ulps short of it, and
 # where a plateau at a bound met rough data, and the next checked call refused
-# the line. The clamp cuts that ulp, and the mass with it; a line inside is left
-# as it is, to the bit. `PFCNonUniform` clamps the same way.
-#
-# A pass of its own, over `src` into `dest`, in `dest`'s type, the bounds rounded
-# inward into it so that a narrower `dest` holds nothing past them. Comparisons
-# and `ifelse`, so that it vectorizes: `clamp!` cost a third of a PFC step at
-# N = 10000, and `clamp` in the stencil's assignment more than doubled it.
-function _hold!(dest, src, lo, hi)
-    l, u = _inward(eltype(dest), lo, hi)
-    @inbounds @simd for i in eachindex(dest, src)
-        x = src[i]
-        dest[i] = ifelse(x > u, u, ifelse(x < l, l, x))
-    end
-    return dest
-end
-_inward(::Type{S}, lo, hi) where {S<:AbstractFloat} = (S(lo, RoundUp), S(hi, RoundDown))
-_inward(::Type{S}, lo, hi) where {S} = (convert(S, lo), convert(S, hi))
-
+# the line. The clamp, `_hold!`, cuts that ulp, and the mass with it; a line
+# inside is left as it is, to the bit. `PFCNonUniform` clamps the same way. A
+# pass of its own: `clamp` in the stencil's assignment more than doubled the
+# step at N = 10000.
 function advect!(dest, src, p::PFC{T,Checked}, c, ws) where {T,Checked}
     _validate(dest, src, p, c, ws)
     n = length(dest)
