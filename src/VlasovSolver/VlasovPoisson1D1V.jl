@@ -88,9 +88,11 @@ mode_amplitude(e, x, k) = 2*sum(e[j]*cis(-k*x[j]) for j in eachindex(x))/length(
     keeps_bounds(scheme, lo, hi)
 
 Whether `scheme` keeps data that starts inside `[lo, hi]` inside it, to
-round-off: what [`vlasov_poisson`](@ref) asks of a scheme given for one
-direction while the other is left to its default, a `PFCNonUniform` built on
-`[0, maximum(f)]` that refuses a line outside them.
+round-off, which the default's bracket allows for: what
+[`vlasov_poisson`](@ref) asks of a scheme given for one direction while the
+other is left to its default, a `PFCNonUniform` built on `[0, maximum(f)]` --
+its upper bound two ulps above `maximum(f)`, beside a given scheme -- that
+refuses a line outside them.
 
 True for the schemes that keep their data between its own extrema -- `Upwind`,
 `Godunov` with a constant reconstruction or a limiter, the linear
@@ -139,7 +141,8 @@ Strang-split electrostatic Vlasov–Poisson for electrons over fixed ions, from
   * `t`: at least two times; steps may differ.
   * `scheme_x`, `scheme_v`: advection schemes, or functions of the starting `f`
     that return one. Both default to `PFCNonUniform` on their grid, in Float64
-    at least, bounded by `[0, maximum(f)]` (below only with `collisions`);
+    at least, bounded by `[0, maximum(f)]` (below only with `collisions`, and
+    two ulps above `maximum(f)` beside a scheme given for the other direction);
     each is put on its grid by [`OnGrid`](@ref), which takes the step as a
     displacement and splits one wider than a cell.
   * `nᵢ`: the ion density over `x`; by default the Maxwellian's `Σ M Δv`,
@@ -188,8 +191,8 @@ above by the starting `f`, and the renormalisation is a factor of 1 only to
 round-off.)
 
 A scheme given for only one of `scheme_x`, `scheme_v` has to keep `f` inside the
-default's bounds, `[0, maximum(f)]` (`[0, Inf)` with `collisions`), as
-[`keeps_bounds`](@ref) decides, or the
+default's bounds, `[0, maximum(f)]` (`[0, Inf)` with `collisions`), to
+round-off, as [`keeps_bounds`](@ref) decides, or the
 call throws an `ArgumentError` before the first step. Pass both schemes, or a
 `PFCNonUniform` with bounds both sweeps keep (`fmin = -Inf, fmax = Inf` for
 none), for the other direction. With `collisions` the defaults have no upper
@@ -379,13 +382,24 @@ function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants
     # line's own, so the upper bound is not the run's to keep: the defaults then
     # bound `f` below only.
     bound = collisions === nothing ? maximum(f) : Inf
+    # A scheme given for the other direction keeps `f` inside `[0, bound]` only
+    # to round-off (`keeps_bounds`), and a default bounded at `bound` itself
+    # refused the line it left an ulp above: a waterbag with its own ions under
+    # a `SemiLagrangian(LinearSpline())` x sweep stopped on its first step. Beside
+    # a given scheme the default's upper bound is two ulps above, in the
+    # default's own type. Below, the schemes `keeps_bounds` takes stay at or
+    # above 0 to the bit, and a run with no scheme given keeps `bound` itself.
+    partnered = scheme_x !== nothing || scheme_v !== nothing
     # The defaults are Float64 at least, as the step works the line (`work`
     # below): a Float32 one rounds each flux difference, and can leave a cell an
     # ulp outside its bounds, which the next checked call refuses -- one
     # subnormal below 0 at the edge of a plateau, as `docs/src/driver-notes.md`
     # measures.
-    default(widths) = PFCNonUniform(convert(Vector{promote_type(Float64, eltype(widths))}, widths);
-                                    fmin = 0.0, fmax = bound)
+    function default(widths)
+        S = promote_type(Float64, eltype(widths))
+        top = partnered ? nextfloat(convert(S, bound), 2) : convert(S, bound)
+        return PFCNonUniform(convert(Vector{S}, widths); fmin = 0.0, fmax = top)
+    end
     pick(s, widths) = s === nothing ? default(widths) :
                       s isa AbstractAdvection1D ? s : s(f)
     sx, sv = pick(scheme_x, Δx), pick(scheme_v, Δv)

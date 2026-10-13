@@ -388,3 +388,41 @@ runs, by up to 0.33 of its maximum, and above the maximum in 29% to 45%, by up
 to 0.24; a `PFC` bounded at 1.5 times the maximum took it above in 27%, by up
 to 0.115.
 
+**Round-off is what the default allows for beside a given scheme: its upper
+bound is two ulps above `maximum(f)`**, in its own type. With no scheme given
+it keeps `maximum(f)` itself, and those runs are as they were to the bit. The
+default bounded at the maximum refused the line a partner left an ulp above,
+and the run stopped, which the measurement above did not show. `Godunov` added
+a cell's inflow and subtracted its outflow in turn, the source of its 7.3e-16:
+from a constant line of 16 cells at 1/√(2π) it left the line an ulp up at 492
+of 2001 Courant numbers across `[-1, 1]`, 346 at 0.2631… and 214 at 0.7, and a
+waterbag uniform in x stopped on its first step under any `Godunov` in x. It
+now takes the difference of its two fluxes, as `PFC` does, and keeps a
+constant line to the bit. On the five kinds of data above, scaled to a maximum
+that is not a power of two (a maximum of 1 no rounding passes), `Godunov` took
+the maximum up in 577 of 10080 runs, by up to 10 ulps and in 134 by more than
+two; now in 14, by one ulp, all at `|c| = 1` and the same 14 as `Upwind` and
+`PFC`. The linear `SemiLagrangian` is left as it is, Interpolations' linear
+spline to the bit: it lifts a constant line at 1/√(2π) an ulp at 425 of the
+2001 Courant numbers, and no further in 200 steps, but a waterbag with its own
+ions stopped on that ulp too.
+
+On the README's grid to `t = 20`, waterbags flat or perturbed in x by 1e-12 to
+5%, Landau at 1% and 50%, a two-stream case and Maxwellians capped at 0.2 to
+0.38, each partnered by `Upwind`, the three `Godunov` `keeps_bounds` takes or
+the linear `SemiLagrangian` (most of the capped ones by the last three alone),
+in x or in v, with the default ions and with their own: 40 of 380 runs stopped
+with a `DomainError`, and none does now. None of the first 200 stops to
+`t = 60` either.
+
+Two ulps is not a bound on what a limiter can do where a plateau at a line's
+maximum meets values just below it. On lines of 8 to 32 cells, half at the
+maximum and the rest up to 1e-12, 1e-9 or 1e-6 of it below, after 20 steps at
+a random Courant number, `Godunov` with `VanLeer` had passed it by more than two
+ulps in 13, 14 and 13 of 3000 runs, by up to 8, and with `Superbee` in 25, 21
+and 10, by up to 11; before the change 168, 70 and 44, and 197, 101 and 57, by
+up to 15. The constant reconstruction, `Upwind` and the linear
+`SemiLagrangian` never did. `PFC` bounded at the maximum passed it in 3 of the
+3000 at 1e-12, which is the default's own known issue. A wider default would
+change its limiter beside every partner, to cover a case no driver run above
+reached.

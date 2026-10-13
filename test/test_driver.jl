@@ -555,3 +555,58 @@ end
         @test vlasov_poisson(x, v, f₀, t; nᵢ = vec(sum(f₀ .* Δv, dims = 1))).f == f₀
     end
 end
+
+@testset "a scheme given for one direction partners the default" begin
+    # `keeps_bounds` takes these four, which keep f inside [0, maximum(f)] to
+    # round-off, and the default for the other direction, bounded at
+    # maximum(f) itself, refused the line they left an ulp above. A waterbag
+    # uniform in x on the README's grid stopped on its first step with a
+    # DomainError under each Godunov in x, rescaled or not, and under the linear
+    # SemiLagrangian with its own ions, at 1/√(2π) itself; f capped at 0.3 stopped
+    # under the linear SemiLagrangian in x, and under VanLeer in v. Godunov now
+    # keeps a constant line to the bit, and beside a given scheme the default's
+    # upper bound is two ulps above maximum(f).
+    k = 0.5
+    Nx = 32
+    x = collect(range(2π/k/Nx; step = 2π/k/Nx, length = Nx))
+    v = collect(-4.0:0.2:4.0)
+    t = collect(0.0:0.1:2.0)
+    Δv = cell_widths(v)
+    waterbag = [abs(u) ≤ 2 ? 1/sqrt(2π) : 0.0 for u in v, y in x]
+    nᵢ = vec(sum(waterbag .* Δv, dims = 1))
+    M = maximum(waterbag)
+    rescaled = maximum(setup(x, v, waterbag, t)[2].f)    # the bound once rescaled
+    for s in (Godunov(PiecewiseConstant()), Godunov(PiecewiseLinear(), VanLeer()),
+              Godunov(PiecewiseLinear(), Superbee()), SemiLagrangian(LinearSpline()))
+        r = vlasov_poisson(x, v, waterbag, t; scheme_x = s, invariants = true)
+        @test minimum(r.fmin) ≥ 0
+        @test maximum(r.fmax) ≤ nextfloat(rescaled, 2)
+        # Its own ions, so nothing rescales it and its field is zero: each row
+        # is advanced in x alone. Godunov keeps each to the bit. The linear
+        # SemiLagrangian leaves some an ulp above; it is held to Interpolations'
+        # linear spline to the bit, and left as it is.
+        r = vlasov_poisson(x, v, waterbag, t; scheme_x = s, nᵢ, invariants = true)
+        @test minimum(r.fmin) ≥ 0
+        @test maximum(r.fmax) ≤ nextfloat(M, 2)
+        s isa Godunov && @test r.f == waterbag
+    end
+    maxwellian(u) = exp(-u^2/2)/sqrt(2π)
+    capped = [min(0.3, 1.2maxwellian(u)*(1 + 0.01cos(k*y))) for u in v, y in x]
+    for kw in ((; scheme_x = SemiLagrangian(LinearSpline())),
+               (; scheme_v = Godunov(PiecewiseLinear(), VanLeer())))
+        r = vlasov_poisson(x, v, capped, t; kw..., invariants = true)
+        @test minimum(r.fmin) ≥ 0
+    end
+
+    # Without a scheme given the default keeps maximum(f) itself, so no run
+    # that gives none moves; with one, two ulps above, in the default's type.
+    prob, = setup(x, v, waterbag, t; nᵢ)
+    @test prob.ox.scheme.fmax == prob.ov.scheme.fmax == M
+    for kw in ((; scheme_x = Upwind()), (; scheme_v = Upwind()))
+        prob, = setup(x, v, waterbag, t; nᵢ, kw...)
+        default = haskey(kw, :scheme_x) ? prob.ov.scheme : prob.ox.scheme
+        @test default.fmax == nextfloat(M, 2) && default.fmin == 0
+    end
+    prob, = setup(x, v, Float32.(waterbag), t; nᵢ, scheme_x = Upwind())
+    @test prob.ov.scheme.fmax == nextfloat(Float64(maximum(Float32.(waterbag))), 2)
+end

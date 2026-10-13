@@ -344,6 +344,9 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Fixed
 
+- **A scheme given for one direction no longer stops the run in the other's
+  default**: `Godunov` takes `f + (Φin − Φout)`, and the default beside a given
+  scheme is bounded two ulps above `maximum(f)`. `docs/src/driver-notes.md`.
 - **`Godunov` keeps a constant line to the bit**; its four golden lines move by
   up to 4 ulps (7.0e-16 relative), the other six not at all.
   `test/test_contracts.jl`.
@@ -500,6 +503,9 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Known issues
 
+- `Godunov` with a limiter can take a plateau at a line's maximum past the
+  default's two ulps where values just below meet it: by up to 11 ulps in 0.3%
+  to 0.8% of twenty-step runs on such lines. `docs/src/driver-notes.md`.
 - Rounding inside the flux can still leave `PFCNonUniform` an ulp above `fmax`
   where a plateau at the bound meets rough data, in 199 of 3600 twenty-step
   runs. `test/VlasovSolver/test_nonuniform_advection.jl`.
