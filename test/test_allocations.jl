@@ -153,6 +153,13 @@ end
         # here, one the size of `f` 40.5 KiB.
         @test abs(large - small) ≤ 64
         @test small ≤ 192
+        # A scheme given for one direction runs clamped into the default's
+        # bracket (`VlasovPoisson1D1V.Clamped`), and the clamp allocates nothing.
+        gx = Godunov(PiecewiseLinear(), VanLeer())
+        p81, p161 = per_step(64, 81; scheme_x = gx), per_step(128, 161; scheme_x = gx)
+        println("  ", rpad("vlasov_poisson step, partnered", 32), "64 × 81: ", p81, "   128 × 161: ", p161)
+        @test abs(p161 - p81) ≤ 64
+        @test p81 ≤ 192
 
         # With `BGK` the step is not held to that: on the Windows runner under
         # Julia 1.10 `collide!` leaves its 16-byte box (see the top of this

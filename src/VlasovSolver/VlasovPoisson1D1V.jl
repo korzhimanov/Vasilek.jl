@@ -17,6 +17,7 @@ using ..StrangSplitting: strang_step!, Collide
 using ..PoissonFourier1D: PoissonFFT1D, solve!
 using LinearAlgebra: transpose!
 import ..workspace
+import ..Advection: advect!
 
 export vlasov_poisson, cell_widths, mode_amplitude, make_poisson
 
@@ -88,7 +89,8 @@ mode_amplitude(e, x, k) = 2*sum(e[j]*cis(-k*x[j]) for j in eachindex(x))/length(
     keeps_bounds(scheme, lo, hi)
 
 Whether `scheme` keeps data that starts inside `[lo, hi]` inside it, to
-round-off, which the default's bracket allows for: what
+round-off, which the default's bracket allows for and the driver clamps what
+builds up past ([`Clamped`](@ref)): what
 [`vlasov_poisson`](@ref) asks of a scheme given for one direction while the
 other is left to its default, a `PFCNonUniform` built on `[0, maximum(f)]` --
 its upper bound two ulps above `maximum(f)` beside any scheme but a `PFC` or
@@ -117,6 +119,30 @@ function keeps_bounds(s::Union{PFC, PFCNonUniform}, lo, hi)
     T = typeof(s.fmax)
     return T(lo, RoundDown) ≤ s.fmin && s.fmax ≤ T(hi, RoundUp)
 end
+
+"""
+    Clamped(scheme, lo, hi)
+
+`scheme` with every step it takes clamped into `[lo, hi]`, as the driver runs a
+scheme given for one direction beside a default in the other: the default's
+bracket, two ulps above `maximum(f)`, allows for the round-off
+[`keeps_bounds`](@ref) vouches for, and the clamp for what builds up past it.
+`Godunov` with a limiter took a plateau at a line's maximum, meeting values
+just below it, up to 90 ulps above in 200 steps, and the default stops a run on
+the first line it is handed past its bracket. A line inside the bracket is left
+as it is, to the bit; `docs/src/driver-notes.md` has the measurements.
+"""
+struct Clamped{S<:AbstractAdvection1D, T} <: AbstractAdvection1D
+    scheme::S
+    lo::T
+    hi::T
+end
+function advect!(dest, src, c::Clamped, α, ws)
+    advect!(dest, src, c.scheme, α, ws)
+    return clamp!(dest, c.lo, c.hi)
+end
+workspace(c::Clamped, n::Integer) = workspace(c.scheme, n)
+workspace(c::Clamped, n::Integer, ::Type{T}) where {T} = workspace(c.scheme, n, T)
 
 # Whether a given scheme holds the data to bounds of its own, which the default
 # beside it then keeps exactly; see `setup`.
@@ -147,9 +173,10 @@ Strang-split electrostatic Vlasov–Poisson for electrons over fixed ions, from
   * `t`: at least two times; steps may differ.
   * `scheme_x`, `scheme_v`: advection schemes, or functions of the starting `f`
     that return one. Both default to `PFCNonUniform` on their grid, in Float64
-    at least, bounded by `[0, maximum(f)]` (below only with `collisions`, and
-    two ulps above `maximum(f)` beside a scheme given for the other direction,
-    unless that is a `PFC` or `PFCNonUniform`);
+    at least, bounded by `[0, maximum(f)]` (below only with `collisions`).
+    Beside a scheme given for the other direction, other than a `PFC` or
+    `PFCNonUniform`, the bound is two ulps above `maximum(f)`, and that scheme's
+    lines are clamped into the bracket, [`Clamped`](@ref);
     each is put on its grid by [`OnGrid`](@ref), which takes the step as a
     displacement and splits one wider than a cell.
   * `nᵢ`: the ion density over `x`; by default the Maxwellian's `Σ M Δv`,
@@ -228,7 +255,8 @@ end
 
 What a run of [`vlasov_poisson`](@ref) is, fixed for the whole run: the grids
 `x` and `v` as given, their cell widths `Δx` and `Δv`, the ion density `nᵢ`,
-the two schemes on their grids, `ox` and `ov` ([`OnGrid`](@ref)s), the collision
+the two schemes on their grids, `ox` and `ov` ([`OnGrid`](@ref)s, a scheme
+given beside a default [`Clamped`](@ref) into the default's bracket), the collision
 operator or `nothing`, and the wavenumbers of the modes recorded. Built by
 [`setup`](@ref).
 
@@ -236,7 +264,7 @@ operator or `nothing`, and the wavenumbers of the modes recorded. Built by
 they are set against is.
 """
 struct Problem{W<:AbstractFloat, X<:AbstractVector, V<:AbstractVector,
-               SX<:OnGrid, SV<:OnGrid, C, M}
+               SX<:AbstractAdvection1D, SV<:AbstractAdvection1D, C, M}
     x::X
     v::V
     Δx::Vector{W}
@@ -407,7 +435,9 @@ function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants
     # the given one, bounded at it, would refuse. Below, the schemes
     # `keeps_bounds` takes stay at or above 0 to the bit.
     partner = gx === nothing ? gv : gx
-    top = partner === nothing || bounded(partner) ? bound : nextfloat(convert(work, bound), 2)
+    alone = (gx === nothing) != (gv === nothing)    # a default beside it
+    roomy = alone && !bounded(partner)
+    top = roomy ? nextfloat(convert(work, bound), 2) : bound
     # The defaults are Float64 at least, as the step works the line: a Float32
     # one rounds each flux difference, and can leave a cell an ulp outside its
     # bounds, which the next checked call refuses -- one subnormal below 0 at the
@@ -427,6 +457,13 @@ function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants
     # Each scheme on its grid, taking a displacement and splitting a step wider
     # than a cell; a uniform scheme on a non-uniform grid is refused here.
     ox, ov = OnGrid(sx, Δx), OnGrid(sv, Δv)
+    # And the one given beside a default clamped into the default's bracket,
+    # which takes in what its round-off builds up; see `Clamped`.
+    if roomy
+        lo, hi = zero(work), convert(work, top)
+        gx === nothing || (ox = Clamped(ox, lo, hi))
+        gv === nothing || (ov = Clamped(ov, lo, hi))
+    end
     # The step runs on `f[x, v]`, whose columns are the x lines, and sweeps v over
     # the transpose it keeps, the lines in `work`.
     fxv = permutedims(f)

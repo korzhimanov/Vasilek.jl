@@ -458,9 +458,27 @@ from step to step. On lines of 8 to 32 cells, half at the maximum and the rest
 up to 1e-12, 1e-9 or 1e-6 of it below, after 20 steps at a random Courant
 number, `Godunov` with `VanLeer` had passed it by more than two ulps in 13, 14
 and 13 of 3000 runs, by up to 8, and with `Superbee` in 25, 21 and 10, by up to
-11; before the change 168, 70 and 44, and 197, 101 and 57, by up to 15. Over
-200 steps, the peak of each run passed two ulps in 44 of 6000 runs with
-`VanLeer`, by up to 50, and in 66 with `Superbee`, by up to 90. The constant
-reconstruction, `Upwind` and the linear `SemiLagrangian` never did. `PFC`
-bounded at the maximum passed it in 3 of the 3000 at 1e-12, which is the
-default's own known issue. No driver run above reached it.
+11; before the change 168, 70 and 44, and 197, 101 and 57, by up to 15. Over 200
+steps, the peak of each run passed two ulps in 44 of 6000 runs with `VanLeer`,
+by up to 50, and in 66 with `Superbee`, by up to 90. The constant
+reconstruction, `Upwind` and the linear `SemiLagrangian` never did.
+
+**So the driver clamps the given scheme's lines into the default's bracket**,
+`[0, maximum(f)]` two ulps up, after every step it takes
+([`Clamped`](@ref Vasilek.VlasovPoisson1D1V.Clamped)). A line inside is left as
+it is, to the bit, and every run above takes the steps it took; the clamp acts only where the
+default would have stopped the run, and moves the mass by what it cuts, a few
+ulps of a cell. A clamped `Superbee` line stays inside where the bare one went
+37 ulps over in 142 steps. The step still allocates nothing.
+
+No driver run reached that excess, though, and the runs that do stop on such
+data stop on the default's own rounding, the known issue `PFC` shares: a
+`PFCNonUniform` bounded at the plateau leaves a cell an ulp above it, and its
+next call refuses the line. Rows of 32 cells, half at 1/√(2π) and the rest up to
+1e-12 or 1e-9 below it, the same at every |v| ≤ 3, with their own ions, to
+`t = 40` at steps of 0.1 and 0.25: with no scheme given, 101 of 400 runs stopped, and
+with `Godunov` (`VanLeer`, `Superbee`) or `Upwind` given in x, none. Rows that
+differ from each other, the rest up to 1e-12 below, to `t = 30` at steps of
+0.37: with no scheme given all 150 stopped, and with `Superbee` or `Upwind`
+given in v, the default in x stopped 57 of them (71 before the clamp), the same
+57 for either partner.

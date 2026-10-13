@@ -289,10 +289,12 @@ end
         # a scheme given as a function is built from the rescaled f
         gx = scheme_x isa Function ? scheme_x(f) : scheme_x
         gv = scheme_v isa Function ? scheme_v(f) : scheme_v
-        # beside a given scheme but a PFC, the default's bound two ulps above
+        # beside a given scheme but a PFC, the default's bound two ulps above,
+        # and the given scheme's lines clamped into [0, top]
         partner = gx === nothing ? gv : gx
-        top = partner === nothing || partner isa Union{PFC, PFCNonUniform} ? bound :
-              nextfloat(bound, 2)
+        roomy = (gx === nothing) != (gv === nothing) && !(partner isa Union{PFC, PFCNonUniform})
+        top = roomy ? nextfloat(bound, 2) : bound
+        clampx, clampv = roomy && gx !== nothing, roomy && gv !== nothing
         sx = something(gx, PFCNonUniform(Δx; fmin = 0.0, fmax = top))
         sv = something(gv, PFCNonUniform(Δv; fmin = 0.0, fmax = top))
         wsx, wsv = workspace(sx, Nx), workspace(sv, Nv)
@@ -307,6 +309,7 @@ end
             Δt = t[n+1] - t[n]
             for j in 1:Nv
                 most_x = max(most_x, line!(view(f, j, :), v[j]*Δt/2, sx, Δx, bx, wsx))
+                clampx && clamp!(view(f, j, :), 0.0, top)
             end
             P.solve!(e, vec(sum(f .* Δv, dims = 1)) - nᵢ, p, pws)
             for i in 1:Nx
@@ -316,6 +319,7 @@ end
                     copyto!(col, cbuf)
                 end
                 most_v = max(most_v, line!(col, e[i]*Δt, sv, Δv, bv, wsv))
+                clampv && clamp!(col, 0.0, top)
                 if collisions !== nothing
                     collide!(cbuf, col, collisions, v, Δt/2, cws)
                     copyto!(col, cbuf)
@@ -323,6 +327,7 @@ end
             end
             for j in 1:Nv
                 most_x = max(most_x, line!(view(f, j, :), v[j]*Δt/2, sx, Δx, bx, wsx))
+                clampx && clamp!(view(f, j, :), 0.0, top)
             end
             ε_e[n] = sum(e[j]^2*Δx[j] for j in eachindex(e))
         end
@@ -406,7 +411,7 @@ end
 # takes a step here, so it needs no `advect!`.
 struct UnvouchedScheme <: AbstractAdvection1D end
 
-using Vasilek.VlasovPoisson1D1V: keeps_bounds
+using Vasilek.VlasovPoisson1D1V: keeps_bounds, Clamped
 
 @testset "a scheme given alone has to keep the default's bounds" begin
     # One wavelength of k = 0.5 at 50% amplitude, 64 × 121 over ±6. With the
@@ -659,5 +664,53 @@ end
         prob, = setup(x, v, waterbag, t; nᵢ, kw...)
         default = haskey(kw, :scheme_x) ? prob.ov.scheme : prob.ox.scheme
         @test default.fmax == M
+        @test !(prob.ox isa Clamped) && !(prob.ov isa Clamped)
+    end
+
+    # A scheme given beside a default hands it its lines clamped into the
+    # default's bracket: two ulps do not bound what builds up. Godunov with
+    # Superbee took two lines, each a plateau at 1/√(2π) meeting values up to
+    # 1e-12 below it, 5 ulps above in 13 steps and 37 in 142; clamped, it stays
+    # inside, and takes the bare scheme's steps to the bit until the bare one
+    # leaves.
+    function lcg_uniforms(seed, n)    # Knuth's MMIX generator, not Julia's RNG
+        s, u = UInt64(seed), Vector{Float64}(undef, n)
+        for i in 1:n
+            s = s*0x5851f42d4c957f2d + 0x14057b7ef767814f
+            u[i] = (s >> 11)*2.0^-53
+        end
+        return u
+    end
+    hi = nextfloat(M, 2)
+    sb = Godunov(PiecewiseLinear(), Superbee())
+    for seed in (114, 282)
+        u = lcg_uniforms(seed, 33)
+        line = [u[2i-1] < 0.5 ? M : M*(1 - 1e-12*u[2i]) for i in 1:16]
+        c = 2u[end] - 1
+        clamped = Clamped(OnGrid(sb, fill(0.5, 16)), 0.0, hi)
+        bare, kept = copy(line), copy(line)
+        ws = workspace(clamped, 16)
+        inside, worst = true, M
+        for _ in 1:200
+            bare = advect!(similar(bare), bare, sb, c)
+            kept = advect!(similar(kept), kept, clamped, c*0.5, ws)
+            if inside
+                inside = maximum(bare) ≤ hi
+                inside && @test kept == bare
+            end
+            worst = max(worst, maximum(bare))
+            @test maximum(kept) ≤ hi
+        end
+        @test worst > hi
+    end
+    # The driver puts the given scheme in it, and not a default or a PFC.
+    for (kw, which) in (((; scheme_x = sb), :ox), ((; scheme_v = sb), :ov))
+        prob, = setup(x, v, waterbag, t; nᵢ, kw...)
+        @test getfield(prob, which) isa Clamped && getfield(prob, which).hi == nextfloat(M, 2)
+        @test !(getfield(prob, which === :ox ? :ov : :ox) isa Clamped)
+    end
+    for kw in ((;), (; scheme_x = sb, scheme_v = sb))
+        prob, = setup(x, v, waterbag, t; nᵢ, kw...)
+        @test !(prob.ox isa Clamped) && !(prob.ov isa Clamped)
     end
 end
