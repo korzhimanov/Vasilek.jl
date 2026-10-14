@@ -153,21 +153,27 @@ end
         # here, one the size of `f` 40.5 KiB.
         @test abs(large - small) ≤ 64
         @test small ≤ 192
-        # A scheme given for one direction runs clamped into the default's
-        # bracket (`VlasovPoisson1D1V.Clamped`), and the clamp allocates nothing.
+        # A scheme given for one direction, in x or in v, beside a default that
+        # takes the round-off it leaves, allocates nothing either.
         gx = Godunov(PiecewiseLinear(), VanLeer())
-        p81, p161 = per_step(64, 81; scheme_x = gx), per_step(128, 161; scheme_x = gx)
-        println("  ", rpad("vlasov_poisson step, partnered", 32), "64 × 81: ", p81, "   128 × 161: ", p161)
-        @test abs(p161 - p81) ≤ 64
-        @test p81 ≤ 192
+        for (name, kw) in (("x", (; scheme_x = gx)), ("v", (; scheme_v = gx)))
+            p81, p161 = per_step(64, 81; kw...), per_step(128, 161; kw...)
+            println("  ", rpad("vlasov_poisson step, given in $name", 32), "64 × 81: ", p81,
+                    "   128 × 161: ", p161)
+            @test abs(p161 - p81) ≤ 64
+            @test p81 ≤ 192
+        end
 
         # With `BGK` the step is not held to that: on the Windows runner under
         # Julia 1.10 `collide!` leaves its 16-byte box (see the top of this
         # file), twice a line. It is held to a few boxes a line, at a fixed
         # number of lines, whatever the length of each.
-        c81, c161 = per_step(64, 81; collisions = BGK(1.0)), per_step(64, 161; collisions = BGK(1.0))
-        println("  ", rpad("vlasov_poisson step, BGK", 32), "64 × 81: ", c81, "   64 × 161: ", c161)
-        @test abs(c161 - c81) ≤ 64
-        @test c81 ≤ 192 + 64*64
+        for (name, kw) in (("BGK", (; collisions = BGK(1.0))),
+                           ("BGK, given in v", (; collisions = BGK(1.0), scheme_v = gx)))
+            c81, c161 = per_step(64, 81; kw...), per_step(64, 161; kw...)
+            println("  ", rpad("vlasov_poisson step, $name", 32), "64 × 81: ", c81, "   64 × 161: ", c161)
+            @test abs(c161 - c81) ≤ 64
+            @test c81 ≤ 192 + 64*64
+        end
     end
 end

@@ -287,13 +287,10 @@ end
         f .*= sum(nᵢ .* Δx)/sum(f .* (Δv .* Δx'))
         bound = collisions === nothing ? maximum(f) : Inf
         # a scheme given as a function is built from the rescaled f
-        gx = scheme_x isa Function ? scheme_x(f) : scheme_x
-        gv = scheme_v isa Function ? scheme_v(f) : scheme_v
-        # a scheme given beside a default has its lines clamped into [0, bound]
-        alone = (gx === nothing) != (gv === nothing)
-        clampx, clampv = alone && gx !== nothing, alone && gv !== nothing
-        sx = something(gx, PFCNonUniform(Δx; fmin = 0.0, fmax = bound))
-        sv = something(gv, PFCNonUniform(Δv; fmin = 0.0, fmax = bound))
+        sx = scheme_x isa Function ? scheme_x(f) :
+             something(scheme_x, PFCNonUniform(Δx; fmin = 0.0, fmax = bound))
+        sv = scheme_v isa Function ? scheme_v(f) :
+             something(scheme_v, PFCNonUniform(Δv; fmin = 0.0, fmax = bound))
         wsx, wsv = workspace(sx, Nx), workspace(sv, Nv)
         bx, bv, cbuf = similar(x), similar(v), similar(v)
         cws = collisions === nothing ? nothing : workspace(collisions, Nv, eltype(f))
@@ -306,7 +303,6 @@ end
             Δt = t[n+1] - t[n]
             for j in 1:Nv
                 most_x = max(most_x, line!(view(f, j, :), v[j]*Δt/2, sx, Δx, bx, wsx))
-                clampx && clamp!(view(f, j, :), 0.0, bound)
             end
             P.solve!(e, vec(sum(f .* Δv, dims = 1)) - nᵢ, p, pws)
             for i in 1:Nx
@@ -316,7 +312,6 @@ end
                     copyto!(col, cbuf)
                 end
                 most_v = max(most_v, line!(col, e[i]*Δt, sv, Δv, bv, wsv))
-                clampv && clamp!(col, 0.0, bound)
                 if collisions !== nothing
                     collide!(cbuf, col, collisions, v, Δt/2, cws)
                     copyto!(col, cbuf)
@@ -324,7 +319,6 @@ end
             end
             for j in 1:Nv
                 most_x = max(most_x, line!(view(f, j, :), v[j]*Δt/2, sx, Δx, bx, wsx))
-                clampx && clamp!(view(f, j, :), 0.0, bound)
             end
             ε_e[n] = sum(e[j]^2*Δx[j] for j in eachindex(e))
         end
@@ -379,9 +373,9 @@ end
         @test r.ε_e == ref_ε_e
     end
 
-    # A scheme given for one direction, the other left to its default: its
-    # lines clamped into the default's bounds, a PFC's too, whose x steps reach
-    # 1.9 cells and are split in two.
+    # A scheme given for one direction, the other left to its default, which
+    # takes the round-off the given one leaves past its bounds; a PFC too, whose
+    # x steps reach 1.9 cells and are split in two.
     for (v, partner) in ((uniform, (; scheme_x = Godunov(PiecewiseLinear(), VanLeer()))),
                          (stretched, (; scheme_x = Godunov(PiecewiseLinear(), VanLeer()))),
                          (uniform, (; scheme_v = SemiLagrangian(LinearSpline())))),
@@ -407,8 +401,7 @@ end
 # takes a step here, so it needs no `advect!`.
 struct UnvouchedScheme <: AbstractAdvection1D end
 
-using Vasilek.VlasovPoisson1D1V: keeps_bounds, Clamped
-using Vasilek.Advection: nsubsteps
+using Vasilek.VlasovPoisson1D1V: keeps_bounds
 
 @testset "a scheme given alone has to keep the default's bounds" begin
     # One wavelength of k = 0.5 at 50% amplitude, 64 × 121 over ±6. With the
@@ -616,12 +609,14 @@ end
     @test maximum(r.fmax) ≤ M && minimum(r.fmin) ≥ 0
     @test maximum(abs, r.mass .- r.mass[1])/r.mass[1] < 1e-13
     # And beside a given scheme. A Float32 PFC bounded a rounding above
-    # maximum(f) stopped all 40 such runs to t = 20 until its lines were
-    # clamped too.
+    # maximum(f), which keeps_bounds takes in its own type, stopped all 40 such
+    # runs to t = 20 on the ulps the default refused; it ends each step, and
+    # keeps its own bound.
     pfc32 = f -> PFC(fmin = 0f0, fmax = Float32(maximum(f), RoundUp))
     for kw in ((; scheme_x = pfc32), (; scheme_v = Godunov(PiecewiseLinear(), Superbee())))
         r = vlasov_poisson(x, v, rough, collect(0.0:0.25:5.0); nᵢ, kw..., invariants = true)
-        @test maximum(r.fmax) ≤ M && minimum(r.fmin) ≥ 0
+        @test maximum(r.fmax) ≤ (haskey(kw, :scheme_x) ? Float32(M, RoundUp) : M)
+        @test minimum(r.fmin) ≥ 0
     end
 end
 
@@ -633,8 +628,8 @@ end
     # DomainError under each Godunov in x, rescaled or not, and under the linear
     # SemiLagrangian with its own ions, at 1/√(2π) itself; f capped at 0.3 stopped
     # under the linear SemiLagrangian in x, and under VanLeer in v. Godunov now
-    # keeps a constant line to the bit, and the given scheme's lines are clamped
-    # into the default's bounds.
+    # keeps a constant line to the bit, and the default takes the round-off the
+    # given scheme leaves past its bounds.
     k = 0.5
     Nx = 32
     x = collect(range(2π/k/Nx; step = 2π/k/Nx, length = Nx))
@@ -647,16 +642,18 @@ end
     rescaled = maximum(setup(x, v, waterbag, t)[2].f)    # the bound once rescaled
     for s in (Godunov(PiecewiseConstant()), Godunov(PiecewiseLinear(), VanLeer()),
               Godunov(PiecewiseLinear(), Superbee()), SemiLagrangian(LinearSpline()))
+        # A step ends on the given scheme's half sweep in x, from the line the
+        # default returned inside its bounds, and the linear SemiLagrangian,
+        # held to Interpolations' linear spline to the bit and left as it is,
+        # moves some cells an ulp either way: an ulp above the bound, on Julia
+        # 1.10, which the default takes on the next step.
         r = vlasov_poisson(x, v, waterbag, t; scheme_x = s, invariants = true)
         @test minimum(r.fmin) ≥ 0
-        @test maximum(r.fmax) ≤ rescaled
+        @test maximum(r.fmax) ≤ nextfloat(rescaled)
         # Its own ions, so nothing rescales it and its field is zero: each row
-        # is advanced in x alone. Godunov keeps a constant row to the bit. The
-        # linear SemiLagrangian, held to Interpolations' linear spline to the
-        # bit and left as it is, moves some an ulp either way; the clamp cuts
-        # the ulps above.
+        # is advanced in x alone. Godunov keeps a constant row to the bit.
         r = vlasov_poisson(x, v, waterbag, t; scheme_x = s, nᵢ, invariants = true)
-        @test minimum(r.fmin) ≥ 0 && maximum(r.fmax) ≤ M
+        @test minimum(r.fmin) ≥ 0 && maximum(r.fmax) ≤ nextfloat(M)
         s isa Godunov && @test r.f == waterbag
     end
     maxwellian(u) = exp(-u^2/2)/sqrt(2π)
@@ -672,7 +669,7 @@ end
     # scheme, which let its own limiter take a line up there -- one step did,
     # in 2406 of 20000 random lines peaking at their bound, against 1 bounded
     # at the peak -- and two ulps were taken in the widths' type, nothing to a
-    # Float64 line on a BigFloat grid.
+    # Float64 line on a BigFloat grid. Its round-off is taken in the line's.
     Δx = cell_widths(x)
     for kw in ((;), (; scheme_x = Upwind()), (; scheme_v = Upwind()),
                (; scheme_x = f -> PFCNonUniform(Δx; fmin = 0.0, fmax = maximum(f))),
@@ -683,90 +680,18 @@ end
     end
     r = vlasov_poisson(x, big.(v), waterbag, t; scheme_x = SemiLagrangian(LinearSpline()), nᵢ,
                        invariants = true)
-    @test maximum(r.fmax) ≤ M
-    # A PFC given with its bound rounded outward, as keeps_bounds allows in its
-    # own type, is clamped like any other: a Float32 one 1e-8 above maximum(f)
-    # can take a line there, which the default refused. The clamp takes that
-    # 1e-8 for round-off, as keeps_bounds does.
-    prob, = setup(x, v, waterbag, t; nᵢ,
-                  scheme_x = f -> PFC(fmin = 0f0, fmax = Float32(maximum(f), RoundUp)))
-    @test prob.ox isa Clamped && prob.ox.hi == M && prob.ov.scheme.fmax == M
-    @test prob.ox.above == Float32(M, RoundUp) - M && prob.ox.below == 0
-    # The clamp would take a negative f to 0, which the default refuses; it is
-    # refused before the first step, as a run with no scheme given is on it.
-    # f at -1e-6 in one row ran to the end under Upwind, its mass cut.
+    @test maximum(r.fmax) ≤ nextfloat(M)
+    # A negative f is refused by the default on its first step, with a scheme
+    # given or none, and a scheme that need not keep the bounds is refused as
+    # such before it. A function of f has to return a scheme: one returning
+    # nothing fell back to the default for a while.
     negative = copy(waterbag); negative[3, :] .= -1e-6
     @test_throws DomainError vlasov_poisson(x, v, negative, t; scheme_x = Upwind(), nᵢ)
     @test_throws DomainError vlasov_poisson(x, v, negative, t; nᵢ)
-    # A scheme that need not keep the bounds is refused as such first, and a
-    # function of f has to return a scheme: one returning nothing fell back to
-    # the default for a while.
     @test_throws ArgumentError setup(x, v, negative, t; scheme_x = LaxWendroff(), nᵢ)
     @test_throws ArgumentError setup(x, v, waterbag, t; scheme_x = f -> nothing)
     # The schemes are on their grids, taking a displacement; a bare one, which
     # takes a Courant number, is no Problem's.
     @test_throws MethodError Vasilek.VlasovPoisson1D1V.Problem(x, v, Δx, Δv, nᵢ, Upwind(),
                                                                Upwind(), nothing, ())
-
-    # The clamp holds what builds up. Godunov with Superbee took two lines, each
-    # a plateau at 1/√(2π) meeting values up to 1e-12 below it, 5 ulps above in
-    # 13 steps and 37 in 142; clamped, it stays inside, and takes the bare
-    # scheme's steps to the bit until the bare one leaves.
-    function lcg_uniforms(seed, n)    # Knuth's MMIX generator, not Julia's RNG
-        s, u = UInt64(seed), Vector{Float64}(undef, n)
-        for i in 1:n
-            s = s*0x5851f42d4c957f2d + 0x14057b7ef767814f
-            u[i] = (s >> 11)*2.0^-53
-        end
-        return u
-    end
-    hi = M
-    sb = Godunov(PiecewiseLinear(), Superbee())
-    for seed in (114, 282)
-        u = lcg_uniforms(seed, 33)
-        line = [u[2i-1] < 0.5 ? M : M*(1 - 1e-12*u[2i]) for i in 1:16]
-        c = 2u[end] - 1
-        clamped = Clamped(OnGrid(sb, fill(0.5, 16)), 0.0, hi, M, :scheme_x)
-        bare, kept = copy(line), copy(line)
-        ws = workspace(clamped, 16)
-        inside, worst = true, M
-        for _ in 1:200
-            bare = advect!(similar(bare), bare, sb, c)
-            kept = advect!(similar(kept), kept, clamped, c*0.5, ws)
-            if inside
-                inside = maximum(bare) ≤ hi
-                inside && @test kept == bare
-            end
-            worst = max(worst, maximum(bare))
-            @test maximum(kept) ≤ hi
-        end
-        @test worst > hi
-    end
-    # It cuts round-off and no more: 4 ulps of the run's maximum for each
-    # sub-step a call takes. In 42 sub-steps the same scheme took the line
-    # below 42 ulps above, which the clamp takes, and LaxWendroff took a pulse
-    # 10% over, which is a DomainError naming the scheme, as the default would
-    # have refused the line; a clamp of anything took it off unseen.
-    u = lcg_uniforms(423, 33)
-    line = [u[2i-1] < 0.5 ? M : M*(1 - 1e-12*u[2i]) for i in 1:16]
-    og = OnGrid(sb, fill(0.5, 16))
-    α = 32*(2u[end] - 1)
-    bare = advect!(similar(line), line, og, α)
-    @test nsubsteps(og, α) == 42 && maximum(bare) == M + 42eps(M)
-    clamped = Clamped(og, 0.0, M, M, :scheme_x)
-    @test advect!(similar(line), line, clamped, α, workspace(clamped, 16)) == min.(bare, M)
-    pulse = [16 < i ≤ 40 ? 1.0 : 0.0 for i in 1:64]
-    lw = Clamped(OnGrid(LaxWendroff(), fill(1.0, 64)), 0.0, 1.0, 1.0, :scheme_x)
-    err = try advect!(similar(pulse), pulse, lw, 0.3, workspace(lw, 64)); nothing catch e; e end
-    @test err isa DomainError && occursin("scheme_x = LaxWendroff()", sprint(showerror, err))
-    # The driver puts the given scheme in it, and not a default.
-    for (kw, which) in (((; scheme_x = sb), :ox), ((; scheme_v = sb), :ov))
-        prob, = setup(x, v, waterbag, t; nᵢ, kw...)
-        @test getfield(prob, which) isa Clamped && getfield(prob, which).hi == M
-        @test !(getfield(prob, which === :ox ? :ov : :ox) isa Clamped)
-    end
-    for kw in ((;), (; scheme_x = sb, scheme_v = sb))
-        prob, = setup(x, v, waterbag, t; nᵢ, kw...)
-        @test !(prob.ox isa Clamped) && !(prob.ov isa Clamped)
-    end
 end

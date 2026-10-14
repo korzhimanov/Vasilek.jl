@@ -22,12 +22,13 @@ _Φ⁻(f, i, i⁻, i⁺, c, lo, hi) = c*(f[i] - (1 + c)/3*(
                 _ϵ⁺(f[i], f[i⁺], lo, hi)/2*(1 - c) +
                 _ϵ⁻(f[i], f[i⁻], lo, hi)/2*(2 + c)))
 
-# What a checked call returns is inside [fmin, fmax], as what it takes is. The
-# limiter keeps it there in exact arithmetic, and rounding took a cell an ulp
-# out: at `c = 1` from data touching the bounds, a few ulps short of it, and
-# where a plateau at a bound met rough data, and the next checked call refused
-# the line. The clamp, `_hold!`, cuts that ulp, and the mass with it; a line
-# inside is left as it is, to the bit. `PFCNonUniform` clamps the same way. A
+# What a checked call returns is inside [fmin, fmax], and what it takes is,
+# to round-off (`_check_bounds`). The limiter keeps it there in exact
+# arithmetic, and rounding took a cell an ulp out: at `c = 1` from data
+# touching the bounds, a few ulps short of it, and where a plateau at a bound
+# met rough data, and the next checked call refused the line. The clamp,
+# `_hold!`, cuts that ulp, and the mass with it; a line inside is left as it
+# is, to the bit. `PFCNonUniform` clamps the same way. A
 # pass of its own: `clamp` in the stencil's assignment more than doubled the
 # step at N = 10000.
 function advect!(dest, src, p::PFC{T,Checked}, c, ws) where {T,Checked}

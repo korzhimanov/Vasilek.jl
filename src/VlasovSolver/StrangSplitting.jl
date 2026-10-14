@@ -123,24 +123,21 @@ function strang_step!(f::AbstractMatrix, sx::AbstractAdvection1D, sv::AbstractAd
     return f
 end
 
-# A line advanced into `buf` and copied back. A scheme can fold more into the
-# copy, as the driver's `Clamped` folds its clamp, which was a pass of its own.
-function _advect_back!(line, buf, scheme, c, ws)
-    advect!(buf, line, scheme, c, ws)
-    return copyto!(line, buf)
-end
-
 # `c[j]*(1//2)` is `c[j]*0.5`, which is `c[j]/2` to the bit.
 function _sweep!(g, scheme, c, fraction, buf, ws)
     for j in axes(g, 2)
-        _advect_back!(view(g, :, j), buf, scheme, c[j]*fraction, ws)
+        line = view(g, :, j)
+        advect!(buf, line, scheme, c[j]*fraction, ws)
+        copyto!(line, buf)
     end
     return g
 end
 
 function _kick!(g, scheme, c, buf, ws, ::Nothing, wsc)
     for j in axes(g, 2)
-        _advect_back!(view(g, :, j), buf, scheme, c[j], ws)
+        line = view(g, :, j)
+        advect!(buf, line, scheme, c[j], ws)
+        copyto!(line, buf)
     end
     return g
 end
@@ -151,7 +148,8 @@ function _kick!(g, scheme, c, buf, ws, hook::Collide, wsc)
         line = view(g, :, j)
         collide!(buf, line, op, v, half, wsc)
         copyto!(line, buf)
-        _advect_back!(line, buf, scheme, c[j], ws)
+        advect!(buf, line, scheme, c[j], ws)
+        copyto!(line, buf)
         collide!(buf, line, op, v, half, wsc)
         copyto!(line, buf)
     end

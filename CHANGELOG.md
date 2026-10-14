@@ -345,14 +345,14 @@ guide `docs/src/migration-0.2.md`, or a test.
 ### Fixed
 
 - **A scheme given for one direction no longer stops the run in the other's
-  default**: `Godunov` takes `f + (Φin − Φout)`, and the given scheme's
-  round-off past the default's bounds is clamped. `docs/src/driver-notes.md`.
+  default**: `Godunov` takes `f + (Φin − Φout)`, and the default takes the
+  round-off a given scheme leaves past its bounds. `docs/src/driver-notes.md`.
 - **`Godunov` keeps a constant line to the bit**, the constant reconstruction as
   `Upwind` to the bit; its four golden lines move by up to 4 ulps (7.0e-16
   relative), the other six not at all. `test/test_contracts.jl`.
-- **A checked `PFC` or `PFCNonUniform` returns a line inside its bounds**: it
-  clamps the ulp that rounding took past them, at `|c| = 1`, a few ulps short
-  of it and on a plateau at a bound. `test/test_contracts.jl`.
+- **A checked `PFC` or `PFCNonUniform` takes a line within round-off of its
+  bounds and returns one inside them**, clamped: an ulp that rounding took past
+  them no longer stops a run. `test/test_contracts.jl`.
 - **`vlasov_poisson` runs in the data's type, `T = float(eltype(f₀))`**: field,
   density, histories and `E_modes` follow it, and the lines are worked in
   Float64. `test/test_driver.jl`.

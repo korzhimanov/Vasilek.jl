@@ -72,8 +72,8 @@ function advect!(dest, src, p::PFCNonUniform{T,Checked}, α,
         acc[end-1] = src[end-1] + (Φ - Φₙ)/Δx[end-1]
         acc[end] = src[end] + (Φₙ - Φ₁)/Δx[end]
     end
-    # As `PFC`, `_hold!`: a checked call returns what it takes, a line inside
-    # [fmin, fmax]. Rounding left a cell an ulp out where a plateau at a bound
+    # As `PFC`, `_hold!`: a checked call returns a line inside [fmin, fmax],
+    # and takes one inside them to round-off. Rounding left a cell an ulp out where a plateau at a bound
     # met rough data and at a step of a narrowest cell, and the next call
     # refused the line. The clamp is the copy out of the accumulator.
     return Checked ? _hold!(dest, acc, lo, hi) : copyto!(dest, acc)

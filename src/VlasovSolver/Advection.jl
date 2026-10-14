@@ -184,18 +184,20 @@ theorem `f` stays within the extrema of the *initial* condition, so pass the
 global initial bounds; they cannot be derived per line inside a sweep. There is
 deliberately no default.
 
-With `checked = true` every call verifies `fmin ≤ minimum(src)` and
-`maximum(src) ≤ fmax` and throws a `DomainError` otherwise, and clamps what it
-returns into `[fmin, fmax]`, at the cost of one `minimum`/`maximum` pass and a
-clamp. The limiter keeps the data inside in exact arithmetic, and rounding took
-a cell an ulp out -- at `|c| = 1`, a one-cell shift only to within an ulp (see
-[`_validate_courant`](@ref)), a few ulps short of it, and where a plateau at a
-bound met rough data -- which the next checked call refused: under
+With `checked = true` every call verifies that `src` lies inside
+`[fmin, fmax]` to round-off and throws a `DomainError` otherwise, and clamps
+what it returns into `[fmin, fmax]`, at the cost of one `minimum`/`maximum`
+pass and a clamp. The limiter keeps the data inside in exact arithmetic, and
+rounding took a cell an ulp out -- at `|c| = 1`, a one-cell shift only to within
+an ulp (see [`_validate_courant`](@ref)), a few ulps short of it, and where a
+plateau at a bound met rough data -- which the next checked call refused: under
 `fmax = 0.987`, `c = 1` took `[0.195, 0.694, 0.566, 0.987]` to a first cell of
 `0.9870000000000001`. The clamp cuts that ulp, and the mass with it; a line
-inside is returned as the arithmetic gives it, to the bit. `checked` is a type
-parameter, so `checked = false` compiles both away for runs whose bounds are
-known good.
+inside is returned as the arithmetic gives it, to the bit. Another scheme's
+step leaves such ulps too, and the check takes them: round-off is
+[`_roundoff`](@ref) past a bound, and the check is [`_check_bounds`](@ref).
+`checked` is a type parameter, so `checked = false` compiles both away for runs
+whose bounds are known good.
 """
 struct PFC{T<:AbstractFloat, Checked} <: AbstractAdvection1D
     fmin::T
@@ -565,19 +567,45 @@ _shares(a, dest, src) = Base.mightalias(a, dest) || Base.mightalias(a, src)
 
 The check `PFC` and `PFCNonUniform` run on every call when built with
 `checked = true`: that `src` lies inside the `[fmin, fmax]` their limiters are
-built on, or a `DomainError`. Both call this one function, so they refuse the
-same data with the same message. Inlined, so each scheme's `if Checked` removes
-it whole. An exception rather than `@assert`, which is a debugging aid that may
-be compiled out, and this is part of the schemes' contract. What a checked call
-returns it clamps into the same bounds, `_hold!`.
+built on to round-off, or a `DomainError`. Both call this one function, so they
+refuse the same data with the same message. Inlined, so each scheme's
+`if Checked` removes it whole. An exception rather than `@assert`, which is a
+debugging aid that may be compiled out, and this is part of the schemes'
+contract. What a checked call returns it clamps into the bounds, `_hold!`.
+
+Round-off is [`_roundoff`](@ref) past a bound, and only a line outside the
+bounds pays for it: one inside is the two comparisons it always was. Another
+scheme's step rounds a line past a bound at its own extremum, as one taken
+beside the driver's default does, and refusing that ulp stopped the run.
 """
 @inline function _check_bounds(src, lo, hi)
-    m = minimum(src)
-    lo ≤ m || _err_bound_low(lo, m)
-    M = maximum(src)
-    M ≤ hi || _err_bound_high(hi, M)
+    m, M = minimum(src), maximum(src)
+    lo ≤ m && M ≤ hi && return nothing
+    t = _roundoff(m, M, lo, hi)
+    lo - m ≤ t || _err_bound_low(lo, m)
+    M - hi ≤ t || _err_bound_high(hi, M)
     return nothing
 end
+
+"""
+    _roundoff(m, M, lo, hi)
+
+How far past its bounds `[lo, hi]` a line with extrema `m` and `M` is taken for
+round-off by a checked `PFC` or `PFCNonUniform`: 1024 ulps of the largest of
+`|m|`, `|M|` and the finite bounds, the scale of the values a scheme rounded to
+get there, in the line's own type, which is where it rounded: a Float64 line
+under BigFloat bounds is an ulp of Float64 out, not of BigFloat. A step leaves a
+line at most an ulp of that past them -- `Upwind`, the constant `Godunov` and
+the linear `SemiLagrangian` -- or an ulp per sub-step of `OnGrid`, `Godunov` with
+a limiter: 111 ulps over 256 sub-steps at worst, where a plateau at the bound
+meets values just below it. NaN is never round-off, and data of a type without
+an `eps` has none.
+"""
+function _roundoff(m, M, lo, hi)
+    scale = max(abs(m), abs(M), _finite(m, lo), _finite(m, hi))
+    return scale isa AbstractFloat ? 1024*eps(scale) : zero(scale)
+end
+_finite(m, x) = isfinite(x) ? convert(typeof(m), abs(x)) : zero(m)
 
 """
     _hold!(dest, src, lo, hi)
@@ -600,9 +628,11 @@ _inward(::Type{S}, lo, hi) where {S<:AbstractFloat} = (S(lo, RoundUp), S(hi, Rou
 _inward(::Type{S}, lo, hi) where {S} = (convert(S, lo), convert(S, hi))
 
 @noinline _err_bound_low(lo, m) = throw(DomainError(m,
-    "fmin = $lo exceeds minimum(src) = $m: the PFC limiter is built on [fmin, fmax]"))
+    "fmin = $lo exceeds minimum(src) = $m by more than round-off: the PFC limiter is " *
+    "built on [fmin, fmax]"))
 @noinline _err_bound_high(hi, M) = throw(DomainError(M,
-    "fmax = $hi is below maximum(src) = $M: the PFC limiter is built on [fmin, fmax]"))
+    "fmax = $hi is below maximum(src) = $M by more than round-off: the PFC limiter is " *
+    "built on [fmin, fmax]"))
 
 """
     _validate_courant(scheme, c)

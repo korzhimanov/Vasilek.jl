@@ -117,6 +117,47 @@ end
     @test outside[true] == [0, 0]
 end
 
+# A checked PFC refused a line an ulp past its bounds, which another scheme's
+# step leaves where it meets one at the line's extremum: beside the driver's
+# default, `Godunov` with a limiter and the linear `SemiLagrangian`, and a PFC's
+# own previous sub-step. It takes round-off, 1024 ulps of the line's scale in
+# the line's type, and refuses anything further out.
+@testset "a checked PFC takes a line within round-off of its bounds" begin
+    # Godunov with Superbee over 42 sub-steps of a cell took a plateau at M,
+    # meeting values just below it, 42 ulps above M, an ulp a sub-step.
+    state = Ref(UInt64(423))
+    uniform() = (state[] = state[]*0x5851f42d4c957f2d + 0x14057b7ef767814f; (state[] >> 11)*2.0^-53)
+    M = 1/sqrt(2π)
+    u = [uniform() for _ in 1:33]
+    line = [u[2i-1] < 0.5 ? M : M*(1 - 1e-12*u[2i]) for i in 1:16]
+    og = OnGrid(Godunov(PiecewiseLinear(), Superbee()), fill(0.5, 16))
+    above = advect!(similar(line), line, og, 32*(2u[end] - 1))
+    @test maximum(above) == M + 42eps(M)
+    for p in (PFC(fmin = 0.0, fmax = M), PFCNonUniform(fill(0.5, 16); fmin = 0.0, fmax = M))
+        out = advect!(similar(above), above, p, p isa PFC ? 0.3 : 0.15, workspace(p, 16))
+        @test 0 ≤ minimum(out) && maximum(out) ≤ M
+    end
+    # To 1024 ulps of the scale and no further, at either bound.
+    p = PFC(fmin = 0.0, fmax = 1.0)
+    g = fill(0.5, 8)
+    for (k, ok) in ((1024, true), (1025, false))
+        g[3] = 1 + k*eps(); g[6] = 0.5
+        @test (try advect!(similar(g), g, p, 0.3); true catch e; e isa DomainError || rethrow(); false end) == ok
+        g[3] = 0.5; g[6] = -k*eps()
+        @test (try advect!(similar(g), g, p, 0.3); true catch e; e isa DomainError || rethrow(); false end) == ok
+    end
+    # LaxWendroff took a pulse 10% past [0, 1], and NaN is never round-off.
+    pulse = [16 < i ≤ 40 ? 1.0 : 0.0 for i in 1:64]
+    @test_throws DomainError advect!(similar(pulse), advect!(similar(pulse), pulse, LaxWendroff(), 0.3), p, 0.3)
+    g[3] = NaN
+    @test_throws DomainError advect!(similar(g), g, p, 0.3)
+    # In the line's type: a Float64 line an ulp over BigFloat bounds is
+    # round-off, which 1024 ulps of BigFloat were not.
+    pb = PFCNonUniform(big.(fill(0.5, 16)); fmin = 0, fmax = big(M))
+    out = advect!(similar(line), [nextfloat(M); line[2:end]], pb, 0.15, workspace(pb, 16, Float64))
+    @test maximum(out) ≤ M
+end
+
 # `Godunov` partners the driver's default `PFCNonUniform`, which refuses a line
 # an ulp above its bound, and `keeps_bounds` vouches for it with a constant
 # reconstruction or a limiter. It added a cell's inflow and subtracted its
@@ -168,9 +209,9 @@ end
         under = copy(f); under[10] = -1.0
         message(s, c, g) = try march!(g, s, c, 1); "" catch e; e.msg end
         @test message(scheme(), 0.02, over) == message(PFC(fmin = 0.0, fmax = 2.0), 0.4, over) ==
-              "fmax = 2.0 is below maximum(src) = 5.0: the PFC limiter is built on [fmin, fmax]"
+              "fmax = 2.0 is below maximum(src) = 5.0 by more than round-off: the PFC limiter is built on [fmin, fmax]"
         @test message(scheme(), 0.02, under) == message(PFC(fmin = 0.0, fmax = 2.0), 0.4, under) ==
-              "fmin = 0.0 exceeds minimum(src) = -1.0: the PFC limiter is built on [fmin, fmax]"
+              "fmin = 0.0 exceeds minimum(src) = -1.0 by more than round-off: the PFC limiter is built on [fmin, fmax]"
     end
 
     @testset "checked = false compiles it away without changing the answer" begin
