@@ -681,6 +681,18 @@ end
     r = vlasov_poisson(x, big.(v), waterbag, t; scheme_x = SemiLagrangian(LinearSpline()), nᵢ,
                        invariants = true)
     @test maximum(r.fmax) ≤ nextfloat(M)
+    # Beside a PFC bounded a rounding wider in its own type, which keeps_bounds
+    # takes, the default is bounded where it is: a Float32 one at maximum(f)
+    # rounded up took a line 4e7 Float64 ulps past it, which the default
+    # refused, on rows dipping up to 1e-3 below their plateau.
+    pfc32 = f -> PFC(fmin = 0f0, fmax = Float32(maximum(f), RoundUp))
+    prob, = setup(x, v, waterbag, t; nᵢ, scheme_x = pfc32)
+    @test prob.ov.scheme.fmax == Float32(M, RoundUp) && prob.ov.scheme.fmin == 0
+    dips = [abs(u) ≤ 2 ? M*(1 - 1e-3*(1 + sin(7.3y + 3.1u))/2*isodd(round(Int, 5u))) : 0.0
+            for u in v, y in x]
+    r = vlasov_poisson(x, v, dips, collect(0.0:0.25:5.0); scheme_x = pfc32,
+                       nᵢ = vec(sum(dips .* Δv, dims = 1)), invariants = true)
+    @test maximum(r.fmax) ≤ Float32(M, RoundUp) && minimum(r.fmin) ≥ 0
     # A negative f is refused before the first step, with a scheme given or
     # none, to the bit: the default takes round-off past its bounds from a step,
     # and took -1e-14 in f₀ for it. A scheme that need not keep the bounds is

@@ -167,6 +167,12 @@ end
     @test_throws DomainError advect!(zeros(Float16, 4), Float16[0.5, 1.5, 0.2, 0.1], p, 0.3)
     @test_throws DomainError advect!(zeros(4), [0, 1, 0, 0], PFC(fmin = 0.0, fmax = 0.5), 0.3)
     @test_throws DomainError advect!(zeros(4), [0.0, Inf, 0.0, 0.0], p, 0.3)
+    # What it takes comes back clamped, even at c = 0, so that another
+    # scheme's round-off does not build up through it: Float32(0.1) lies above
+    # fmax = 0.1, and returns at its bound rounded down.
+    s32 = Float32[0.1, 0.1, 0.1, 0.05, 0, 0]
+    @test advect!(similar(s32), s32, PFC(fmin = 0.0, fmax = 0.1), 0.0) ==
+          [fill(prevfloat(0.1f0), 3); s32[4:6]]
     # In the line's type: a Float64 line an ulp over BigFloat bounds is
     # round-off, which 1024 ulps of BigFloat were not.
     pb = PFCNonUniform(big.(fill(0.5, 16)); fmin = 0, fmax = big(M))

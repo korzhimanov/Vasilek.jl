@@ -196,6 +196,8 @@ plateau at a bound met rough data -- which the next checked call refused: under
 inside is returned as the arithmetic gives it, to the bit. Another scheme's
 step leaves such ulps too, and the check takes them: round-off is
 [`_roundoff`](@ref) past a bound, and the check is [`_check_bounds`](@ref).
+What it takes comes back clamped too, even at `c = 0`, so that round-off
+another scheme leaves does not build up through it from call to call.
 `checked` is a type parameter, so `checked = false` compiles both away for runs
 whose bounds are known good.
 """

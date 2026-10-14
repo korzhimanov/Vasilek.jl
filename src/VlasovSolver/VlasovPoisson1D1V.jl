@@ -120,6 +120,11 @@ end
     "f has a value below 0, the lower bound of the PFCNonUniform a direction left to its " *
     "default gets. Pass both schemes for data that is not a distribution"))
 
+# The bounds of the default beside a given scheme: its own, `[0, bound]`, and a
+# given `PFC`'s or `PFCNonUniform`'s too, where they lie a rounding outside them.
+_beside(::AbstractAdvection1D, lo, hi) = (lo, hi)
+_beside(g::Union{PFC, PFCNonUniform}, lo, hi) = (min(lo, g.fmin), max(hi, g.fmax))
+
 # A scheme given as a function of `f` is built here, and has to be a scheme.
 function _given(s, f, name)
     s === nothing && return nothing
@@ -154,8 +159,9 @@ Strang-split electrostatic Vlasov–Poisson for electrons over fixed ions, from
   * `t`: at least two times; steps may differ.
   * `scheme_x`, `scheme_v`: advection schemes, or functions of the starting `f`
     that return one. Both default to `PFCNonUniform` on their grid, in Float64
-    at least, bounded by `[0, maximum(f)]` (below only with `collisions`);
-    each is put on its grid by [`OnGrid`](@ref), which takes the step as a
+    at least, bounded by `[0, maximum(f)]` (below only with `collisions`), and
+    beside a given `PFC` or `PFCNonUniform` by its own bounds too; each is put
+    on its grid by [`OnGrid`](@ref), which takes the step as a
     displacement and splits one wider than a cell.
   * `nᵢ`: the ion density over `x`; by default the Maxwellian's `Σ M Δv`,
     uniform. The ions are used as given, in the cell widths' type, and never
@@ -401,22 +407,29 @@ function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants
     # ulp outside its bounds, which the next checked call refuses -- one
     # subnormal below 0 at the edge of a plateau, as `docs/src/driver-notes.md`
     # measures.
-    default(widths) = PFCNonUniform(convert(Vector{promote_type(Float64, eltype(widths))}, widths);
-                                    fmin = 0.0, fmax = bound)
     gx, gv = _given(scheme_x, f, :scheme_x), _given(scheme_v, f, :scheme_v)
-    sx = gx === nothing ? default(Δx) : gx
-    sv = gv === nothing ? default(Δv) : gv
     # A default stops the run at the first line it is handed outside its bounds
     # by more than round-off; a scheme given for the other direction that need
     # not keep them is refused here instead, before the first step. See the
     # docstring. One that keeps them to round-off (`keeps_bounds`) left a line an
     # ulp past them, which the default refused: a waterbag with its own ions
     # under a `SemiLagrangian(LinearSpline())` x sweep stopped on its first
-    # step. The default takes that ulp now.
+    # step. The default takes that ulp now. A `PFC` or `PFCNonUniform` given
+    # keeps its own bounds, which `keeps_bounds` takes rounded outward in its
+    # own precision, and the default is bounded where it is too: a Float32 one
+    # at `maximum(f)` rounded up took a line 5e7 ulps of Float64 past it, which
+    # the default refused.
+    lo, hi = 0.0, bound
     if (gx === nothing) != (gv === nothing)    # a given scheme beside a default
-        gx === nothing ? refuse_unbounded(gv, :scheme_v, :scheme_x, bound) :
-                         refuse_unbounded(gx, :scheme_x, :scheme_v, bound)
+        g = gx === nothing ? gv : gx
+        refuse_unbounded(g, gx === nothing ? :scheme_v : :scheme_x,
+                         gx === nothing ? :scheme_x : :scheme_v, bound)
+        lo, hi = _beside(g, lo, hi)
     end
+    default(widths) = PFCNonUniform(convert(Vector{promote_type(Float64, eltype(widths))}, widths);
+                                    fmin = lo, fmax = hi)
+    sx = gx === nothing ? default(Δx) : gx
+    sv = gv === nothing ? default(Δv) : gv
     # A default takes round-off past its bounds from a step, and would take a
     # negative `f₀` within it for round-off too, clamped to 0 unreported: `f₀`
     # is checked exactly here, as the default's first call checked it.

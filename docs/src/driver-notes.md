@@ -107,14 +107,16 @@ in 38, 30, 4 and 1 above at 4, 16, 256 and 4096 ulps short of `c = 1`, and none
 at 1, 2 or 2²⁰.
 
 **A checked `PFC` or `PFCNonUniform` clamps what it returns into its bounds**,
-and none of those steps leaves them. For a while `OnGrid` split those two
-schemes' steps of exactly a cell in two instead, which a step a few ulps short
-still beat, and which smeared the step it caught: a unit spike under
-`OnGrid(PFC(fmin = 0, fmax = 1))` at `α = h` came out as 0.219, 0.562, 0.219
-rather than shifted. Before that it split every scheme's, which took `Upwind`,
-`Godunov` and `LaxWendroff` off their own step at `c = ±1`: a unit spike under
-`OnGrid(Upwind())` came out as 0.25, 0.5, 0.25, a Gaussian 0.053 off its shift.
-Every scheme takes its own step at `c = ±1` here.
+and none of those steps leaves them. The clamp is about 1 μs of a 30.6 μs
+checked `PFC` step at N = 10000, against 21.9 μs unchecked, the minimum/maximum
+pass the rest; `PFCNonUniform` clamps as it copies its accumulator out. For a
+while `OnGrid` split those two schemes' steps of exactly a cell in two instead,
+which a step a few ulps short still beat, and which smeared the step it caught:
+a unit spike under `OnGrid(PFC(fmin = 0, fmax = 1))` at `α = h` came out as
+0.219, 0.562, 0.219 rather than shifted. Before that it split every scheme's,
+which took `Upwind`, `Godunov` and `LaxWendroff` off their own step at `c = ±1`:
+a unit spike under `OnGrid(Upwind())` came out as 0.25, 0.5, 0.25, a Gaussian
+0.053 off its shift. Every scheme takes its own step at `c = ±1` here.
 
 **The line is worked in Float64**, its buffer and the scheme's scratch alike,
 and rounded into `f` once per step: the driver asks `strang_step!`'s workspace
@@ -470,10 +472,13 @@ inside them; beside one, the step can end on the given scheme's sweep, and `f`
 is then as it left it, a linear `SemiLagrangian` x sweep of a waterbag with its
 own ions an ulp above. A `PFC` given is a checked one too, and takes its own
 previous sub-step's ulp: one taking a step of exactly two cells stopped on its
-second sub-step. A Float32 one bounded at 1/√(2π) rounded up, which
-`keeps_bounds` takes in its own precision, stopped all of 40 runs to `t = 20` on
-the rows that differ from each other, below, on the ulps the default refused;
-none stops now.
+second sub-step. Its own bounds bound the default too: `keeps_bounds` takes them
+rounded outward in the scheme's precision, and a Float32 one at `maximum(f)`
+rounded up let a line out to it, 4e7 Float64 ulps past `maximum(f)` on rows
+dipping 1e-3 below their plateau, which the default refused while it kept
+`maximum(f)`. A Float32 one bounded at 1/√(2π) rounded up, which `keeps_bounds`
+takes in its own precision, stopped all of 40 runs to `t = 20` on the rows that
+differ from each other, below, on the ulps the default refused; none stops now.
 
 For a while the driver clamped the given scheme's lines into the default's
 bounds instead, a wrapper around the scheme with a hook in the Strang sweep: the
