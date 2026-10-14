@@ -475,11 +475,12 @@ end
     # taking the infinities as they come.
     edge = zeros(16); edge[5] = 1e-3; edge[7] = 5e-324; edge[8] = 1e-3         # r = -Inf
     half = Float16[0, 0, 0, 0, 0.4, 0, Float16(1e-7), 0.4, 0, 0, 0, 0, 0, 0, 0, 0]  # and in Float16
+    single = Float32.(edge); single[7] = nextfloat(0f0)                         # and in Float32
     # and on signed data r = +Inf, and r between floatmax/2 and floatmax
     up = zeros(16); up[5] = -1e-3; up[7] = 5e-324; up[8] = 1e-3
     past = zeros(16); past[5] = -1e-3; past[7] = 1e-3/1.5e308; past[8] = 1e-3
     @test floatmax()/2 < 1e-3/past[7] < floatmax()
-    for line in (edge, half, up, past), limiter in (VanLeer(), Superbee()), s in (1, -1)
+    for line in (edge, half, single, up, past), limiter in (VanLeer(), Superbee()), s in (1, -1)
         # c < 0 meets the reversed line as c > 0 meets the line
         g = s > 0 ? line : reverse(line)
         out = advect!(similar(g), g, Godunov(PiecewiseLinear(), limiter), s*eltype(g)(0.3))
