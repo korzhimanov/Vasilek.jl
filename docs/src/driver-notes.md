@@ -509,12 +509,19 @@ For a while the driver clamped the given scheme's lines into the default's
 bounds instead, a wrapper around the scheme with a hook in the Strang sweep: the
 refusal stayed in the checked `PFC`, which a given `PFC` still met between its
 own sub-steps, and the default's own ulp, below, still stopped runs with no
-scheme given. The default keeps `maximum(f)` itself, its limiter as with no
-scheme given: for a while it was bounded two ulps above beside a given scheme
-instead, which let its limiter take a line up there, in 2406 of 20000 single
-steps on random lines peaking at their bound against 1 bounded at the peak, and
-the two ulps had to be taken in the lines' type, not the widths', BigFloat on a
-BigFloat grid; its round-off is taken in the lines' type.
+scheme given. The default keeps `maximum(f)` itself beside a scheme without
+bounds of its own, its limiter as with no scheme given: for a while it was
+bounded two ulps above beside a given scheme instead, which let its limiter take
+a line up there, in 2406 of 20000 single steps on random lines peaking at their
+bound against 1 bounded at the peak, and the two ulps had to be taken in the
+lines' type, not the widths', BigFloat on a BigFloat grid; its round-off is
+taken in the lines' type. Beside a given `PFC` bounded above `maximum(f)` it
+takes that bound, the partner's limiter's own, a trade: the partner takes a line
+up there itself, and a default limiter held below it would be handed data past
+its bound, which the limiter does not clip but corrupts. On the rows dipping
+1e-3 beside a Float32 `PFC` bounded 2.0e8 ulps above `maximum(f)`, the run to
+`t = 20` went 3.9e7 ulps above it, 5.4e-9 of it, as far as the partner's own
+sweep took it while the default stopped at `maximum(f)`.
 
 On the README's grid to `t = 20`, waterbags flat or perturbed in x by 1e-12 to
 5%, Landau at 1% and 50%, a two-stream case and Maxwellians capped at 0.2 to

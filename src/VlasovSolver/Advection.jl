@@ -601,8 +601,9 @@ end
         bound = x < lo ? lo : hi
         S = promote_type(F, float(typeof(bound)))
         scale = isfinite(bound) ? abs(S(bound)) : zero(S)
-        for d in -2:2
-            scale = max(scale, abs(S(src[i₁ + mod(i - i₁ + d, n)])))
+        for d in -2:2    # an infinite neighbour, under fmax = Inf, is no scale
+            y = abs(S(src[i₁ + mod(i - i₁ + d, n)]))
+            isfinite(y) && (scale = max(scale, y))
         end
         abs(x - bound) ≤ _roundoff(F, scale) ||
             (x < lo ? _err_bound_low(lo, x, i) : _err_bound_high(hi, x, i))

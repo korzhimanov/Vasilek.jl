@@ -158,6 +158,9 @@ end
     p∞ = PFC(fmin = 0.0, fmax = Inf)
     @test accepts(p∞, [1e6, 1e-10, -2e-7, 1e-10, 0, 0, 0, 0])
     @test !accepts(p∞, [1e6, 1e-10, 1e-10, -2e-7, 1e-10, 0, 0, 0])
+    # An infinite neighbour, which fmax = Inf holds, is no scale: it zeroed the
+    # reach, and -1e-18 beside it was refused where beside 0.5 alone it is taken.
+    @test accepts(p∞, [0.5, Inf, -1e-18, 0.5, 0, 0, 0, 0])
     # The refusal names the cell that failed, not the line's minimum, which
     # can be one the check took beside a larger neighbour.
     e = try advect!(zeros(10), [-2e-7, 1e6, 0, 0, 0, 0, -1e-15, 0, 0, 0], p∞, 0.3) catch e; e end
