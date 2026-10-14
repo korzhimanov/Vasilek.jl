@@ -10,7 +10,7 @@ that no user could run a Landau damping problem without copying it.
 """
 module VlasovPoisson1D1V
 
-using ..Advection: AbstractAdvection1D, PFCNonUniform, OnGrid,
+using ..Advection: AbstractAdvection1D, PFCNonUniform, OnGrid, _outward,
                    Upwind, Godunov, PiecewiseConstant, PiecewiseLinear, VanLeer, Superbee,
                    SemiLagrangian, LinearSpline, PFC
 using ..StrangSplitting: strang_step!, Collide
@@ -112,8 +112,8 @@ keeps_bounds(og::OnGrid, lo, hi) = keeps_bounds(og.scheme, lo, hi)
 # In the scheme's own precision, `[lo, hi]` rounded outward as its constructor
 # rounds its bounds: a Float32 scheme built on `maximum(f)` keeps it.
 function keeps_bounds(s::Union{PFC, PFCNonUniform}, lo, hi)
-    T = typeof(s.fmax)
-    return T(lo, RoundDown) ≤ s.fmin && s.fmax ≤ T(hi, RoundUp)
+    l, u = _outward(typeof(s.fmax), lo, hi)
+    return l ≤ s.fmin && s.fmax ≤ u
 end
 
 @noinline _err_negative(m) = throw(DomainError(m,
@@ -163,7 +163,8 @@ function refuse_unbounded(given, name, other, bound)
     throw(ArgumentError(
         "$name = $(sprint(show, given)) may take f outside [0, $bound], " *
         "the bounds of the PFCNonUniform that $other defaults to, which stops the run at " *
-        "the first line handed to it outside them. Pass $other as well: the same scheme, " *
+        "the first line handed to it outside them by more than round-off. Pass $other as " *
+        "well: the same scheme, " *
         "or a PFCNonUniform with bounds both sweeps keep (fmin = -Inf, fmax = Inf for none)"))
 end
 

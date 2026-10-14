@@ -170,32 +170,32 @@ end
     g[3] = NaN
     @test_throws DomainError advect!(similar(g), g, p, 0.3)
     # Each bound by its own scale: a loose fmax = 1e300 took -5 past fmin = 0
-    # for round-off while the far bound counted, and a Float32 line under it
-    # overflowed the scale to Inf and refused an ulp.
+    # for round-off while the far bound counted.
     q = PFC(fmin = 0.0, fmax = 1e300)
     @test_throws DomainError advect!(zeros(4), [1.0, 0.5, 0.2, -5.0], q, 0.3)
-    @test advect!(zeros(Float32, 4), Float32[0, 1, 0.5, -1f-10], q, 0.3) isa Vector{Float32}
-    # Four ulps of a narrower line's type, where 1024 of them took a Float16
-    # line 50% over its bound and a Float32 one 1e-4 over; an integer line is
-    # judged in Float64, where its bound threw an InexactError.
-    @test advect!(zeros(Float32, 4), Float32[0.5, nextfloat(1f0, 4), 0.2, 0.1], p, 0.3) isa Vector{Float32}
-    @test_throws DomainError advect!(zeros(Float32, 4), Float32[0.5, 1.0001, 0.2, 0.1], p, 0.3)
-    @test_throws DomainError advect!(zeros(Float16, 4), Float16[0.5, 1.5, 0.2, 0.1], p, 0.3)
+    # A line of a type coarser than Float64 is taken only inside its bounds:
+    # limited Godunov left Float32 9 ulps over and Float16 18 within 64
+    # sub-steps, and four ulps took Float16 data 0.3% below 0. An integer line
+    # is judged in Float64, where its bound threw an InexactError.
+    @test_throws DomainError advect!(zeros(Float32, 4), Float32[0.5, nextfloat(1f0), 0.2, 0.1], p, 0.3)
+    @test_throws DomainError advect!(zeros(Float16, 4), Float16[-0.003, 1.0, 0.5, 0.2], p, 0.3)
+    @test advect!(zeros(Float32, 4), Float32[0.5, 1, 0.2, 0], p, 0.3) isa Vector{Float32}
     @test_throws DomainError advect!(zeros(4), [0, 1, 0, 0], PFC(fmin = 0.0, fmax = 0.5), 0.3)
     @test_throws DomainError advect!(zeros(4), [0.0, Inf, 0.0, 0.0], p, 0.3)
     # What it takes comes back clamped, even at c = 0, so that another
-    # scheme's round-off does not build up through it: Float32(0.1) lies above
-    # fmax = 0.1, and returns at its bound rounded down.
+    # scheme's round-off does not build up through it; Float32(0.1), above
+    # fmax = 0.1, is not round-off in Float32, and is refused.
+    s = [nextfloat(0.1, 3), 0.1, 0.05, 0, 0, 0]
+    @test advect!(similar(s), s, PFC(fmin = 0.0, fmax = 0.1), 0.0) == [0.1, 0.1, 0.05, 0, 0, 0]
     s32 = Float32[0.1, 0.1, 0.1, 0.05, 0, 0]
-    @test advect!(similar(s32), s32, PFC(fmin = 0.0, fmax = 0.1), 0.0) ==
-          [fill(prevfloat(0.1f0), 3); s32[4:6]]
-    # Where no value of the line's type lies inside the bounds, there is no
-    # line to return: no Float32 lies in [0.1, 0.1], and the clamp put every
-    # cell at 0.1 rounded down, below fmin. Refused before `dest` is written.
+    @test_throws DomainError advect!(similar(s32), s32, PFC(fmin = 0.0, fmax = 0.1), 0.0)
+    # Where no value of `dest`'s type lies inside the bounds, there is no line
+    # to return: no Float32 lies in [0.1, 0.1], and the clamp put every cell at
+    # 0.1 rounded down, below fmin. Refused before `dest` is written.
     d32 = fill(7f0, 6)
-    @test_throws ArgumentError advect!(d32, fill(0.1f0, 6), PFC(fmin = 0.1, fmax = 0.1), 0.3)
+    @test_throws ArgumentError advect!(d32, fill(0.1, 6), PFC(fmin = 0.1, fmax = 0.1), 0.3)
     pn = PFCNonUniform(fill(0.1, 6); fmin = 0.1, fmax = 0.1)
-    @test_throws ArgumentError advect!(d32, fill(0.1f0, 6), pn, 0.03, workspace(pn, 6, Float32))
+    @test_throws ArgumentError advect!(d32, fill(0.1, 6), pn, 0.03, workspace(pn, 6))
     @test all(==(7f0), d32)
     @test advect!(zeros(6), fill(0.1, 6), PFC(fmin = 0.1, fmax = 0.1), 0.3) == fill(0.1, 6)
     # In the line's type: a Float64 line an ulp over BigFloat bounds is

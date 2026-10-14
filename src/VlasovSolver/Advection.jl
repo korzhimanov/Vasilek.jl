@@ -292,7 +292,7 @@ Base.@constprop :aggressive function PFCNonUniform(Δx_::AbstractVector{T}; fmin
     # Outward, so that a narrower `T` keeps the data the bounds admit: a Float32
     # grid's `fmax = maximum(f)` of Float64 data rounded below it as often as not,
     # and the first checked step refused the data's own peak.
-    return PFCNonUniform{T, checked}(Δx, ξ, minimum(Δx), T(fmn, RoundDown), T(fmx, RoundUp))
+    return PFCNonUniform{T, checked}(Δx, ξ, minimum(Δx), _outward(T, fmn, fmx)...)
 end
 
 function _check_widths(Δx)
@@ -616,9 +616,13 @@ How far past a bound a value of a line of type `F` is taken for round-off by a
 checked `PFC` or `PFCNonUniform`, where `scale` is the largest magnitude among
 it, its two neighbours either side and the bound: the values a scheme's stencil
 rounded to get there. 1024 ulps of `F` at that scale, 2.3e-13 of it for
-Float64 and as many ulps of BigFloat; 4 ulps for a type coarser than Float64,
-where 1024 of them took a Float16 line 50% over its bound and a Float32 one
-1e-4 over. Nothing that is not finite is round-off.
+Float64 and as many ulps of BigFloat. Nothing that is not finite is round-off.
+
+A line of a type coarser than Float64 is taken only inside its bounds, as
+before: no count of its ulps told round-off from data outside them. `Godunov`
+with a limiter left a Float32 line 9 ulps over its maximum and a Float16 one
+18 within 64 `OnGrid` sub-steps, and 4 ulps took a Float16 line 0.3% below 0.
+The driver works its lines in Float64 at least, and never hands one over.
 
 The scale is local, the bound being tested and the cell's neighbours, so that
 neither the far bound nor a peak elsewhere on the line widens it: a loose
@@ -636,8 +640,8 @@ worst, and none over 4096 or more, where the line has smoothed below the bound.
 None of these went below 0 at a jump to it.
 """
 function _roundoff(::Type{F}, scale) where {F}
-    isfinite(scale) || return zero(scale)
-    return (eps(F) ≤ eps(Float64) ? 1024 : 4)*eps(F)*scale
+    eps(F) ≤ eps(Float64) && isfinite(scale) || return zero(scale)
+    return 1024*eps(F)*scale
 end
 
 """
@@ -658,10 +662,14 @@ function _hold!(dest, src, lo, hi)
     return dest
 end
 
-# The bounds rounded inward into `S`, or an `ArgumentError` where no value of `S`
-# lies between them: `fmin = fmax = 0.1` rounded to a Float32 `l` above `u`, and
-# the clamp put every cell at `u`, below `fmin`. A checked `PFC` and
+# A bracket rounded into a type: outward, `_outward`, where it has to hold what
+# the wider one held -- `PFCNonUniform`'s bounds, and the driver's `keeps_bounds`
+# -- and inward, `_inward`, where nothing outside it may come out of the
+# rounding: the clamp. Inward, an `ArgumentError` where no value of `S` lies
+# between them: `fmin = fmax = 0.1` rounded to a Float32 `l` above `u`, and the
+# clamp put every cell at `u`, below `fmin`. A checked `PFC` and
 # `PFCNonUniform` ask before they write.
+_outward(::Type{S}, lo, hi) where {S<:AbstractFloat} = (S(lo, RoundDown), S(hi, RoundUp))
 function _inward(::Type{S}, lo, hi) where {S<:AbstractFloat}
     l, u = S(lo, RoundUp), S(hi, RoundDown)
     l ≤ u || _err_no_room(S, lo, hi)

@@ -66,9 +66,9 @@ checked once, at construction, and `PFCNonUniform` never did: data outside its
 bounds gave a wrong answer with no error, and now stops at the first call.
 
 A checked call is not only a check. It takes data past a bound by round-off
-(`_roundoff`: 1024 ulps of the data's type, four of a type coarser than
-Float64, at the scale of the cell past the bound and its neighbours) and clamps
-what it returns into `[fmin, fmax]`. The clamp acts only where rounding left a
+(`_roundoff`: 1024 ulps of the data's type, Float64 or finer, at the scale of
+the cell past the bound and its neighbours; Float32 and Float16 data are taken
+only inside the bounds) and clamps what it returns into `[fmin, fmax]`. The clamp acts only where rounding left a
 cell outside the bounds, at the ulp level, or where the data it took were
 outside by round-off, even at `c = 0`, and moves the mass by the ulp it cuts, so
 `checked = true` and `checked = false` can differ in the last bits of such a

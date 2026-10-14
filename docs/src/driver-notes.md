@@ -298,8 +298,8 @@ centring above holds as it stands.
 to keep `f` inside those bounds, or the call is refused**, with an
 `ArgumentError`, before the first step. Without that check the default refused
 such a call later, mid-run: it stops the run at the first line handed to it
-outside its bounds, and a scheme that does not keep them hands it one soon
-enough. At 50% amplitude on one wavelength of `k = 0.5`, 64 × 121 cells over ±6
+outside its bounds by more than round-off, and a scheme that does not keep them
+hands it one soon enough. At 50% amplitude on one wavelength of `k = 0.5`, 64 × 121 cells over ±6
 (the case in `test_driver.jl`), `LaxWendroff` in `v` took `f` to −1.9e-9 on the
 16th step and the cubic `SemiLagrangian` to −7.0e-10 on the 21st.
 [`keeps_bounds`](@ref) decides. It passes the schemes that keep their data
@@ -461,13 +461,20 @@ The default takes round-off and no more
 ([`_roundoff`](@ref Vasilek.Advection._roundoff)): 1024 ulps of the line's type,
 2.3e-13 for Float64, about four for each of 256 sub-steps, at the scale of the
 cell past the bound, its two neighbours either side and the bound, the values a
-stencil rounded to get there; four ulps of a type coarser than Float64, where
-1024 of them took a Float16 line 50% over. Over more sub-steps the excess grew
-more slowly, to 197 ulps at 1024, and over 4096 or more none was left: the line
-has smoothed below the bound. The scale is local: while the far bound counted, a
-loose `fmax = 1e300` took `-5` past `fmin = 0`, and while the line's own peak
-did, a real undershoot of a cell beside zeros passed for round-off. None of the
-schemes `keeps_bounds` takes went below 0 at a jump to it. A line further out is
+stencil rounded to get there. Over more sub-steps the excess grew more slowly,
+to 197 ulps at 1024, and over 4096 or more none was left: the line has smoothed
+below the bound. The scale is local: while the far bound counted, a loose
+`fmax = 1e300` took `-5` past `fmin = 0`, and while the line's own peak did, a
+real undershoot of a cell beside zeros passed for round-off. None of the schemes
+`keeps_bounds` takes went below 0 from data that was not: in 20000 lines each,
+zeros with a rough block, stepped once at Courant numbers drawn uniformly
+and within ulps of ±1 and through `OnGrid` calls of up to 64 sub-steps, none
+did, so a partner leaves no negative ulp in a line of zeros for the other
+direction to refuse. A line of a type coarser than Float64 is taken only inside
+its bounds, as before: limited `Godunov` left a Float32 line 9 ulps over its
+maximum and a Float16 one 18 within 64 sub-steps, so no count of ulps told
+round-off from data outside, and four took a Float16 line 0.3% below 0. The
+driver's lines are Float64 at least. A line further out is
 a `DomainError`, as it was: `LaxWendroff`'s 10% over a pulse is, and so is NaN.
 `f₀` itself is checked exactly, before the first step: within round-off a
 negative `f₀` would be taken and clamped to 0 unreported. A line inside its
