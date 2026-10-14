@@ -36,7 +36,11 @@ to [`LaxWendroff`](@ref), second order and not monotone; with
 """
 struct PiecewiseLinear <: AbstractReconstruction end
 
-"""Flux limiter. Callable as `limiter(r)` for any `r`, `±Inf` included."""
+"""
+Flux limiter. Callable as `limiter(r)` for any `r`, `±Inf` included:
+[`Godunov`](@ref) passes `r = ±Inf` wherever its ratio of differences exceeds
+`floatmax`, so a limiter of one's own must return a finite value there.
+"""
 abstract type AbstractLimiter end
 
 """No limiting: `r -> 1`."""
@@ -68,17 +72,19 @@ struct Superbee <: AbstractLimiter end
 
 # Evaluated as written, `(r + |r|)/(1 + |r|)` overflowed: `r + |r|` is Inf from
 # floatmax/2 up, and at r = ±Inf the quotient is Inf/Inf or NaN/Inf, NaN.
-# `_ratio` gives such an r where the downwind difference is subnormal beside the
-# upwind one, or in Float16 65504 times smaller, and the step came out Inf or
-# NaN there. So r is held to floatmax/2, where the formula is already exactly 2,
-# and a negative r, for which it is 0, goes to 0 before any arithmetic. Wherever
-# the formula was finite this is it to the bit: `q + q` is the `r + |r|` of a
+# `_ratio` gives such an r wherever |Δ⁻/Δ⁺| exceeds floatmax -- in Float64, say,
+# a subnormal downwind difference beside an upwind one of order one, in Float16
+# one merely 65504 times smaller -- and the step came out Inf or NaN there.
+#
+# So r is held to floatmax/2, where the formula is already exactly 2, and a
+# negative r, for which it is 0, goes to 0 before any arithmetic. Wherever the
+# formula was finite this is it to the bit: `q + q` is the `r + |r|` of a
 # positive r, and a negative one still gives +0. NaN stays NaN. `ifelse` for the
 # reason `_ratio` gives, in schemes/godunov.jl.
 #
 # Clamping r in `_ratio` instead would serve any limiter that can take
 # floatmax/2, but it measured 6% to 19% over the unguarded VanLeer step, and up
-# to 12% on Superbee, which takes ±Inf as it is; this form measured at most 11%
+# to 12% on Superbee, which takes ±Inf as it is; this form measured at most 14%
 # over it. Julia 1.10 and 1.13, Float32 and Float64, best of 60 interleaved runs
 # on a shared host.
 function (::VanLeer)(r::AbstractFloat)
@@ -86,8 +92,14 @@ function (::VanLeer)(r::AbstractFloat)
     q = ifelse(r ≤ 0, zero(r), ifelse(r > h, h, r))
     return (q + q)/(1 + q)
 end
-# A type without `floatmax`, a rational or a dual number, takes the formula.
-(::VanLeer)(r) = (r + abs(r))/(1 + abs(r))
+# A type without `floatmax`, a rational or a dual number, is off the vectorized
+# path and takes the same guards with a branch: r ≤ 0 gives 0, and an infinite
+# 2r the limit 2, with a zero derivative.
+function (::VanLeer)(r)
+    q = ifelse(r ≤ 0, zero(r), r)
+    isinf(q + q) && return oftype(one(q)/one(q), 2)
+    return (q + q)/(1 + q)
+end
 (::Superbee)(r) = max(zero(r), min(2r, one(r)), min(r, oftype(r, 2)))
 
 """Interpolating spline used by [`SemiLagrangian`](@ref)."""

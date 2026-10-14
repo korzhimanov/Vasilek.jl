@@ -465,9 +465,10 @@ end
 
 @testset "Godunov stays finite where the limiter's ratio overflows" begin
     # The limiter's ratio, the upwind difference over the downwind one,
-    # overflows to ±Inf where the downwind difference is subnormal beside the
-    # upwind one -- a Maxwellian tail meeting a sharp edge -- or in Float16
-    # merely 65504 times smaller, which rough lines hit routinely. VanLeer's
+    # overflows to ±Inf wherever it exceeds floatmax: in Float64, say, where a
+    # subnormal downwind difference -- a Maxwellian tail meeting a sharp edge --
+    # sits beside an upwind one of order one, and in Float16 where the downwind
+    # one is merely 65504 times smaller, which rough lines hit routinely. VanLeer's
     # `(r + |r|)/(1 + |r|)` took Inf/Inf or NaN/Inf there, NaN, and overflowed
     # to Inf from r = floatmax/2: each line below came out with NaN or Inf in it,
     # both ways. Superbee is here because it never did, its `min` and `max`
@@ -503,10 +504,13 @@ end
         @test count(r -> isfinite(formula(r)), rs) > 0.9*length(rs)
     end
     @test VanLeer()(BigFloat(Inf)) == 2 && VanLeer()(-BigFloat(Inf)) == 0
-    # and a type without `floatmax` takes the formula, as every type did
+    # and a type without `floatmax` takes the formula, as every type did, with
+    # the same guards: a rational can be infinite, and the formula threw there
     @test VanLeer()(1) === 1.0
     @test VanLeer()(1//2) === 2//3
     @test VanLeer()(-3//1) === 0//1
+    @test VanLeer()(1//0) === 2//1
+    @test VanLeer()(-1//0) === 0//1
 end
 
 @testset "constructors refuse what the schemes cannot use" begin
