@@ -384,7 +384,9 @@ Float32, a plateau with smooth sides over |v| < 2 and an edge down to 0
 stopped with a `DomainError` in 13 of 24 runs of 40 steps, each on a cell
 rounded to −1.0e-45, one subnormal below the defaults' `fmin = 0`. Worked in
 Float64, none of 240 runs over five profiles, with and without `BGK`,
-stopped. The all-Float32 Landau run of
+stopped. A checked call now takes such a subnormal for round-off and clamps it;
+the lines stay in Float64 for their precision, and for the mass, of which a
+clamp cuts an ulp of the line's type where it acts. The all-Float32 Landau run of
 `test_driver.jl` matches the Float64 one to 7.7e-7 of the peak in `f` and
 6.9e-6 in `ε_e` on Julia 1.13, 1.2e-6 and 3.3e-6 on 1.10.
 
@@ -456,29 +458,40 @@ constant reconstruction and the linear `SemiLagrangian` left an ulp at most,
 whatever the count, above the maximum or below 0.
 
 The default takes round-off and no more
-([`_roundoff`](@ref Vasilek.Advection._roundoff)): 2.3e-13 of the scale of the
-line it is handed and of the bound it tests, 1024 ulps of it in Float64, about
-four for each of 256 sub-steps; four ulps of a narrower line's type, where 1024
-of them took a Float16 line 50% over. Over more sub-steps the excess grew more
-slowly, to 197 ulps at 1024, and over 4096 or more none was left: the line has
-smoothed below the bound. Each bound is judged by its own scale; while the far
-one counted, a loose `fmax = 1e300` took `-5` past `fmin = 0`. A line further
-out is a `DomainError`, as it was: `LaxWendroff`'s 10% over a pulse is, and so
-is NaN. `f₀` itself is checked exactly, before the first step: within round-off
-a negative `f₀` would be taken and clamped to 0 unreported. A line inside its
+([`_roundoff`](@ref Vasilek.Advection._roundoff)): 1024 ulps of the line's type,
+2.3e-13 for Float64, about four for each of 256 sub-steps, at the scale of the
+cell past the bound, its two neighbours either side and the bound, the values a
+stencil rounded to get there; four ulps of a type coarser than Float64, where
+1024 of them took a Float16 line 50% over. Over more sub-steps the excess grew
+more slowly, to 197 ulps at 1024, and over 4096 or more none was left: the line
+has smoothed below the bound. The scale is local: while the far bound counted, a
+loose `fmax = 1e300` took `-5` past `fmin = 0`, and while the line's own peak
+did, a real undershoot of a cell beside zeros passed for round-off. None of the
+schemes `keeps_bounds` takes went below 0 at a jump to it. A line further out is
+a `DomainError`, as it was: `LaxWendroff`'s 10% over a pulse is, and so is NaN.
+`f₀` itself is checked exactly, before the first step: within round-off a
+negative `f₀` would be taken and clamped to 0 unreported. A line inside its
 bounds pays nothing more than the comparisons it always made, and one taken is
-cut back into them by the clamp on the way out. With no scheme given `f` stays
-inside them; beside one, the step can end on the given scheme's sweep, and `f`
-is then as it left it, a linear `SemiLagrangian` x sweep of a waterbag with its
-own ions an ulp above. A `PFC` given is a checked one too, and takes its own
-previous sub-step's ulp: one taking a step of exactly two cells stopped on its
-second sub-step. Its own bounds bound the default too: `keeps_bounds` takes them
-rounded outward in the scheme's precision, and a Float32 one at `maximum(f)`
-rounded up let a line out to it, 4e7 Float64 ulps past `maximum(f)` on rows
-dipping 1e-3 below their plateau, which the default refused while it kept
-`maximum(f)`. A Float32 one bounded at 1/√(2π) rounded up, which `keeps_bounds`
-takes in its own precision, stopped all of 40 runs to `t = 20` on the rows that
-differ from each other, below, on the ulps the default refused; none stops now.
+cut back into them by the clamp on the way out. The clamp cuts mass where it
+acts, but acts only while a plateau at the bound meets data just below it: on
+the rows below, over 10000 steps of five runs each with no scheme given and with
+`Superbee` in x, it cut six cells at most, all in the first 12 steps, 3.3e-16
+of `f` in all. The mass moved by 4.3e-15 at most with no scheme given, either
+way, and by 4.5e-15 with `checked = false`: the schemes' own round-off. With no
+scheme given `f` stays inside them;
+beside one, the step can end on the given scheme's sweep, and `f` is then as it
+left it, a linear `SemiLagrangian` x sweep of a waterbag with its own ions an
+ulp above. A `PFC` given is a checked one too, and takes its own previous
+sub-step's ulp: one taking a step of exactly two cells stopped on its second
+sub-step. One whose bounds do not hold `f₀` is refused before the first step,
+where it stopped on the first. Its own bounds bound the default too:
+`keeps_bounds` takes them rounded outward in the scheme's precision, and a
+Float32 one at `maximum(f)` rounded up let a line out to it, 4e7 Float64 ulps
+past `maximum(f)` on rows dipping 1e-3 below their plateau, which the default
+refused while it kept `maximum(f)`. A Float32 one bounded at 1/√(2π) rounded up,
+which `keeps_bounds` takes in its own precision, stopped all of 40 runs to `t =
+20` on the rows that differ from each other, below, on the ulps the default
+refused; none stops now.
 
 For a while the driver clamped the given scheme's lines into the default's
 bounds instead, a wrapper around the scheme with a hook in the Strang sweep: the

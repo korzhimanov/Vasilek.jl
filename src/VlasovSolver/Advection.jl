@@ -583,35 +583,61 @@ beside the driver's default does, and refusing that ulp stopped the run.
 @inline function _check_bounds(src, lo, hi)
     m, M = minimum(src), maximum(src)
     lo ≤ m && M ≤ hi && return nothing
-    lo - m ≤ _roundoff(m, M, lo) || _err_bound_low(lo, m)
-    M - hi ≤ _roundoff(m, M, hi) || _err_bound_high(hi, M)
+    return _check_roundoff(src, lo, hi, m, M)
+end
+
+# A line outside its bounds, cell by cell: each cell past a bound is taken if it
+# lies within `_roundoff` of it, at the scale of the bound, the cell and two
+# cells either side, as far as one step's stencil reads. Rare, and kept out of
+# the inlined check.
+@noinline function _check_roundoff(src, lo, hi, m, M)
+    isnan(m) && _err_bound_low(lo, m)
+    F = float(eltype(src))
+    i₁, n = firstindex(src), length(src)
+    for i in eachindex(src)
+        x = src[i]
+        x < lo || x > hi || continue
+        bound = x < lo ? lo : hi
+        S = promote_type(F, float(typeof(bound)))
+        scale = isfinite(bound) ? abs(S(bound)) : zero(S)
+        for d in -2:2
+            scale = max(scale, abs(S(src[i₁ + mod(i - i₁ + d, n)])))
+        end
+        abs(x - bound) ≤ _roundoff(F, scale) ||
+            (x < lo ? _err_bound_low(lo, m) : _err_bound_high(hi, M))
+    end
     return nothing
 end
 
 """
-    _roundoff(m, M, bound)
+    _roundoff(F, scale)
 
-How far past `bound` a line with extrema `m` and `M` is taken for round-off by a
-checked `PFC` or `PFCNonUniform`: 2.3e-13 of the scale of the values a scheme
-rounded to get there, the largest of `|m|`, `|M|` and `|bound|` -- 1024 ulps of
-it in Float64 -- or 4 ulps of the line's own type where that is coarser, Float32
-or Float16. Each bound is judged by its own scale: a loose `fmax = 1e300` took
-`-5` for round-off past `fmin = 0` while the other bound counted. A Float64 line
-under BigFloat bounds is judged in Float64, and an integer line in Float64.
+How far past a bound a value of a line of type `F` is taken for round-off by a
+checked `PFC` or `PFCNonUniform`, where `scale` is the largest magnitude among
+it, its two neighbours either side and the bound: the values a scheme's stencil
+rounded to get there. 1024 ulps of `F` at that scale, 2.3e-13 of it for
+Float64 and as many ulps of BigFloat; 4 ulps for a type coarser than Float64,
+where 1024 of them took a Float16 line 50% over its bound and a Float32 one
+1e-4 over. Nothing that is not finite is round-off.
+
+The scale is local, the bound being tested and the cell's neighbours, so that
+neither the far bound nor a peak elsewhere on the line widens it: a loose
+`fmax = 1e300` took `-5` for round-off past `fmin = 0` while it counted, and a
+line's own peak would take a real undershoot of a cell beside zeros. The scale
+is taken in a float type both the line and the bound fit, so that a Float32 line
+under `fmax = 1e300` does not overflow it and an integer line is judged in
+Float64.
 
 A step leaves a Float64 line at most an ulp of that scale past them -- `Upwind`,
 the constant `Godunov` and the linear `SemiLagrangian` -- or about an ulp per
 sub-step of `OnGrid`, `Godunov` with a limiter, where a plateau at the bound
 meets values just below it: 111 ulps over 256 sub-steps and 197 over 1024 at
 worst, and none over 4096 or more, where the line has smoothed below the bound.
-Nothing that is not finite is round-off.
+None of these went below 0 at a jump to it.
 """
-function _roundoff(m, M, bound)
-    F = float(typeof(m))
-    S = promote_type(F, float(typeof(bound)))
-    scale = max(abs(S(m)), abs(S(M)), isfinite(bound) ? abs(S(bound)) : zero(S))
-    isfinite(scale) || return zero(S)
-    return max(1024*eps(Float64), 4*eps(F))*scale
+function _roundoff(::Type{F}, scale) where {F}
+    isfinite(scale) || return zero(scale)
+    return (eps(F) ≤ eps(Float64) ? 1024 : 4)*eps(F)*scale
 end
 
 """
@@ -631,8 +657,20 @@ function _hold!(dest, src, lo, hi)
     end
     return dest
 end
-_inward(::Type{S}, lo, hi) where {S<:AbstractFloat} = (S(lo, RoundUp), S(hi, RoundDown))
+
+# The bounds rounded inward into `S`, or an `ArgumentError` where no value of `S`
+# lies between them: `fmin = fmax = 0.1` rounded to a Float32 `l` above `u`, and
+# the clamp put every cell at `u`, below `fmin`. A checked `PFC` and
+# `PFCNonUniform` ask before they write.
+function _inward(::Type{S}, lo, hi) where {S<:AbstractFloat}
+    l, u = S(lo, RoundUp), S(hi, RoundDown)
+    l ≤ u || _err_no_room(S, lo, hi)
+    return l, u
+end
 _inward(::Type{S}, lo, hi) where {S} = (convert(S, lo), convert(S, hi))
+@noinline _err_no_room(S, lo, hi) = throw(ArgumentError(
+    "no $S lies in [fmin, fmax] = [$lo, $hi], and a checked call returns its line inside " *
+    "them: widen the bounds to hold a value of the data's type"))
 
 @noinline _err_bound_low(lo, m) = throw(DomainError(m,
     "fmin = $lo exceeds minimum(src) = $m by more than round-off: the PFC limiter is " *

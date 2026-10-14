@@ -138,16 +138,32 @@ end
         @test 0 ≤ minimum(out) && maximum(out) ≤ M
     end
     # To 1024 ulps of a Float64 line's scale, here 1, and no further, at
-    # either bound.
+    # either bound. The scale is the cell's and its two neighbours' either side,
+    # with the bound: -1e-15 beside zeros is not round-off, beside 0.4 it is,
+    # where the line's own peak counted for every cell.
     p = PFC(fmin = 0.0, fmax = 1.0)
     g = fill(0.5, 8)
+    accepts(q, line) = try advect!(similar(line), line, q, 0.3); true catch e; e isa DomainError || rethrow(); false end
     for (k, ok) in ((1024, true), (1025, false))
         g[3] = 1 + k*eps(); g[6] = 0.5
-        @test (try advect!(similar(g), g, p, 0.3); true catch e; e isa DomainError || rethrow(); false end) == ok
-        g[3] = 1.0; g[6] = -k*eps()
-        @test (try advect!(similar(g), g, p, 0.3); true catch e; e isa DomainError || rethrow(); false end) == ok
+        @test accepts(p, g) == ok
+        g[3] = 0.5; g[5] = 1.0; g[6] = -k*eps()
+        @test accepts(p, g) == ok
+        g[5] = 0.5
     end
-    g[3] = 0.5
+    @test !accepts(p, [0.4, 0.4, 0, 0, 0, -1e-15, 0, 0])
+    @test accepts(p, [0.4, 0.4, 0, 0, 0.4, -1e-15, 0, 0])
+    # Two cells either side, as far as one step's stencil reads: -2e-7 two cells
+    # from 1e6 is 900 of its ulps and taken, and three cells from it is not.
+    p∞ = PFC(fmin = 0.0, fmax = Inf)
+    @test accepts(p∞, [1e6, 1e-10, -2e-7, 1e-10, 0, 0, 0, 0])
+    @test !accepts(p∞, [1e6, 1e-10, 1e-10, -2e-7, 1e-10, 0, 0, 0])
+    # In ulps of the line's type: 1024 of BigFloat for a BigFloat line, where
+    # 2.3e-13 of the scale took -1e-13 for round-off.
+    pb = PFC(fmin = big(0.0), fmax = big(1.0))
+    @test !accepts(pb, big.([0.5, -1e-13, 0.5, 1.0]))
+    @test accepts(pb, [0.5, -eps(big(1.0)), 0.5, 1.0])
+    g[6] = 0.5
     # LaxWendroff took a pulse 10% past [0, 1], and NaN is never round-off.
     pulse = [16 < i ≤ 40 ? 1.0 : 0.0 for i in 1:64]
     @test_throws DomainError advect!(similar(pulse), advect!(similar(pulse), pulse, LaxWendroff(), 0.3), p, 0.3)
@@ -173,6 +189,15 @@ end
     s32 = Float32[0.1, 0.1, 0.1, 0.05, 0, 0]
     @test advect!(similar(s32), s32, PFC(fmin = 0.0, fmax = 0.1), 0.0) ==
           [fill(prevfloat(0.1f0), 3); s32[4:6]]
+    # Where no value of the line's type lies inside the bounds, there is no
+    # line to return: no Float32 lies in [0.1, 0.1], and the clamp put every
+    # cell at 0.1 rounded down, below fmin. Refused before `dest` is written.
+    d32 = fill(7f0, 6)
+    @test_throws ArgumentError advect!(d32, fill(0.1f0, 6), PFC(fmin = 0.1, fmax = 0.1), 0.3)
+    pn = PFCNonUniform(fill(0.1, 6); fmin = 0.1, fmax = 0.1)
+    @test_throws ArgumentError advect!(d32, fill(0.1f0, 6), pn, 0.03, workspace(pn, 6, Float32))
+    @test all(==(7f0), d32)
+    @test advect!(zeros(6), fill(0.1, 6), PFC(fmin = 0.1, fmax = 0.1), 0.3) == fill(0.1, 6)
     # In the line's type: a Float64 line an ulp over BigFloat bounds is
     # round-off, which 1024 ulps of BigFloat were not.
     pb = PFCNonUniform(big.(fill(0.5, 16)); fmin = 0, fmax = big(M))

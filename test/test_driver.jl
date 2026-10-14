@@ -608,6 +608,14 @@ end
     r = vlasov_poisson(x, v, rough, collect(0.0:0.25:5.0); nᵢ, invariants = true)
     @test maximum(r.fmax) ≤ M && minimum(r.fmin) ≥ 0
     @test maximum(abs, r.mass .- r.mass[1])/r.mass[1] < 1e-13
+    # The clamp cuts mass where it acts, at the top on such rows, and only while
+    # the plateau at the bound is rough: over 10000 steps of five such runs,
+    # with no scheme given or Superbee in x, it cut six cells at most, all in
+    # the first 12 steps, and the mass moved by 5.3e-15 at most, either way, as
+    # it did with checked = false: the schemes' own round-off.
+    r = vlasov_poisson(x, v, rough, collect(0.0:0.25:500.0); nᵢ, invariants = true,
+                       scheme_x = Godunov(PiecewiseLinear(), Superbee()))
+    @test maximum(abs, r.mass .- r.mass[1])/r.mass[1] < 1e-14
     # And beside a given scheme. A Float32 PFC bounded a rounding above
     # maximum(f), which keeps_bounds takes in its own type, stopped all 40 such
     # runs to t = 20 on the ulps the default refused; it ends each step, and
@@ -690,9 +698,15 @@ end
     @test prob.ov.scheme.fmax == Float32(M, RoundUp) && prob.ov.scheme.fmin == 0
     dips = [abs(u) ≤ 2 ? M*(1 - 1e-3*(1 + sin(7.3y + 3.1u))/2*isodd(round(Int, 5u))) : 0.0
             for u in v, y in x]
-    r = vlasov_poisson(x, v, dips, collect(0.0:0.25:5.0); scheme_x = pfc32,
-                       nᵢ = vec(sum(dips .* Δv, dims = 1)), invariants = true)
-    @test maximum(r.fmax) ≤ Float32(M, RoundUp) && minimum(r.fmin) ≥ 0
+    for given in (pfc32, f -> OnGrid(pfc32(f), Δx))    # and through an OnGrid
+        r = vlasov_poisson(x, v, dips, collect(0.0:0.25:5.0); scheme_x = given,
+                           nᵢ = vec(sum(dips .* Δv, dims = 1)), invariants = true)
+        @test maximum(r.fmax) ≤ Float32(M, RoundUp) && minimum(r.fmin) ≥ 0
+    end
+    # A given PFC that does not hold f₀ stopped the run on its first sweep, and
+    # is refused before it.
+    @test_throws ArgumentError setup(x, v, waterbag, t; nᵢ,
+                                     scheme_x = f -> PFC(fmin = 0.0, fmax = maximum(f)/2))
     # A negative f is refused before the first step, with a scheme given or
     # none, to the bit: the default takes round-off past its bounds from a step,
     # and took -1e-14 in f₀ for it. A scheme that need not keep the bounds is

@@ -66,13 +66,16 @@ checked once, at construction, and `PFCNonUniform` never did: data outside its
 bounds gave a wrong answer with no error, and now stops at the first call.
 
 A checked call is not only a check. It takes data past a bound by round-off
-(`_roundoff`: 2.3e-13 of the data's scale for Float64, four ulps of a narrower
-type) and clamps what it returns into `[fmin, fmax]`. The clamp acts only where
-rounding left a cell outside the bounds, at the ulp level, or where the data it
-took were outside by round-off, even at `c = 0`, and moves the mass by the ulp
-it cuts, so `checked = true` and `checked = false` can differ in the last bits
-of such a cell. `checked = false` removes the check and the clamp, at
-compile time, and conserves mass to the bit.
+(`_roundoff`: 1024 ulps of the data's type, four of a type coarser than
+Float64, at the scale of the cell past the bound and its neighbours) and clamps
+what it returns into `[fmin, fmax]`. The clamp acts only where rounding left a
+cell outside the bounds, at the ulp level, or where the data it took were
+outside by round-off, even at `c = 0`, and moves the mass by the ulp it cuts, so
+`checked = true` and `checked = false` can differ in the last bits of such a
+cell. Over 10000 driver steps from a plateau at the bound meeting rough data,
+the clamp acted on six cells at most, all in the first 12 steps, and the mass
+moved no more than with `checked = false`, whose steps move it by round-off
+too. `checked = false` removes the check and the clamp, at compile time.
 
 ## Workspaces
 

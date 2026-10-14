@@ -33,8 +33,9 @@ function advect!(dest, src, p::PFCNonUniform{T,Checked}, α,
     if Checked
         # PFC's minimum/maximum pass, about 5% of this step at N = 10000 on
         # Julia 1.13 and 10% on 1.10. Compiled away when checked = false, as
-        # the clamp below is.
+        # the clamp below is, whose bounds are asked for here.
         _check_bounds(src, lo, hi)
+        _inward(eltype(dest), lo, hi)
     end
     n = length(Δx)
     acc = ws.accumulator

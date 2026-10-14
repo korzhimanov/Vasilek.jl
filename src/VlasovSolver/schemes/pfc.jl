@@ -40,8 +40,10 @@ function advect!(dest, src, p::PFC{T,Checked}, c, ws) where {T,Checked}
     if Checked
         # A minimum/maximum pass per call, about 7% of the step at N = 10000 on
         # Julia 1.13 and 17% on 1.10. Compiled away entirely when the scheme is
-        # built with checked = false, as the clamp, `_hold!`, is.
+        # built with checked = false, as the clamp, `_hold!`, is, whose bounds
+        # in `dest`'s type are asked for before `dest` is written.
         _check_bounds(src, lo, hi)
+        _inward(eltype(dest), lo, hi)
     end
 
     # Each cell takes the difference of the fluxes through its two faces,
