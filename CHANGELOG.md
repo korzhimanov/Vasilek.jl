@@ -218,6 +218,9 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Changed
 
+- **Round-off no longer stops a run at a checked `PFC`'s bounds**: it takes a line
+  within round-off of them and returns one clamped inside, and `Godunov` keeps a
+  constant line (golden ≤ 4 ulps). `docs/src/driver-notes.md`, migration guide.
 - **The normalization notes link three measurements to the verification page**,
   and the README links the built notes; the harness's `em_omega` and `wakefield`
   docstrings keep the carrier's 4.5% apart from the pulse's 5.2% and 6.6%.
@@ -344,15 +347,6 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Fixed
 
-- **A scheme given for one direction no longer stops the run in the other's
-  default**: `Godunov` takes `f + (Φin − Φout)`, and the default takes the
-  round-off a given scheme leaves past its bounds. `docs/src/driver-notes.md`.
-- **`Godunov` keeps a constant line to the bit**, the constant reconstruction as
-  `Upwind` to the bit; its four golden lines move by up to 4 ulps (7.0e-16
-  relative), the other six not at all. `test/test_contracts.jl`.
-- **A checked `PFC` or `PFCNonUniform` takes a line within round-off of its
-  bounds and returns one inside them**, clamped: an ulp that rounding took past
-  them no longer stops a run. `test/test_contracts.jl`.
 - **`vlasov_poisson` runs in the data's type, `T = float(eltype(f₀))`**: field,
   density, histories and `E_modes` follow it, and the lines are worked in
   Float64. `test/test_driver.jl`.

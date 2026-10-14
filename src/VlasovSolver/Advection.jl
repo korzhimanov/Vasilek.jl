@@ -581,31 +581,36 @@ beside the driver's default does, and refusing that ulp stopped the run.
 @inline function _check_bounds(src, lo, hi)
     m, M = minimum(src), maximum(src)
     lo ≤ m && M ≤ hi && return nothing
-    t = _roundoff(m, M, lo, hi)
-    lo - m ≤ t || _err_bound_low(lo, m)
-    M - hi ≤ t || _err_bound_high(hi, M)
+    lo - m ≤ _roundoff(m, M, lo) || _err_bound_low(lo, m)
+    M - hi ≤ _roundoff(m, M, hi) || _err_bound_high(hi, M)
     return nothing
 end
 
 """
-    _roundoff(m, M, lo, hi)
+    _roundoff(m, M, bound)
 
-How far past its bounds `[lo, hi]` a line with extrema `m` and `M` is taken for
-round-off by a checked `PFC` or `PFCNonUniform`: 1024 ulps of the largest of
-`|m|`, `|M|` and the finite bounds, the scale of the values a scheme rounded to
-get there, in the line's own type, which is where it rounded: a Float64 line
-under BigFloat bounds is an ulp of Float64 out, not of BigFloat. A step leaves a
-line at most an ulp of that past them -- `Upwind`, the constant `Godunov` and
-the linear `SemiLagrangian` -- or an ulp per sub-step of `OnGrid`, `Godunov` with
-a limiter: 111 ulps over 256 sub-steps at worst, where a plateau at the bound
-meets values just below it. NaN is never round-off, and data of a type without
-an `eps` has none.
+How far past `bound` a line with extrema `m` and `M` is taken for round-off by a
+checked `PFC` or `PFCNonUniform`: 2.3e-13 of the scale of the values a scheme
+rounded to get there, the largest of `|m|`, `|M|` and `|bound|` -- 1024 ulps of
+it in Float64 -- or 4 ulps of the line's own type where that is coarser, Float32
+or Float16. Each bound is judged by its own scale: a loose `fmax = 1e300` took
+`-5` for round-off past `fmin = 0` while the other bound counted. A Float64 line
+under BigFloat bounds is judged in Float64, and an integer line in Float64.
+
+A step leaves a Float64 line at most an ulp of that scale past them -- `Upwind`,
+the constant `Godunov` and the linear `SemiLagrangian` -- or about an ulp per
+sub-step of `OnGrid`, `Godunov` with a limiter, where a plateau at the bound
+meets values just below it: 111 ulps over 256 sub-steps and 197 over 1024 at
+worst, and none over 4096 or more, where the line has smoothed below the bound.
+Nothing that is not finite is round-off.
 """
-function _roundoff(m, M, lo, hi)
-    scale = max(abs(m), abs(M), _finite(m, lo), _finite(m, hi))
-    return scale isa AbstractFloat ? 1024*eps(scale) : zero(scale)
+function _roundoff(m, M, bound)
+    F = float(typeof(m))
+    S = promote_type(F, float(typeof(bound)))
+    scale = max(abs(S(m)), abs(S(M)), isfinite(bound) ? abs(S(bound)) : zero(S))
+    isfinite(scale) || return zero(S)
+    return max(1024*eps(Float64), 4*eps(F))*scale
 end
-_finite(m, x) = isfinite(x) ? convert(typeof(m), abs(x)) : zero(m)
 
 """
     _hold!(dest, src, lo, hi)

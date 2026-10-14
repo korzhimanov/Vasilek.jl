@@ -120,8 +120,8 @@ end
 # A checked PFC refused a line an ulp past its bounds, which another scheme's
 # step leaves where it meets one at the line's extremum: beside the driver's
 # default, `Godunov` with a limiter and the linear `SemiLagrangian`, and a PFC's
-# own previous sub-step. It takes round-off, 1024 ulps of the line's scale in
-# the line's type, and refuses anything further out.
+# own previous sub-step. It takes round-off, `_roundoff` past each bound, and
+# refuses anything further out.
 @testset "a checked PFC takes a line within round-off of its bounds" begin
     # Godunov with Superbee over 42 sub-steps of a cell took a plateau at M,
     # meeting values just below it, 42 ulps above M, an ulp a sub-step.
@@ -137,20 +137,36 @@ end
         out = advect!(similar(above), above, p, p isa PFC ? 0.3 : 0.15, workspace(p, 16))
         @test 0 ≤ minimum(out) && maximum(out) ≤ M
     end
-    # To 1024 ulps of the scale and no further, at either bound.
+    # To 1024 ulps of a Float64 line's scale, here 1, and no further, at
+    # either bound.
     p = PFC(fmin = 0.0, fmax = 1.0)
     g = fill(0.5, 8)
     for (k, ok) in ((1024, true), (1025, false))
         g[3] = 1 + k*eps(); g[6] = 0.5
         @test (try advect!(similar(g), g, p, 0.3); true catch e; e isa DomainError || rethrow(); false end) == ok
-        g[3] = 0.5; g[6] = -k*eps()
+        g[3] = 1.0; g[6] = -k*eps()
         @test (try advect!(similar(g), g, p, 0.3); true catch e; e isa DomainError || rethrow(); false end) == ok
     end
+    g[3] = 0.5
     # LaxWendroff took a pulse 10% past [0, 1], and NaN is never round-off.
     pulse = [16 < i ≤ 40 ? 1.0 : 0.0 for i in 1:64]
     @test_throws DomainError advect!(similar(pulse), advect!(similar(pulse), pulse, LaxWendroff(), 0.3), p, 0.3)
     g[3] = NaN
     @test_throws DomainError advect!(similar(g), g, p, 0.3)
+    # Each bound by its own scale: a loose fmax = 1e300 took -5 past fmin = 0
+    # for round-off while the far bound counted, and a Float32 line under it
+    # overflowed the scale to Inf and refused an ulp.
+    q = PFC(fmin = 0.0, fmax = 1e300)
+    @test_throws DomainError advect!(zeros(4), [1.0, 0.5, 0.2, -5.0], q, 0.3)
+    @test advect!(zeros(Float32, 4), Float32[0, 1, 0.5, -1f-10], q, 0.3) isa Vector{Float32}
+    # Four ulps of a narrower line's type, where 1024 of them took a Float16
+    # line 50% over its bound and a Float32 one 1e-4 over; an integer line is
+    # judged in Float64, where its bound threw an InexactError.
+    @test advect!(zeros(Float32, 4), Float32[0.5, nextfloat(1f0, 4), 0.2, 0.1], p, 0.3) isa Vector{Float32}
+    @test_throws DomainError advect!(zeros(Float32, 4), Float32[0.5, 1.0001, 0.2, 0.1], p, 0.3)
+    @test_throws DomainError advect!(zeros(Float16, 4), Float16[0.5, 1.5, 0.2, 0.1], p, 0.3)
+    @test_throws DomainError advect!(zeros(4), [0, 1, 0, 0], PFC(fmin = 0.0, fmax = 0.5), 0.3)
+    @test_throws DomainError advect!(zeros(4), [0.0, Inf, 0.0, 0.0], p, 0.3)
     # In the line's type: a Float64 line an ulp over BigFloat bounds is
     # round-off, which 1024 ulps of BigFloat were not.
     pb = PFCNonUniform(big.(fill(0.5, 16)); fmin = 0, fmax = big(M))

@@ -681,13 +681,18 @@ end
     r = vlasov_poisson(x, big.(v), waterbag, t; scheme_x = SemiLagrangian(LinearSpline()), nᵢ,
                        invariants = true)
     @test maximum(r.fmax) ≤ nextfloat(M)
-    # A negative f is refused by the default on its first step, with a scheme
-    # given or none, and a scheme that need not keep the bounds is refused as
-    # such before it. A function of f has to return a scheme: one returning
-    # nothing fell back to the default for a while.
+    # A negative f is refused before the first step, with a scheme given or
+    # none, to the bit: the default takes round-off past its bounds from a step,
+    # and took -1e-14 in f₀ for it. A scheme that need not keep the bounds is
+    # refused as such before that. A function of f has to return a scheme: one
+    # returning nothing fell back to the default for a while.
+    for δ in (1e-6, 1e-14)
+        negative = copy(waterbag); negative[3, :] .= -δ
+        @test_throws DomainError setup(x, v, negative, t; scheme_x = Upwind(), nᵢ)
+        @test_throws DomainError setup(x, v, negative, t; nᵢ)
+        @test_throws DomainError setup(x, v, negative, t; nᵢ, collisions = BGK(1.0))
+    end
     negative = copy(waterbag); negative[3, :] .= -1e-6
-    @test_throws DomainError vlasov_poisson(x, v, negative, t; scheme_x = Upwind(), nᵢ)
-    @test_throws DomainError vlasov_poisson(x, v, negative, t; nᵢ)
     @test_throws ArgumentError setup(x, v, negative, t; scheme_x = LaxWendroff(), nᵢ)
     @test_throws ArgumentError setup(x, v, waterbag, t; scheme_x = f -> nothing)
     # The schemes are on their grids, taking a displacement; a bare one, which

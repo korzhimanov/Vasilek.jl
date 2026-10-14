@@ -453,11 +453,17 @@ and 256 sub-steps and with `Superbee` 2, 4, 7, 13, 35 and 111. `Upwind`, the
 constant reconstruction and the linear `SemiLagrangian` left an ulp at most,
 whatever the count, above the maximum or below 0.
 
-The default takes round-off and no more: 1024 ulps of the scale of the line it
-is handed and of its own bounds, in the line's type
-([`_roundoff`](@ref Vasilek.Advection._roundoff)), four ulps for each of 256
-sub-steps, four times the most measured. A line further out is a `DomainError`,
-as it was: `LaxWendroff`'s 10% over a pulse is, and so is NaN. A line inside its
+The default takes round-off and no more
+([`_roundoff`](@ref Vasilek.Advection._roundoff)): 2.3e-13 of the scale of the
+line it is handed and of the bound it tests, 1024 ulps of it in Float64, about
+four for each of 256 sub-steps; four ulps of a narrower line's type, where 1024
+of them took a Float16 line 50% over. Over more sub-steps the excess grew more
+slowly, to 197 ulps at 1024, and over 4096 or more none was left: the line has
+smoothed below the bound. Each bound is judged by its own scale; while the far
+one counted, a loose `fmax = 1e300` took `-5` past `fmin = 0`. A line further
+out is a `DomainError`, as it was: `LaxWendroff`'s 10% over a pulse is, and so
+is NaN. `f₀` itself is checked exactly, before the first step: within round-off
+a negative `f₀` would be taken and clamped to 0 unreported. A line inside its
 bounds pays nothing more than the comparisons it always made, and one taken is
 cut back into them by the clamp on the way out. With no scheme given `f` stays
 inside them; beside one, the step can end on the given scheme's sweep, and `f`

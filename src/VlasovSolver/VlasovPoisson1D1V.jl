@@ -116,6 +116,10 @@ function keeps_bounds(s::Union{PFC, PFCNonUniform}, lo, hi)
     return T(lo, RoundDown) ≤ s.fmin && s.fmax ≤ T(hi, RoundUp)
 end
 
+@noinline _err_negative(m) = throw(DomainError(m,
+    "f has a value below 0, the lower bound of the PFCNonUniform a direction left to its " *
+    "default gets. Pass both schemes for data that is not a distribution"))
+
 # A scheme given as a function of `f` is built here, and has to be a scheme.
 function _given(s, f, name)
     s === nothing && return nothing
@@ -202,7 +206,8 @@ A scheme given for only one of `scheme_x`, `scheme_v` has to keep `f` inside the
 default's bounds, `[0, maximum(f)]` (`[0, Inf)` with `collisions`), to
 round-off, as [`keeps_bounds`](@ref) decides, or the call throws an
 `ArgumentError` before the first step. The default takes the round-off it leaves
-past them and returns its lines inside. Pass both schemes, or a `PFCNonUniform`
+past them and returns its lines inside; `f₀` has to lie inside them exactly, and
+a negative one is a `DomainError` before the first step. Pass both schemes, or a `PFCNonUniform`
 with bounds both sweeps keep (`fmin = -Inf, fmax = Inf` for none), for the other
 direction. With `collisions` the defaults have no upper bound, since a collision
 step can raise a line's peak above `maximum(f)`.
@@ -411,6 +416,13 @@ function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants
     if (gx === nothing) != (gv === nothing)    # a given scheme beside a default
         gx === nothing ? refuse_unbounded(gv, :scheme_v, :scheme_x, bound) :
                          refuse_unbounded(gx, :scheme_x, :scheme_v, bound)
+    end
+    # A default takes round-off past its bounds from a step, and would take a
+    # negative `f₀` within it for round-off too, clamped to 0 unreported: `f₀`
+    # is checked exactly here, as the default's first call checked it.
+    if gx === nothing || gv === nothing
+        m = minimum(f)
+        m < 0 && _err_negative(m)
     end
 
     # Each scheme on its grid, taking a displacement and splitting a step wider

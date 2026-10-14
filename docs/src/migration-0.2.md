@@ -64,7 +64,14 @@ traversal falls from 7.03e-3 to 8.55e-5 on a sine, and rises from 8.45e-3 to
 `[fmin, fmax]`, and throw a `DomainError` when they do not. In 0.1 `PFC`
 checked once, at construction, and `PFCNonUniform` never did: data outside its
 bounds gave a wrong answer with no error, and now stops at the first call.
-`checked = false` removes the check, at compile time.
+
+A checked call is not only a check. It takes data past a bound by round-off
+(`_roundoff`: 2.3e-13 of the data's scale for Float64, four ulps of a narrower
+type) and clamps what it returns into `[fmin, fmax]`. The clamp acts only where
+rounding left a cell outside the bounds, at the ulp level, and moves the mass by
+the ulp it cuts, so `checked = true` and `checked = false` can differ in the
+last bits of such a cell. `checked = false` removes the check and the clamp, at
+compile time, and conserves mass to the bit.
 
 ## Workspaces
 
