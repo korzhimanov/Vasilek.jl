@@ -16,6 +16,10 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Breaking
 
+- **Round-off no longer stops a run at a checked `PFC`'s bounds**: it takes a line
+  within round-off of them and returns one clamped inside, so `checked` changes
+  the last bits, and `Godunov` keeps a constant line (golden ≤ 4 ulps).
+  `docs/src/driver-notes.md`, migration guide's "PFC".
 - **`Landau1P(A)` defaults to `Tₜ = 1`, where it was 1e-3, and `Tₜ` is the
   bath's temperature**, no longer a factor on the rate; one below `Δv²` is
   refused. See the migration guide's "Collisions".
@@ -494,9 +498,3 @@ guide `docs/src/migration-0.2.md`, or a test.
   (Changed).
 - `test_fdtd_1d_current` had its assertion commented out; it is restored and
   passes.
-
-### Known issues
-
-- Rounding inside the flux can still leave `PFCNonUniform` an ulp above `fmax`
-  where a plateau at the bound meets rough data, in 199 of 3600 twenty-step
-  runs. `test/VlasovSolver/test_nonuniform_advection.jl`.

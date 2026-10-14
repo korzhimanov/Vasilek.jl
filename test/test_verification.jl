@@ -530,14 +530,16 @@ end
                 @test off_separatrix(cold) ≤ 1
 
                 # And the old bound, handed in. `PFCNonUniform` checks its data
-                # now and refuses the run on the first x-line that crosses 1;
-                # built with `checked = false` it runs as it used to, to the same
-                # 43.6%. Both halves are asserted, so that neither the check nor
-                # the damage it stands between can go away unnoticed.
+                # now, and `vlasov_poisson` refuses a checked one whose bounds
+                # do not hold f₀ before the first step, where it stopped on the
+                # first x-line that crossed 1; built with `checked = false` it
+                # runs as it used to, to the same 43.6%. Both halves are
+                # asserted, so that neither the check nor the damage it stands
+                # between can go away unnoticed.
                 old(checked) = (scheme_x = PFCNonUniform(cell_widths(cold.x); fmin = 0.0, fmax = 1.0, checked),
                                 scheme_v = PFCNonUniform(cell_widths(cold.v); fmin = 0.0, fmax = 1.0, checked))
-                @test_throws DomainError vlasov_poisson(cold.x, cold.v, cold.f₀, [0.0, 0.05];
-                                                           cold.nᵢ, old(true)...)
+                @test_throws ArgumentError vlasov_poisson(cold.x, cold.v, cold.f₀, [0.0, 0.05];
+                                                             cold.nᵢ, old(true)...)
                 wrecked = vlasov_poisson(cold.x, cold.v, cold.f₀, collect(0:0.05:50.0);
                                          cold.nᵢ, old(false)...)
                 @test drift((; wrecked.f, cold.f₀)) > 0.3

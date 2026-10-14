@@ -134,8 +134,11 @@ which is Sweby's flux-limited Lax–Wendroff [Sweby, SIAM J. Numer. Anal. 21 (5)
 995 (1984)]. `φ = 1` gives [`LaxWendroff`](@ref) and `φ = 0` gives
 [`Upwind`](@ref). [`VanLeer`](@ref) and [`Superbee`](@ref) keep `φ(r) ≤ 2` and
 `φ(r)/r ≤ 2`, which makes the scheme total-variation diminishing for every
-`|c| ≤ 1`. At `|c| = 1` the correction vanishes and the step is an exact
-one-cell shift.
+`|c| ≤ 1`. At `|c| = 1` the correction vanishes and the step is a one-cell
+shift to within an ulp; see [`_validate_courant`](@ref).
+
+A cell takes the difference of the fluxes through its two faces,
+`f + (Φin − Φout)`, so a constant line stays constant to the bit.
 
 The `(1 − c)` factor is what makes the scheme second order; 0.1's
 `:Riemann_linear` lacked it and was first order, and TVD only to `|c| ≤ 1/2`.
@@ -181,10 +184,22 @@ theorem `f` stays within the extrema of the *initial* condition, so pass the
 global initial bounds; they cannot be derived per line inside a sweep. There is
 deliberately no default.
 
-With `checked = true` every call verifies `fmin ≤ minimum(src)` and
-`maximum(src) ≤ fmax` and throws a `DomainError` otherwise, at the cost of one
-`minimum`/`maximum` pass. `checked` is a type parameter, so `checked = false`
-compiles the check away for runs whose bounds are known good.
+With `checked = true` every call verifies that `src` lies inside
+`[fmin, fmax]` to round-off and throws a `DomainError` otherwise, and clamps
+what it returns into `[fmin, fmax]`, at the cost of one `minimum`/`maximum`
+pass and a clamp. The limiter keeps the data inside in exact arithmetic, and
+rounding took a cell an ulp out -- at `|c| = 1`, a one-cell shift only to within
+an ulp (see [`_validate_courant`](@ref)), a few ulps short of it, and where a
+plateau at a bound met rough data -- which the next checked call refused: under
+`fmax = 0.987`, `c = 1` took `[0.195, 0.694, 0.566, 0.987]` to a first cell of
+`0.9870000000000001`. The clamp cuts that ulp, and the mass with it; a line
+inside is returned as the arithmetic gives it, to the bit. Another scheme's
+step leaves such ulps too, and the check takes them: round-off is
+[`_roundoff`](@ref) past a bound, and the check is [`_check_bounds`](@ref).
+What it takes comes back clamped too, even at `c = 0`, so that round-off
+another scheme leaves does not build up through it from call to call.
+`checked` is a type parameter, so `checked = false` compiles both away for runs
+whose bounds are known good.
 """
 struct PFC{T<:AbstractFloat, Checked} <: AbstractAdvection1D
     fmin::T
@@ -214,13 +229,19 @@ cell widths. Needs a [`workspace`](@ref).
 
 The limiter coefficient is computed per cell triple, so a refined region does
 not tighten the limiter elsewhere. `fmin`, `fmax` and `checked` are
-[`PFC`](@ref)'s, with the same check.
+[`PFC`](@ref)'s, with the same check and the same clamp.
 
 `advect!` takes a displacement `α = vΔt` here, not a Courant number, since a
 non-uniform grid has none, and it is bounded by the *narrowest* cell:
 `|α| ≤ minimum(Δx)`. Every cell gives up its outgoing flux alone, so a wider
 step is wrong in the narrowest cell however wide its neighbours are.
 [`OnGrid`](@ref) splits a longer step into sub-steps.
+
+At `|α| = minimum(Δx)` the narrowest cells take a step of exactly one cell,
+which rounding took out of the bounds as it did `PFC`'s: with `fmin = 0` and
+data that touches it, `α = 0.1` over `fill(0.1, 6)` took
+`[0, 0.01268125, 0.01268125, 0, 0, 0.01268125]` to `-1.7e-18` in its second
+cell. A checked one clamps it to 0.
 """
 struct PFCNonUniform{T<:AbstractFloat, Checked} <: AbstractAdvection1D
     Δx::Vector{T}
@@ -271,7 +292,7 @@ Base.@constprop :aggressive function PFCNonUniform(Δx_::AbstractVector{T}; fmin
     # Outward, so that a narrower `T` keeps the data the bounds admit: a Float32
     # grid's `fmax = maximum(f)` of Float64 data rounded below it as often as not,
     # and the first checked step refused the data's own peak.
-    return PFCNonUniform{T, checked}(Δx, ξ, minimum(Δx), T(fmn, RoundDown), T(fmx, RoundUp))
+    return PFCNonUniform{T, checked}(Δx, ξ, minimum(Δx), _outward(T, fmn, fmx)...)
 end
 
 function _check_widths(Δx)
@@ -548,23 +569,127 @@ _shares(a, dest, src) = Base.mightalias(a, dest) || Base.mightalias(a, src)
 
 The check `PFC` and `PFCNonUniform` run on every call when built with
 `checked = true`: that `src` lies inside the `[fmin, fmax]` their limiters are
-built on, or a `DomainError`. Both call this one function, so they refuse the
-same data with the same message. Inlined, so each scheme's `if Checked` removes
-it whole. An exception rather than `@assert`, which is a debugging aid that may
-be compiled out, and this is part of the schemes' contract.
+built on to round-off, or a `DomainError`. Both call this one function, so they
+refuse the same data with the same message. Inlined, so each scheme's
+`if Checked` removes it whole. An exception rather than `@assert`, which is a
+debugging aid that may be compiled out, and this is part of the schemes'
+contract. What a checked call returns it clamps into the bounds, `_hold!`.
+
+Round-off is [`_roundoff`](@ref) past a bound, and only a line outside the
+bounds pays for it: one inside is the two comparisons it always was. Another
+scheme's step rounds a line past a bound at its own extremum, as one taken
+beside the driver's default does, and refusing that ulp stopped the run.
 """
 @inline function _check_bounds(src, lo, hi)
-    m = minimum(src)
-    lo ≤ m || _err_bound_low(lo, m)
-    M = maximum(src)
-    M ≤ hi || _err_bound_high(hi, M)
+    m, M = minimum(src), maximum(src)
+    lo ≤ m && M ≤ hi && return nothing
+    return _check_roundoff(src, lo, hi, m, M)
+end
+
+# A line outside its bounds, cell by cell: each cell past a bound is taken if it
+# lies within `_roundoff` of it, at the scale of the bound, the cell and two
+# cells either side, as far as one step's stencil reads. Rare, and kept out of
+# the inlined check. The refusal names the cell that failed: the line's
+# extremum can be one the check took, beside a larger neighbour.
+@noinline function _check_roundoff(src, lo, hi, m, M)
+    isnan(m) && _err_nan(findfirst(isnan, src))
+    F = float(eltype(src))
+    i₁, n = firstindex(src), length(src)
+    for i in eachindex(src)
+        x = src[i]
+        x < lo || x > hi || continue
+        bound = x < lo ? lo : hi
+        S = promote_type(F, float(typeof(bound)))
+        scale = isfinite(bound) ? abs(S(bound)) : zero(S)
+        for d in -2:2    # an infinite neighbour, under fmax = Inf, is no scale
+            y = abs(S(src[i₁ + mod(i - i₁ + d, n)]))
+            isfinite(y) && (scale = max(scale, y))
+        end
+        abs(x - bound) ≤ _roundoff(F, scale) ||
+            (x < lo ? _err_bound_low(lo, x, i) : _err_bound_high(hi, x, i))
+    end
     return nothing
 end
 
-@noinline _err_bound_low(lo, m) = throw(DomainError(m,
-    "fmin = $lo exceeds minimum(src) = $m: the PFC limiter is built on [fmin, fmax]"))
-@noinline _err_bound_high(hi, M) = throw(DomainError(M,
-    "fmax = $hi is below maximum(src) = $M: the PFC limiter is built on [fmin, fmax]"))
+"""
+    _roundoff(F, scale)
+
+How far past a bound a value of a line of type `F` is taken for round-off by a
+checked `PFC` or `PFCNonUniform`, where `scale` is the largest magnitude among
+it, its two neighbours either side and the bound: the values a scheme's stencil
+rounded to get there. 1024 ulps of `F` at that scale, 2.3e-13 of it for
+Float64 and as many ulps of BigFloat. Nothing that is not finite is round-off.
+
+A line of a type coarser than Float64 is taken only inside its bounds, as
+before: no count of its ulps told round-off from data outside them. `Godunov`
+with a limiter left a Float32 line 9 ulps over its maximum and a Float16 one
+18 within 64 `OnGrid` sub-steps, and 4 ulps took a Float16 line 0.3% below 0.
+The driver works its lines in Float64 at least, and never hands one over.
+
+The scale is local, the bound being tested and the cell's neighbours, so that
+neither the far bound nor a peak elsewhere on the line widens it: a loose
+`fmax = 1e300` took `-5` for round-off past `fmin = 0` while it counted, and a
+line's own peak would take a real undershoot of a cell beside zeros. The scale
+is taken in a float type both the line and the bound fit, so that a Float32 line
+under `fmax = 1e300` does not overflow it and an integer line is judged in
+Float64.
+
+A step leaves a Float64 line at most an ulp of that scale past them -- `Upwind`,
+the constant `Godunov` and the linear `SemiLagrangian` -- or about an ulp per
+sub-step of `OnGrid`, `Godunov` with a limiter, where a plateau at the bound
+meets values just below it: 111 ulps over 256 sub-steps and 197 over 1024 at
+worst, and none over 4096 or more, where the line has smoothed below the bound.
+None of these went below 0 at a jump to it.
+"""
+function _roundoff(::Type{F}, scale) where {F}
+    eps(F) ≤ eps(Float64) && isfinite(scale) || return zero(scale)
+    return 1024*eps(F)*scale
+end
+
+"""
+    _hold!(dest, src, l, u)
+
+`src` clamped into `[l, u]`, into `dest`, which may be `src` itself. `l` and
+`u` are the bounds already rounded inward into `dest`'s type, by `_inward`,
+so that a narrower `dest` holds nothing past them; a checked `PFC` and
+`PFCNonUniform` round them before they write `dest` and clamp what they return
+with this. Comparisons and `ifelse`, so that it vectorizes, where `clamp!` cost
+a third of a `PFC` step at N = 10000.
+"""
+function _hold!(dest, src, l, u)
+    @inbounds @simd for i in eachindex(dest, src)
+        x = src[i]
+        dest[i] = ifelse(x > u, u, ifelse(x < l, l, x))
+    end
+    return dest
+end
+
+# A bracket rounded into a type: outward, `_outward`, where it has to hold what
+# the wider one held -- `PFCNonUniform`'s bounds, and the driver's `keeps_bounds`
+# -- and inward, `_inward`, where nothing outside it may come out of the
+# rounding: the clamp. Inward, an `ArgumentError` where no value of `S` lies
+# between them: `fmin = fmax = 0.1` rounded to a Float32 `l` above `u`, and the
+# clamp put every cell at `u`, below `fmin`. A checked `PFC` and
+# `PFCNonUniform` ask before they write.
+_outward(::Type{S}, lo, hi) where {S<:AbstractFloat} = (S(lo, RoundDown), S(hi, RoundUp))
+function _inward(::Type{S}, lo, hi) where {S<:AbstractFloat}
+    l, u = S(lo, RoundUp), S(hi, RoundDown)
+    l ≤ u || _err_no_room(S, lo, hi)
+    return l, u
+end
+_inward(::Type{S}, lo, hi) where {S} = (convert(S, lo), convert(S, hi))
+@noinline _err_no_room(S, lo, hi) = throw(ArgumentError(
+    "no $S lies in [fmin, fmax] = [$lo, $hi], and a checked call returns its line inside " *
+    "them: widen the bounds to hold a value of the data's type"))
+
+@noinline _err_bound_low(lo, x, i) = throw(DomainError(x,
+    "fmin = $lo exceeds src[$i] = $x by more than round-off: the PFC limiter is " *
+    "built on [fmin, fmax]"))
+@noinline _err_bound_high(hi, x, i) = throw(DomainError(x,
+    "fmax = $hi is below src[$i] = $x by more than round-off: the PFC limiter is " *
+    "built on [fmin, fmax]"))
+@noinline _err_nan(i) = throw(DomainError(NaN,
+    "src[$i] is NaN, which no [fmin, fmax] holds: the PFC limiter is built on them"))
 
 """
     _validate_courant(scheme, c)
@@ -578,8 +703,14 @@ its narrowest cell. `c = ±1` exactly is accepted; so is any finite `c` by
 `Upwind`, `LaxWendroff`, `Godunov` and `PFC` are explicit, and none survives a
 characteristic crossing more than one cell per step: past `|c| = 1` round-off
 at the grid scale grows every step, slowly enough for the first steps to look
-right, and `PFC` loses positivity first. At `|c| = 1` each is an exact one-cell
-shift.
+right, and `PFC` loses positivity first. At `|c| = 1` each is a one-cell shift
+to within an ulp of the larger of the two cells involved: every flux is then
+its upwind cell's whole value, and a cell takes `f[i] + (f[i−1] − f[i])` --
+`Upwind`'s `f[i] − (f[i] − f[i−1])` is the same rounding -- which is `f[i−1]`
+exactly only where the difference is exact, as it is between neighbours within
+a factor of two of each other. `LaxWendroff` rounds more terms. That ulp can
+take a cell outside a `PFC`'s bounds, and a checked `PFC` or `PFCNonUniform`
+clamps it back.
 
 The bounded method is the default, so a new scheme is checked unless it opts
 out, as `SemiLagrangian` does: one that forgets to opt out is refused loudly,
@@ -709,6 +840,13 @@ end
 
 The fewest equal parts of `α` that are each no longer than `h`, and one for an
 `α` that is not finite, which `advect!` then refuses itself.
+
+A part of exactly `h` is a step of `|c| = 1`, which a checked `PFC` or
+`PFCNonUniform` clamps into its bounds: `OnGrid(PFCNonUniform(fill(0.1, 6);
+fmin = 0, fmax = 1))` took `α = 0.2` in two steps of exactly 0.1, and the
+second refused the `-1.7e-18` the first had left in a cell that held 0, until
+the scheme clamped what it returned. For a while those two were given parts
+shorter than `h` instead, which a step a few ulps short of a cell still beat.
 """
 function substeps(α, h)
     isfinite(α) || return 1
@@ -727,7 +865,8 @@ another type that has none adds one.
 `|α/m| ≤ h` is what `PFCNonUniform` checks, and for a scheme that takes a
 Courant number it gives `|(α/m)/h| ≤ 1`, division being monotone. Where `α`
 fits a cell, `|α| ≤ h` exactly when `|α/h| ≤ 1` after rounding, so `m = 1`
-wherever the step alone would have been taken.
+wherever the step alone would have been taken: `Upwind` at `|α| = h` is its own
+step at `c = ±1`.
 """
 nsubsteps(og::OnGrid, α) = substeps(α, og.h)
 nsubsteps(::OnGrid{<:SemiLagrangian}, α) = 1

@@ -22,16 +22,27 @@ _Φ⁻(f, i, i⁻, i⁺, c, lo, hi) = c*(f[i] - (1 + c)/3*(
                 _ϵ⁺(f[i], f[i⁺], lo, hi)/2*(1 - c) +
                 _ϵ⁻(f[i], f[i⁻], lo, hi)/2*(2 + c)))
 
+# What a checked call returns is inside [fmin, fmax], and what it takes is,
+# to round-off (`_check_bounds`). The limiter keeps it there in exact
+# arithmetic, and rounding took a cell an ulp out: at `c = 1` from data
+# touching the bounds, a few ulps short of it, and where a plateau at a bound
+# met rough data, and the next checked call refused the line. The clamp,
+# `_hold!`, cuts that ulp, and the mass with it, and a round-off it took in
+# `src`, even at `c = 0`; a line inside is left as it is, to the bit.
+# `PFCNonUniform` clamps the same way. A pass of its own, about 1 μs of a
+# 30.6 μs checked step at N = 10000, where an unchecked one is 21.9 μs and the
+# minimum/maximum pass the rest: `ifelse` in the stencil's assignment cost the
+# same, and `clamp` there more than doubled the step.
 function advect!(dest, src, p::PFC{T,Checked}, c, ws) where {T,Checked}
     _validate(dest, src, p, c, ws)
     n = length(dest)
     lo, hi = p.fmin, p.fmax
-    if Checked
-        # A minimum/maximum pass per call, about 7% of the step at N = 10000 on
-        # Julia 1.13 and 17% on 1.10. Compiled away entirely when the scheme is
-        # built with checked = false.
-        _check_bounds(src, lo, hi)
-    end
+    # A minimum/maximum pass per call, about 7% of the step at N = 10000 on Julia
+    # 1.13 and 17% on 1.10. Compiled away entirely when the scheme is built with
+    # checked = false, as the clamp, `_hold!`, is, whose bounds in `dest`'s type
+    # are rounded before `dest` is written.
+    Checked && _check_bounds(src, lo, hi)
+    l, u = Checked ? _inward(eltype(dest), lo, hi) : (lo, hi)
 
     # Each cell takes the difference of the fluxes through its two faces,
     # `src[i] + (Φleft - Φright)` (signed rightwards), as `PFCNonUniform` does,
@@ -66,5 +77,7 @@ function advect!(dest, src, p::PFC{T,Checked}, c, ws) where {T,Checked}
         dest[n-1] = src[n-1] + (Φ - Φₙ)
         dest[n] = src[n] + (Φₙ - Φ₁)
     end
+    # Bounds at ±Inf, which the driver suggests for none, hold every line.
+    Checked && !(isinf(lo) && isinf(hi)) && _hold!(dest, dest, l, u)
     return dest
 end

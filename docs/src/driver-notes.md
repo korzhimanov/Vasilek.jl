@@ -89,6 +89,35 @@ bit; a call past `c = 1`, which was a `DomainError`, now runs in sub-steps.
 Nothing here asks a uniform scheme for more than `c = 0.50`. `SemiLagrangian`,
 which has no Courant limit, takes any step whole.
 
+**A step of exactly a cell is a one-cell shift only to within an ulp.** At `|c|
+= 1` every flux is its upwind cell's whole value, and a cell takes `f[i] +
+(f[i−1] − f[i])`, which rounds unless the two are within a factor of two of each
+other, to within an ulp of the larger, and from data that touches a `PFC`'s
+bounds it left a cell outside them. `OnGrid(PFCNonUniform(fill(0.1, 6); fmin =
+0, fmax = 1))` took `α = 0.2` in two steps of exactly 0.1, and the second
+refused the −1.7e-18 the first left in a cell that had held 0. On random lines
+of 8 cells of a random uniform width, bounded at their own extrema, a
+`PFCNonUniform` step of exactly the width took 1351 of 20000 above them and 974
+below; `PFC` at `c = 1` took none out, but `[0.195, 0.694, 0.566, 0.987]` under
+`fmax = 0.987` went to `0.9870000000000001`, a rounding tie, which random data
+rarely holds and decimal data often does. A few ulps short of a cell it did too,
+more rarely: `PFCNonUniform` in 255, 176, 166, 77, 9 and 1 of the 20000 above at
+1, 2, 4, 16, 256 and 4096 ulps short, 190 below at one, and none at 2²⁰; `PFC`
+in 38, 30, 4 and 1 above at 4, 16, 256 and 4096 ulps short of `c = 1`, and none
+at 1, 2 or 2²⁰.
+
+**A checked `PFC` or `PFCNonUniform` clamps what it returns into its bounds**,
+and none of those steps leaves them. The clamp is about 1 μs of a 30.6 μs
+checked `PFC` step at N = 10000, against 21.9 μs unchecked, the minimum/maximum
+pass the rest; `PFCNonUniform` clamps as it copies its accumulator out. For a
+while `OnGrid` split those two schemes' steps of exactly a cell in two instead,
+which a step a few ulps short still beat, and which smeared the step it caught:
+a unit spike under `OnGrid(PFC(fmin = 0, fmax = 1))` at `α = h` came out as
+0.219, 0.562, 0.219 rather than shifted. Before that it split every scheme's,
+which took `Upwind`, `Godunov` and `LaxWendroff` off their own step at `c = ±1`:
+a unit spike under `OnGrid(Upwind())` came out as 0.25, 0.5, 0.25, a Gaussian
+0.053 off its shift. Every scheme takes its own step at `c = ±1` here.
+
 **The line is worked in Float64**, its buffer and the scheme's scratch alike,
 and rounded into `f` once per step: the driver asks `strang_step!`'s workspace
 for `promote_type(Float64, eltype(f))`. The scratch used to take the scheme's
@@ -265,11 +294,11 @@ energy, so the field solved before the kick is still the field after the first
 half-collision, and the kinetic energy is still moved by the kick alone -- the
 centring above holds as it stands.
 
-**A scheme given for one direction while the other is left to its default has
-to keep `f` inside those bounds, or the call is refused**, with an
-`ArgumentError`, before the first step. Without that check the default refused
-such a call later, mid-run: it stops the run at the first line handed to it
-outside its bounds, and a scheme that does not keep them hands it one soon
+**A scheme given for one direction while the other is left to its default has to
+keep `f` inside those bounds, or the call is refused**, with an `ArgumentError`,
+before the first step. Without that check the default refused such a call later,
+mid-run: it stops the run at the first line handed to it outside its bounds by
+more than round-off, and a scheme that does not keep them hands it one soon
 enough. At 50% amplitude on one wavelength of `k = 0.5`, 64 × 121 cells over ±6
 (the case in `test_driver.jl`), `LaxWendroff` in `v` took `f` to −1.9e-9 on the
 16th step and the cubic `SemiLagrangian` to −7.0e-10 on the 21st.
@@ -281,8 +310,8 @@ refuses `LaxWendroff`, `Godunov(PiecewiseLinear())` without a limiter, the
 quadratic and cubic `SemiLagrangian`, a `PFC` bounded wider, and a scheme of any
 other type. Given both schemes, the driver checks neither: the same scheme for
 both, as `verification/scheme-comparison.jl` passes them, or for the other
-direction a `PFCNonUniform` with bounds both sweeps keep -- `fmin = -Inf,
-fmax = Inf` for none, which is PFC's reconstruction with nothing to limit it.
+direction a `PFCNonUniform` with bounds both sweeps keep -- `fmin = -Inf, fmax =
+Inf` for none, which is PFC's reconstruction with nothing to limit it.
 
 *Superseded for the upper bound:* with `collisions` the defaults no longer carry
 `maximum(f)` as an upper bound, so the `DomainError`s described next no longer
@@ -355,7 +384,9 @@ Float32, a plateau with smooth sides over |v| < 2 and an edge down to 0
 stopped with a `DomainError` in 13 of 24 runs of 40 steps, each on a cell
 rounded to −1.0e-45, one subnormal below the defaults' `fmin = 0`. Worked in
 Float64, none of 240 runs over five profiles, with and without `BGK`,
-stopped. The all-Float32 Landau run of
+stopped. A checked call now takes such a subnormal for round-off and clamps it;
+the lines stay in Float64 for their precision, and for the mass, of which a
+clamp cuts an ulp of the line's type where it acts. The all-Float32 Landau run of
 `test_driver.jl` matches the Float64 one to 7.7e-7 of the peak in `f` and
 6.9e-6 in `ε_e` on Julia 1.13, 1.2e-6 and 3.3e-6 on 1.10.
 
@@ -388,3 +419,127 @@ runs, by up to 0.33 of its maximum, and above the maximum in 29% to 45%, by up
 to 0.24; a `PFC` bounded at 1.5 times the maximum took it above in 27%, by up
 to 0.115.
 
+**The default takes the round-off a scheme given beside it leaves past its
+bounds**, `[0, maximum(f)]`, and refuses a line further out
+([`_check_bounds`](@ref Vasilek.Advection._check_bounds)). It refused the line
+such a scheme left an ulp above, and the run stopped, which the measurement
+above did not show. `Godunov` added a cell's inflow and subtracted its outflow
+in turn, the source of its 7.3e-16: from a constant line of 16 cells at 1/√(2π)
+it left the line an ulp up at 492 of 2001 Courant numbers across `[-1, 1]`, 346
+at 0.2631… and 214 at 0.7, and a waterbag uniform in x stopped on its first step
+under any `Godunov` in x. It now takes the difference of its two fluxes, as
+`PFC` does, and keeps a constant line to the bit; the constant reconstruction
+takes it factored, `|c|(f[i−1] − f[i])`, and is `Upwind` to the bit. On the five
+kinds of data above, scaled to a maximum that is not a power of two (a maximum
+of 1 no rounding passes), `Godunov` took the maximum up in 577 of 10080 runs, by
+up to 10 ulps and in 134 by more than two; now in 14, by one ulp, all at `|c| =
+1` and the same 14 as `Upwind` and `PFC`. The linear `SemiLagrangian` is left as
+it is, Interpolations' linear spline to the bit: it lifts a constant line at
+1/√(2π) an ulp at 425 of the 2001 Courant numbers, and a waterbag with its own
+ions stopped on that ulp too; the default takes it.
+
+And the round-off builds up, past any fixed margin, where a plateau at a line's
+maximum meets values just below it. On lines of 8 to 32 cells, half at the
+maximum and the rest up to 1e-12, 1e-9 or 1e-6 of it below, after 20 steps at a
+random Courant number, `Godunov` with `VanLeer` had passed it by more than two
+ulps in 13, 14 and 13 of 3000 runs, by up to 8, and with `Superbee` in 25, 21
+and 10, by up to 11; before the change 168, 70 and 44, and 197, 101 and 57, by
+up to 15. Over 200 steps, the peak of each run passed two ulps in 44 of 6000
+runs with `VanLeer`, by up to 50, and in 66 with `Superbee`, by up to 90. The
+constant reconstruction, `Upwind` and the linear `SemiLagrangian` never did. In
+a run it builds no further than a call or two: every sweep of the default
+returns its lines inside its bounds, clamped as `PFC` clamps what it returns, so
+what the default is handed is what the given scheme's last sweep or two left.
+Within a call it builds over the sub-steps `OnGrid` takes: on such lines,
+clamped after each of 10 calls, the most a call left above the maximum was an
+ulp per sub-step, with `VanLeer` 2, 4, 8, 9, 24 and 107 ulps in 2, 4, 8, 16, 64
+and 256 sub-steps and with `Superbee` 2, 4, 7, 13, 35 and 111. `Upwind`, the
+constant reconstruction and the linear `SemiLagrangian` left an ulp at most,
+whatever the count, above the maximum or below 0.
+
+The default takes round-off and no more
+([`_roundoff`](@ref Vasilek.Advection._roundoff)): 1024 ulps of the line's type,
+2.3e-13 for Float64, about four for each of 256 sub-steps, at the scale of the
+cell past the bound, its two neighbours either side and the bound, the values a
+stencil rounded to get there. Over more sub-steps the excess grew more slowly,
+to 197 ulps at 1024, and over 4096 or more none was left: the line has smoothed
+below the bound. The scale is local: while the far bound counted, a loose
+`fmax = 1e300` took `-5` past `fmin = 0`, and while the line's own peak did, a
+real undershoot of a cell beside zeros passed for round-off. None of the schemes
+`keeps_bounds` takes went below 0 from data that was not: in 20000 lines each,
+zeros with a rough block, stepped once at Courant numbers drawn uniformly
+and within ulps of ±1 and through `OnGrid` calls of up to 64 sub-steps, none
+did, so a partner leaves no negative ulp in a line of zeros for the other
+direction to refuse. A line of a type coarser than Float64 is taken only inside
+its bounds, as before: limited `Godunov` left a Float32 line 9 ulps over its
+maximum and a Float16 one 18 within 64 sub-steps, so no count of ulps told
+round-off from data outside, and four took a Float16 line 0.3% below 0. The
+driver's lines are Float64 at least. A line further out is
+a `DomainError`, as it was: `LaxWendroff`'s 10% over a pulse is, and so is NaN.
+`f₀` itself is checked exactly, before the first step: within round-off a
+negative `f₀` would be taken and clamped to 0 unreported. A line inside its
+bounds pays nothing more than the comparisons it always made, and one taken is
+cut back into them by the clamp on the way out. The clamp cuts mass where it
+acts, but acts only while a plateau at the bound meets data just below it: on
+the rows below, over 10000 steps of five runs each with no scheme given and with
+`Superbee` in x, it cut six cells at most, all in the first 12 steps, 3.3e-16
+of `f` in all. The mass moved by 4.3e-15 at most with no scheme given, either
+way, and by 4.5e-15 with `checked = false`: the schemes' own round-off. With no
+scheme given `f` stays inside them;
+beside one, the step can end on the given scheme's sweep, and `f` is then as it
+left it, a linear `SemiLagrangian` x sweep of a waterbag with its own ions an
+ulp above. A `PFC` given is a checked one too, and takes its own previous
+sub-step's ulp: one taking a step of exactly two cells stopped on its second
+sub-step. One whose bounds do not hold `f₀` is refused before the first step,
+where it stopped on the first. It is held to `f₀` renormalized to round-off at
+the scale of each bound itself, not at the local scale its own call takes: with
+both schemes given such PFCs took -1e-14 in `f₀` beside 0.4 for round-off and
+returned 0, and a bound at 0 now holds `f₀` exactly; held to it exactly
+everywhere, one bounded at `maximum(f₀)` was refused in 2 of 40 Landau runs for
+the ulp the renormalization added. Its own bounds bound the default too:
+`keeps_bounds` takes them rounded outward in the scheme's precision, and a
+Float32 one at `maximum(f)` rounded up let a line out to it, 4e7 Float64 ulps
+past `maximum(f)` on rows dipping 1e-3 below their plateau, which the default
+refused while it kept `maximum(f)`. A Float32 one bounded at 1/√(2π) rounded up,
+which `keeps_bounds` takes in its own precision, stopped all of 40 runs to `t =
+20` on the rows that differ from each other, below, on the ulps the default
+refused; none stops now.
+
+For a while the driver clamped the given scheme's lines into the default's
+bounds instead, a wrapper around the scheme with a hook in the Strang sweep: the
+refusal stayed in the checked `PFC`, which a given `PFC` still met between its
+own sub-steps, and the default's own ulp, below, still stopped runs with no
+scheme given. The default keeps `maximum(f)` itself beside a scheme without
+bounds of its own, its limiter as with no scheme given: for a while it was
+bounded two ulps above beside a given scheme instead, which let its limiter take
+a line up there, in 2406 of 20000 single steps on random lines peaking at their
+bound against 1 bounded at the peak, and the two ulps had to be taken in the
+lines' type, not the widths', BigFloat on a BigFloat grid; its round-off is
+taken in the lines' type. Beside a given `PFC` bounded above `maximum(f)` it
+takes that bound, the partner's limiter's own, a trade: the partner takes a line
+up there itself, and a default limiter held below it would be handed data past
+its bound, which the limiter does not clip but corrupts. On the rows dipping
+1e-3 beside a Float32 `PFC` bounded 2.0e8 ulps above `maximum(f)`, the run to
+`t = 20` went 3.9e7 ulps above it, 5.4e-9 of it, as far as the partner's own
+sweep took it while the default stopped at `maximum(f)`.
+
+On the README's grid to `t = 20`, waterbags flat or perturbed in x by 1e-12 to
+5%, Landau at 1% and 50%, a two-stream case and Maxwellians capped at 0.2 to
+0.38, each partnered by `Upwind`, the three `Godunov` `keeps_bounds` takes or
+the linear `SemiLagrangian` (most of the capped ones by the last three alone),
+in x or in v, with the default ions and with their own: 40 of 380 runs stopped
+with a `DomainError`, and none does now. None of the first 200 stops to `t = 60`
+either.
+
+No driver run reached the excess a limiter builds, though. The runs that stopped
+on such data stopped on the default's own rounding: a `PFCNonUniform` bounded at
+the plateau left a cell an ulp above it, and its next call refused the line.
+Rows of 32 cells, half at 1/√(2π) and the rest up to 1e-12 or 1e-9 below it, the
+same at every |v| ≤ 3, with their own ions, to `t = 40` at steps of 0.1 and
+0.25: with no scheme given, 101 of 400 runs stopped, and with `Godunov`
+(`VanLeer`, `Superbee`) or `Upwind` given in x, none. Rows that differ from each
+other, the rest up to 1e-12 below, to `t = 30` at steps of 0.37: with no scheme
+given all 150 stopped, and with `Superbee` or `Upwind` given in v the default in
+x stopped 142 of them, the same for either. Now that a checked one clamps what
+it returns and takes the round-off it is handed, none of the 400 stops and none
+of the 150, with no scheme given or with any of these.

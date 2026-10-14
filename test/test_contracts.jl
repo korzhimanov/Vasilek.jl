@@ -77,6 +77,160 @@ using Vasilek
     end
 end
 
+# A checked PFC refuses data outside its bounds, and the limiter keeps the data
+# inside them in exact arithmetic. Rounding took a cell an ulp out -- at c = 1,
+# a few ulps short of it, and where a plateau at a bound met rough data -- and
+# the next checked call refused the line it had itself returned. A checked call
+# now clamps what it returns into its bounds; an unchecked one does not.
+@testset "a checked PFC returns a line inside its bounds" begin
+    p = PFC(fmin = 0, fmax = 0.987)
+    line = [0.195, 0.694, 0.566, 0.987]
+    raw = advect!(similar(line), line, PFC(fmin = 0, fmax = 0.987, checked = false), 1.0)
+    @test maximum(raw) > 0.987                      # 0.9870000000000001
+    out = advect!(similar(line), line, p, 1.0)
+    @test maximum(out) == 0.987
+    @test advect!(similar(out), out, p, 1.0) isa Vector{Float64}    # was a DomainError
+
+    # Random lines of 8 cells bounded at their own extrema, at Courant numbers
+    # 0 to 4096 ulps short of 1, and PFCNonUniform at displacements as short of
+    # its width: unchecked, 2 of these 600 PFC steps and 17 of the 600
+    # PFCNonUniform ones left the bounds, and checked, none does.
+    state = Ref(UInt64(7))
+    uniform() = (state[] = state[]*0x5851f42d4c957f2d + 0x14057b7ef767814f; (state[] >> 11)*2.0^-53)
+    outside = Dict(false => [0, 0], true => [0, 0])
+    for _ in 1:100, short in (0, 1, 4, 16, 256, 4096)
+        M = 0.5 + 0.5uniform()
+        g = [M*uniform() for _ in 1:8]
+        g[1 + floor(Int, 8uniform())] = M
+        g[1 + floor(Int, 8uniform())] = 0.0
+        h = 0.5 + uniform()
+        for checked in (false, true)
+            q = PFC(fmin = 0.0, fmax = M; checked)
+            o = advect!(similar(g), g, q, prevfloat(1.0, short))
+            outside[checked][1] += maximum(o) > M || minimum(o) < 0
+            qn = PFCNonUniform(fill(h, 8); fmin = 0.0, fmax = M, checked)
+            o = advect!(similar(g), g, qn, prevfloat(h, short), workspace(qn, 8))
+            outside[checked][2] += maximum(o) > M || minimum(o) < 0
+        end
+    end
+    @test all(>(0), outside[false])
+    @test outside[true] == [0, 0]
+end
+
+# A checked PFC refused a line an ulp past its bounds, which another scheme's
+# step leaves where it meets one at the line's extremum: beside the driver's
+# default, `Godunov` with a limiter and the linear `SemiLagrangian`, and a PFC's
+# own previous sub-step. It takes round-off, `_roundoff` past each bound, and
+# refuses anything further out.
+@testset "a checked PFC takes a line within round-off of its bounds" begin
+    # Godunov with Superbee over 42 sub-steps of a cell took a plateau at M,
+    # meeting values just below it, 42 ulps above M, an ulp a sub-step.
+    state = Ref(UInt64(423))
+    uniform() = (state[] = state[]*0x5851f42d4c957f2d + 0x14057b7ef767814f; (state[] >> 11)*2.0^-53)
+    M = 1/sqrt(2π)
+    u = [uniform() for _ in 1:33]
+    line = [u[2i-1] < 0.5 ? M : M*(1 - 1e-12*u[2i]) for i in 1:16]
+    og = OnGrid(Godunov(PiecewiseLinear(), Superbee()), fill(0.5, 16))
+    above = advect!(similar(line), line, og, 32*(2u[end] - 1))
+    @test maximum(above) == M + 42eps(M)
+    for p in (PFC(fmin = 0.0, fmax = M), PFCNonUniform(fill(0.5, 16); fmin = 0.0, fmax = M))
+        out = advect!(similar(above), above, p, p isa PFC ? 0.3 : 0.15, workspace(p, 16))
+        @test 0 ≤ minimum(out) && maximum(out) ≤ M
+    end
+    # To 1024 ulps of a Float64 line's scale, here 1, and no further, at
+    # either bound. The scale is the cell's and its two neighbours' either side,
+    # with the bound: -1e-15 beside zeros is not round-off, beside 0.4 it is,
+    # where the line's own peak counted for every cell.
+    p = PFC(fmin = 0.0, fmax = 1.0)
+    g = fill(0.5, 8)
+    accepts(q, line) = try advect!(similar(line), line, q, 0.3); true catch e; e isa DomainError || rethrow(); false end
+    for (k, ok) in ((1024, true), (1025, false))
+        g[3] = 1 + k*eps(); g[6] = 0.5
+        @test accepts(p, g) == ok
+        g[3] = 0.5; g[5] = 1.0; g[6] = -k*eps()
+        @test accepts(p, g) == ok
+        g[5] = 0.5
+    end
+    @test !accepts(p, [0.4, 0.4, 0, 0, 0, -1e-15, 0, 0])
+    @test accepts(p, [0.4, 0.4, 0, 0, 0.4, -1e-15, 0, 0])
+    # Two cells either side, as far as one step's stencil reads: -2e-7 two cells
+    # from 1e6 is 900 of its ulps and taken, and three cells from it is not.
+    p∞ = PFC(fmin = 0.0, fmax = Inf)
+    @test accepts(p∞, [1e6, 1e-10, -2e-7, 1e-10, 0, 0, 0, 0])
+    @test !accepts(p∞, [1e6, 1e-10, 1e-10, -2e-7, 1e-10, 0, 0, 0])
+    # An infinite neighbour, which fmax = Inf holds, is no scale: it zeroed the
+    # reach, and -1e-18 beside it was refused where beside 0.5 alone it is taken.
+    @test accepts(p∞, [0.5, Inf, -1e-18, 0.5, 0, 0, 0, 0])
+    # The refusal names the cell that failed, not the line's minimum, which
+    # can be one the check took beside a larger neighbour.
+    e = try advect!(zeros(10), [-2e-7, 1e6, 0, 0, 0, 0, -1e-15, 0, 0, 0], p∞, 0.3) catch e; e end
+    @test e isa DomainError && e.val == -1e-15 && occursin("src[7] = -1.0e-15", e.msg)
+    # In ulps of the line's type: 1024 of BigFloat for a BigFloat line, where
+    # 2.3e-13 of the scale took -1e-13 for round-off.
+    pb = PFC(fmin = big(0.0), fmax = big(1.0))
+    @test !accepts(pb, big.([0.5, -1e-13, 0.5, 1.0]))
+    @test accepts(pb, [0.5, -eps(big(1.0)), 0.5, 1.0])
+    g[6] = 0.5
+    # LaxWendroff took a pulse 10% past [0, 1], and NaN is never round-off.
+    pulse = [16 < i ≤ 40 ? 1.0 : 0.0 for i in 1:64]
+    @test_throws DomainError advect!(similar(pulse), advect!(similar(pulse), pulse, LaxWendroff(), 0.3), p, 0.3)
+    g[3] = NaN
+    @test_throws DomainError advect!(similar(g), g, p, 0.3)
+    # Each bound by its own scale: a loose fmax = 1e300 took -5 past fmin = 0
+    # for round-off while the far bound counted.
+    q = PFC(fmin = 0.0, fmax = 1e300)
+    @test_throws DomainError advect!(zeros(4), [1.0, 0.5, 0.2, -5.0], q, 0.3)
+    # A line of a type coarser than Float64 is taken only inside its bounds:
+    # limited Godunov left Float32 9 ulps over and Float16 18 within 64
+    # sub-steps, and four ulps took Float16 data 0.3% below 0. An integer line
+    # is judged in Float64, where its bound threw an InexactError.
+    @test_throws DomainError advect!(zeros(Float32, 4), Float32[0.5, nextfloat(1f0), 0.2, 0.1], p, 0.3)
+    @test_throws DomainError advect!(zeros(Float16, 4), Float16[-0.003, 1.0, 0.5, 0.2], p, 0.3)
+    @test advect!(zeros(Float32, 4), Float32[0.5, 1, 0.2, 0], p, 0.3) isa Vector{Float32}
+    @test_throws DomainError advect!(zeros(4), [0, 1, 0, 0], PFC(fmin = 0.0, fmax = 0.5), 0.3)
+    @test_throws DomainError advect!(zeros(4), [0.0, Inf, 0.0, 0.0], p, 0.3)
+    # What it takes comes back clamped, even at c = 0, so that another
+    # scheme's round-off does not build up through it; Float32(0.1), above
+    # fmax = 0.1, is not round-off in Float32, and is refused.
+    s = [nextfloat(0.1, 3), 0.1, 0.05, 0, 0, 0]
+    @test advect!(similar(s), s, PFC(fmin = 0.0, fmax = 0.1), 0.0) == [0.1, 0.1, 0.05, 0, 0, 0]
+    s32 = Float32[0.1, 0.1, 0.1, 0.05, 0, 0]
+    @test_throws DomainError advect!(similar(s32), s32, PFC(fmin = 0.0, fmax = 0.1), 0.0)
+    # Where no value of `dest`'s type lies inside the bounds, there is no line
+    # to return: no Float32 lies in [0.1, 0.1], and the clamp put every cell at
+    # 0.1 rounded down, below fmin. Refused before `dest` is written.
+    d32 = fill(7f0, 6)
+    @test_throws ArgumentError advect!(d32, fill(0.1, 6), PFC(fmin = 0.1, fmax = 0.1), 0.3)
+    pn = PFCNonUniform(fill(0.1, 6); fmin = 0.1, fmax = 0.1)
+    @test_throws ArgumentError advect!(d32, fill(0.1, 6), pn, 0.03, workspace(pn, 6))
+    @test all(==(7f0), d32)
+    @test advect!(zeros(6), fill(0.1, 6), PFC(fmin = 0.1, fmax = 0.1), 0.3) == fill(0.1, 6)
+    # In the line's type: a Float64 line an ulp over BigFloat bounds is
+    # round-off, which 1024 ulps of BigFloat were not.
+    pb = PFCNonUniform(big.(fill(0.5, 16)); fmin = 0, fmax = big(M))
+    out = advect!(similar(line), [nextfloat(M); line[2:end]], pb, 0.15, workspace(pb, 16, Float64))
+    @test maximum(out) ≤ M
+end
+
+# `Godunov` partners the driver's default `PFCNonUniform`, which refuses a line
+# an ulp above its bound, and `keeps_bounds` vouches for it with a constant
+# reconstruction or a limiter. It added a cell's inflow and subtracted its
+# outflow in turn, and on a constant line of 16 cells the two roundings left
+# the line an ulp above itself: at 492 of these 2001 Courant numbers from
+# 1/√(2π), 346 from 0.2631… and 214 from 0.7, the same for the four
+# reconstructions and limiters. A cell now takes the difference of the two
+# fluxes, which is zero.
+@testset "Godunov keeps a constant line to the bit" begin
+    N = 16
+    for v in (1/sqrt(2π), 0.26314733827217923, 0.7),
+            scheme in (Godunov(PiecewiseConstant()), Godunov(PiecewiseLinear()),
+                       Godunov(PiecewiseLinear(), VanLeer()), Godunov(PiecewiseLinear(), Superbee()))
+        line = fill(v, N)
+        @test all(c -> advect!(similar(line), line, scheme, c) == line,
+                  range(-1, 1; length = 2001))
+    end
+end
+
 # `PFCNonUniform` takes the same bounds and builds them into the same limiter,
 # and checked none of them: the verification harness bounded every run at
 # `fmax = 1`, an equilibrium peaking at 1.79 went through it, and it ended 43.6%
@@ -104,14 +258,14 @@ end
 
     @testset "and says what PFC says" begin
         # One function checks both schemes, so the same data draws the same
-        # message from either: the bound, and the extremum that broke it.
+        # message from either: the bound, and the cell that broke it.
         over = copy(f);  over[10] = 5.0
         under = copy(f); under[10] = -1.0
         message(s, c, g) = try march!(g, s, c, 1); "" catch e; e.msg end
         @test message(scheme(), 0.02, over) == message(PFC(fmin = 0.0, fmax = 2.0), 0.4, over) ==
-              "fmax = 2.0 is below maximum(src) = 5.0: the PFC limiter is built on [fmin, fmax]"
+              "fmax = 2.0 is below src[10] = 5.0 by more than round-off: the PFC limiter is built on [fmin, fmax]"
         @test message(scheme(), 0.02, under) == message(PFC(fmin = 0.0, fmax = 2.0), 0.4, under) ==
-              "fmin = 0.0 exceeds minimum(src) = -1.0: the PFC limiter is built on [fmin, fmax]"
+              "fmin = 0.0 exceeds src[10] = -1.0 by more than round-off: the PFC limiter is built on [fmin, fmax]"
     end
 
     @testset "checked = false compiles it away without changing the answer" begin
@@ -299,14 +453,24 @@ end
     end
 
     @testset "c = ±1 exactly is accepted, and is a one-cell shift" begin
-        # The bound is `≤`. Measured at c = ±1: Upwind exact; LaxWendroff, the
-        # three Godunov and PFC at most one ulp (2.2e-16) from circshift.
-        # Godunov(PiecewiseLinear()) is a shift here because its slope term
-        # carries (1 − |c|), which vanishes. Before it did, the scheme was 2.4e-3
-        # off without a limiter and 2.7e-3 with VanLeer, and this test excused it.
+        # The bound is `≤`. Godunov(PiecewiseLinear()) is a shift here because
+        # its slope term carries (1 − |c|), which vanishes. Before it did, the
+        # scheme was 2.4e-3 off without a limiter and 2.7e-3 with VanLeer, and
+        # this test excused it.
+        #
+        # At c = ±1 every flux is its upwind cell's whole value, and a cell
+        # takes f[i] + (f[i∓1] - f[i]), Upwind's rounding too. That is f[i∓1]
+        # to the bit where the difference is exact, as here, every neighbour
+        # within a factor of two of the next (Sterbenz), and to within an ulp
+        # of the larger neighbour on rough data; see `_validate_courant`. Since
+        # Godunov and PFC take the difference of their two fluxes, all of them
+        # but LaxWendroff are exact here. LaxWendroff is one ulp (2.2e-16) off,
+        # and so were the four Godunov while they added the inflow and
+        # subtracted the outflow in turn.
         for (name, scheme) in bounded, c in (1.0, -1.0)
             out = march!(f, scheme, c, 1)
             @test maximum(abs, out .- circshift(f, Int(c))) ≤ 2eps()
+            name == "LaxWendroff" || @test out == circshift(f, Int(c))
         end
     end
 

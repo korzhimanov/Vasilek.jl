@@ -254,18 +254,20 @@ end
     x = collect(range(2π/k/Nx; step = 2π/k/Nx, length = Nx))
     P = Vasilek.PoissonFourier1D
 
-    # A line advanced by the displacement α as the driver advances it: a
+    # A line advanced by the displacement α as the driver advances it: a PFC or
     # PFCNonUniform in the fewest equal sub-steps no wider than its narrowest
-    # cell, any other scheme in one step at the Courant number α/Δz[1]. Returns
-    # the number of steps taken. The count is written out rather than taken from
-    # `substeps`, so that a change to it shows here instead of moving both sides.
+    # cell, at the Courant number (α/m)/Δz[1] for a PFC, any other scheme in one
+    # step at the Courant number α/Δz[1], which the cases below keep within a
+    # cell. Returns the number of steps taken. The count is written out rather
+    # than taken from `substeps`, so that a change to it shows here instead of
+    # moving both sides.
     function line!(line, α, scheme, Δz, buf, ws)
-        if scheme isa PFCNonUniform
-            h = minimum(Δz)
+        if scheme isa Union{PFC, PFCNonUniform}
+            h = scheme isa PFC ? Δz[1] : minimum(Δz)
             m = max(1, ceil(Int, abs(α)/h))
             abs(α/m) > h && (m += 1)
             for _ in 1:m
-                advect!(buf, line, scheme, α/m, ws)
+                advect!(buf, line, scheme, scheme isa PFC ? (α/m)/h : α/m, ws)
                 copyto!(line, buf)
             end
             return m
@@ -369,6 +371,28 @@ end
         r = vlasov_poisson(x, uniform, f₀(uniform), t; schemes..., collisions)
         @test r.f == ref
         @test r.ε_e == ref_ε_e
+    end
+
+    # A scheme given for one direction, the other left to its default, which
+    # takes the round-off the given one leaves past its bounds; a PFC too, whose
+    # x steps reach 1.9 cells and are split in two.
+    for (v, partner) in ((uniform, (; scheme_x = Godunov(PiecewiseLinear(), VanLeer()))),
+                         (stretched, (; scheme_x = Godunov(PiecewiseLinear(), VanLeer()))),
+                         (uniform, (; scheme_v = SemiLagrangian(LinearSpline())))),
+            collisions in (nothing, BGK(0.5))
+        ref, ref_ε_e = written_out(v, f₀(v), t; partner..., collisions)
+        r = vlasov_poisson(x, v, f₀(v), t; partner..., collisions)
+        @test r.f == ref
+        @test r.ε_e == ref_ε_e
+    end
+    t = [0.0, 0.25, 0.4, 0.65, 0.8, 1.05]
+    for v in (uniform, stretched)
+        partner = (; scheme_x = f -> PFC(fmin = 0.0, fmax = maximum(f)))
+        ref, ref_ε_e, most_x = written_out(v, f₀(v), t; partner...)
+        r = vlasov_poisson(x, v, f₀(v), t; partner...)
+        @test r.f == ref
+        @test r.ε_e == ref_ε_e
+        @test most_x > 1
     end
 end
 
@@ -554,4 +578,169 @@ end
         f₀ = fill(c, length(v), Nx)
         @test vlasov_poisson(x, v, f₀, t; nᵢ = vec(sum(f₀ .* Δv, dims = 1))).f == f₀
     end
+end
+
+@testset "a plateau at the bound meeting rough data runs" begin
+    # Rows of f with half their cells at maximum(f) and the rest up to 1e-12
+    # below it, different in every row over |v| ≤ 3: the default PFCNonUniform,
+    # bounded at maximum(f), left a cell an ulp above it, and its next call
+    # stopped the run with a DomainError on the 2nd step, with no scheme given;
+    # of 150 such runs to t = 30 at steps of 0.37, all stopped. A checked
+    # PFCNonUniform clamps what it returns into its bounds, and none does.
+    function lcg_uniforms(seed, n)    # Knuth's MMIX generator, not Julia's RNG
+        s, u = UInt64(seed), Vector{Float64}(undef, n)
+        for i in 1:n
+            s = s*0x5851f42d4c957f2d + 0x14057b7ef767814f
+            u[i] = (s >> 11)*2.0^-53
+        end
+        return u
+    end
+    k = 0.5
+    Nx = 32
+    x = collect(range(2π/k/Nx; step = 2π/k/Nx, length = Nx))
+    v = collect(-4.0:0.2:4.0)
+    M = 1/sqrt(2π)
+    u = lcg_uniforms(1, 2*length(v)*Nx)
+    rough = [abs(vj) ≤ 3 ? (u[2(j + length(v)*(i-1))-1] < 0.5 ? M :
+                            M*(1 - 1e-12*u[2(j + length(v)*(i-1))])) : 0.0
+             for (j, vj) in enumerate(v), i in 1:Nx]
+    nᵢ = vec(sum(rough .* cell_widths(v), dims = 1))
+    r = vlasov_poisson(x, v, rough, collect(0.0:0.25:5.0); nᵢ, invariants = true)
+    @test maximum(r.fmax) ≤ M && minimum(r.fmin) ≥ 0
+    @test maximum(abs, r.mass .- r.mass[1])/r.mass[1] < 1e-13
+    # The clamp cuts mass where it acts, at the top on such rows, and only while
+    # the plateau at the bound is rough: over 10000 steps of five such runs,
+    # with no scheme given or Superbee in x, it cut six cells at most, all in
+    # the first 12 steps, and the mass moved by 5.3e-15 at most, either way, as
+    # it did with checked = false: the schemes' own round-off.
+    r = vlasov_poisson(x, v, rough, collect(0.0:0.25:500.0); nᵢ, invariants = true,
+                       scheme_x = Godunov(PiecewiseLinear(), Superbee()))
+    @test maximum(abs, r.mass .- r.mass[1])/r.mass[1] < 1e-14
+    # And beside a given scheme. A Float32 PFC bounded a rounding above
+    # maximum(f), which keeps_bounds takes in its own type, stopped all 40 such
+    # runs to t = 20 on the ulps the default refused; it ends each step, and
+    # keeps its own bound.
+    pfc32 = f -> PFC(fmin = 0f0, fmax = Float32(maximum(f), RoundUp))
+    for kw in ((; scheme_x = pfc32), (; scheme_v = Godunov(PiecewiseLinear(), Superbee())))
+        r = vlasov_poisson(x, v, rough, collect(0.0:0.25:5.0); nᵢ, kw..., invariants = true)
+        @test maximum(r.fmax) ≤ (haskey(kw, :scheme_x) ? Float32(M, RoundUp) : M)
+        @test minimum(r.fmin) ≥ 0
+    end
+end
+
+@testset "a scheme given for one direction partners the default" begin
+    # `keeps_bounds` takes these four, which keep f inside [0, maximum(f)] to
+    # round-off, and the default for the other direction, bounded at
+    # maximum(f) itself, refused the line they left an ulp above. A waterbag
+    # uniform in x on the README's grid stopped on its first step with a
+    # DomainError under each Godunov in x, rescaled or not, and under the linear
+    # SemiLagrangian with its own ions, at 1/√(2π) itself; f capped at 0.3 stopped
+    # under the linear SemiLagrangian in x, and under VanLeer in v. Godunov now
+    # keeps a constant line to the bit, and the default takes the round-off the
+    # given scheme leaves past its bounds.
+    k = 0.5
+    Nx = 32
+    x = collect(range(2π/k/Nx; step = 2π/k/Nx, length = Nx))
+    v = collect(-4.0:0.2:4.0)
+    t = collect(0.0:0.1:2.0)
+    Δv = cell_widths(v)
+    waterbag = [abs(u) ≤ 2 ? 1/sqrt(2π) : 0.0 for u in v, y in x]
+    nᵢ = vec(sum(waterbag .* Δv, dims = 1))
+    M = maximum(waterbag)
+    rescaled = maximum(setup(x, v, waterbag, t)[2].f)    # the bound once rescaled
+    for s in (Godunov(PiecewiseConstant()), Godunov(PiecewiseLinear(), VanLeer()),
+              Godunov(PiecewiseLinear(), Superbee()), SemiLagrangian(LinearSpline()))
+        # A step ends on the given scheme's half sweep in x, from the line the
+        # default returned inside its bounds, and the linear SemiLagrangian,
+        # held to Interpolations' linear spline to the bit and left as it is,
+        # moves some cells an ulp either way: an ulp above the bound, on Julia
+        # 1.10, which the default takes on the next step.
+        r = vlasov_poisson(x, v, waterbag, t; scheme_x = s, invariants = true)
+        @test minimum(r.fmin) ≥ 0
+        @test maximum(r.fmax) ≤ nextfloat(rescaled)
+        # Its own ions, so nothing rescales it and its field is zero: each row
+        # is advanced in x alone. Godunov keeps a constant row to the bit.
+        r = vlasov_poisson(x, v, waterbag, t; scheme_x = s, nᵢ, invariants = true)
+        @test minimum(r.fmin) ≥ 0 && maximum(r.fmax) ≤ nextfloat(M)
+        s isa Godunov && @test r.f == waterbag
+    end
+    maxwellian(u) = exp(-u^2/2)/sqrt(2π)
+    capped = [min(0.3, 1.2maxwellian(u)*(1 + 0.01cos(k*y))) for u in v, y in x]
+    for kw in ((; scheme_x = SemiLagrangian(LinearSpline())),
+               (; scheme_v = Godunov(PiecewiseLinear(), VanLeer())))
+        r = vlasov_poisson(x, v, capped, t; kw..., invariants = true)
+        @test minimum(r.fmin) ≥ 0
+    end
+
+    # The default keeps maximum(f) itself, with a scheme given or none, as it
+    # always did. For a while it was bounded two ulps above beside a given
+    # scheme, which let its own limiter take a line up there -- one step did,
+    # in 2406 of 20000 random lines peaking at their bound, against 1 bounded
+    # at the peak -- and two ulps were taken in the widths' type, nothing to a
+    # Float64 line on a BigFloat grid. Its round-off is taken in the line's.
+    Δx = cell_widths(x)
+    for kw in ((;), (; scheme_x = Upwind()), (; scheme_v = Upwind()),
+               (; scheme_x = f -> PFCNonUniform(Δx; fmin = 0.0, fmax = maximum(f))),
+               (; scheme_v = PFCNonUniform(Δv; fmin = 0.0, fmax = M)))
+        prob, = setup(x, v, waterbag, t; nᵢ, kw...)
+        haskey(kw, :scheme_x) || @test prob.ox.scheme isa PFCNonUniform && prob.ox.scheme.fmax == M
+        haskey(kw, :scheme_v) || @test prob.ov.scheme isa PFCNonUniform && prob.ov.scheme.fmax == M
+    end
+    r = vlasov_poisson(x, big.(v), waterbag, t; scheme_x = SemiLagrangian(LinearSpline()), nᵢ,
+                       invariants = true)
+    @test maximum(r.fmax) ≤ nextfloat(M)
+    # Beside a PFC bounded a rounding wider in its own type, which keeps_bounds
+    # takes, the default is bounded where it is: a Float32 one at maximum(f)
+    # rounded up took a line 4e7 Float64 ulps past it, which the default
+    # refused, on rows dipping up to 1e-3 below their plateau.
+    pfc32 = f -> PFC(fmin = 0f0, fmax = Float32(maximum(f), RoundUp))
+    prob, = setup(x, v, waterbag, t; nᵢ, scheme_x = pfc32)
+    @test prob.ov.scheme.fmax == Float32(M, RoundUp) && prob.ov.scheme.fmin == 0
+    dips = [abs(u) ≤ 2 ? M*(1 - 1e-3*(1 + sin(7.3y + 3.1u))/2*isodd(round(Int, 5u))) : 0.0
+            for u in v, y in x]
+    for given in (pfc32, f -> OnGrid(pfc32(f), Δx))    # and through an OnGrid
+        r = vlasov_poisson(x, v, dips, collect(0.0:0.25:5.0); scheme_x = given,
+                           nᵢ = vec(sum(dips .* Δv, dims = 1)), invariants = true)
+        @test maximum(r.fmax) ≤ Float32(M, RoundUp) && minimum(r.fmin) ≥ 0
+    end
+    # A given PFC that does not hold f₀ stopped the run on its first sweep, and
+    # is refused before it. One bounded at maximum(f₀) holds f, f₀
+    # renormalized, to round-off: held to f exactly, it was refused in 2 of 40
+    # such Landau runs for the ulp the renormalization added, which its first
+    # call takes.
+    @test_throws ArgumentError setup(x, v, waterbag, t; nᵢ,
+                                     scheme_x = f -> PFC(fmin = 0.0, fmax = maximum(f)/2))
+    v65 = collect(range(-6, 6; length = 65))
+    a = range(0.001, 0.05; length = 40)[34]
+    landau = [exp(-u^2/2)/sqrt(2π)*(1 + a*cos(k*y)) for u in v65, y in x]
+    M₀ = maximum(landau)
+    r = vlasov_poisson(x, v65, landau, [0.0, 0.1, 0.2]; invariants = true,
+                       scheme_x = PFC(fmin = 0.0, fmax = M₀),
+                       scheme_v = PFCNonUniform(cell_widths(v65); fmin = 0.0, fmax = M₀))
+    @test maximum(r.fmax) ≤ M₀
+    # A negative f is refused before the first step, with a scheme given or
+    # none, to the bit: the default takes round-off past its bounds from a step,
+    # and took -1e-14 in f₀ for it. A scheme that need not keep the bounds is
+    # refused as such before that. A function of f has to return a scheme: one
+    # returning nothing fell back to the default for a while.
+    for δ in (1e-6, 1e-14)
+        negative = copy(waterbag); negative[3, :] .= -δ
+        @test_throws DomainError setup(x, v, negative, t; scheme_x = Upwind(), nᵢ)
+        @test_throws DomainError setup(x, v, negative, t; nᵢ)
+        @test_throws DomainError setup(x, v, negative, t; nᵢ, collisions = BGK(1.0))
+        # The same DomainError beside a given checked PFC, held to f₀ after it.
+        @test_throws DomainError setup(x, v, negative, t; nᵢ,
+                                       scheme_x = f -> PFC(fmin = 0.0, fmax = maximum(f)))
+        # And with both schemes given, checked: their calls take round-off
+        # past their bounds and clamp it, and took -1e-14 in f₀, returning 0.
+        @test_throws ArgumentError setup(x, v, negative, t; nᵢ, scheme_x = PFC(fmin = 0.0, fmax = 1.0),
+                                         scheme_v = PFCNonUniform(Δv; fmin = 0.0, fmax = 1.0))
+    end
+    negative = copy(waterbag); negative[3, :] .= -1e-6
+    @test_throws ArgumentError setup(x, v, negative, t; scheme_x = LaxWendroff(), nᵢ)
+    @test_throws ArgumentError setup(x, v, waterbag, t; scheme_x = f -> nothing)
+    # The schemes are on their grids, taking a displacement; a bare one, which
+    # takes a Courant number, is no Problem's.
+    @test_throws MethodError Vasilek.VlasovPoisson1D1V.Problem(x, v, Δx, Δv, nᵢ, Upwind(),
+                                                               Upwind(), nothing, ())
 end

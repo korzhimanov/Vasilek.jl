@@ -61,10 +61,27 @@ traversal falls from 7.03e-3 to 8.55e-5 on a sine, and rises from 8.45e-3 to
 2.77e-2 on a square pulse, because 0.1's flux also steepened the jump.
 
 `PFC` and `PFCNonUniform` check on every call that the data lie within
-`[fmin, fmax]`, and throw a `DomainError` when they do not. In 0.1 `PFC`
-checked once, at construction, and `PFCNonUniform` never did: data outside its
-bounds gave a wrong answer with no error, and now stops at the first call.
-`checked = false` removes the check, at compile time.
+`[fmin, fmax]`, and throw a `DomainError` naming the cell that does not. In 0.1
+`PFC` checked once, at construction, and `PFCNonUniform` never did: data outside
+its bounds gave a wrong answer with no error, and now stops at the first call.
+A checked call whose `dest` is of a type with no value in `[fmin, fmax]`, a
+Float32 `dest` under `fmin = fmax = 0.1`, throws an `ArgumentError` before it
+writes `dest`. `vlasov_poisson` refuses a given checked one whose bounds do not
+hold `f₀` with an `ArgumentError` before the first step, where its first call
+threw a `DomainError`.
+
+A checked call is not only a check. It takes data past a bound by round-off
+(`_roundoff`: 1024 ulps of the data's type, Float64 or finer, at the scale of
+the cell past the bound and its neighbours; Float32 and Float16 data are taken
+only inside the bounds) and clamps what it returns into `[fmin, fmax]`. The
+clamp acts only where rounding left a cell outside the bounds, at the ulp level,
+or where the data it took were outside by round-off, even at `c = 0`, and moves
+the mass by the ulp it cuts, so `checked = true` and `checked = false` can
+differ in the last bits of such a cell. Over 10000 driver steps from a plateau
+at the bound meeting rough data, the clamp acted on six cells at most, all in
+the first 12 steps, and the mass moved no more than with `checked = false`,
+whose steps move it by round-off too. `checked = false` removes the check and
+the clamp, at compile time.
 
 ## Workspaces
 
