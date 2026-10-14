@@ -627,6 +627,57 @@ end
     end
 end
 
+@testset "Godunov stays finite where the limiter's ratio overflows" begin
+    # The limiter's ratio, the upwind difference over the downwind one,
+    # overflows to ±Inf wherever it exceeds floatmax: in Float64, say, where a
+    # subnormal downwind difference -- a Maxwellian tail meeting a sharp edge --
+    # sits beside an upwind one of order one, and in Float16 where the downwind
+    # one is merely 65504 times smaller, which rough lines hit routinely. VanLeer's
+    # `(r + |r|)/(1 + |r|)` took Inf/Inf or NaN/Inf there, NaN, and overflowed
+    # to Inf from r = floatmax/2: each line below came out with NaN or Inf in it,
+    # both ways. Superbee is here because it never did, its `min` and `max`
+    # taking the infinities as they come.
+    edge = zeros(16); edge[5] = 1e-3; edge[7] = 5e-324; edge[8] = 1e-3         # r = -Inf
+    half = Float16[0, 0, 0, 0, 0.4, 0, Float16(1e-7), 0.4, 0, 0, 0, 0, 0, 0, 0, 0]  # and in Float16
+    single = Float32.(edge); single[7] = nextfloat(0f0)                         # and in Float32
+    # and on signed data r = +Inf, and r between floatmax/2 and floatmax
+    up = zeros(16); up[5] = -1e-3; up[7] = 5e-324; up[8] = 1e-3
+    past = zeros(16); past[5] = -1e-3; past[7] = 1e-3/1.5e308; past[8] = 1e-3
+    @test floatmax()/2 < 1e-3/past[7] < floatmax()
+    for line in (edge, half, single, up, past), limiter in (VanLeer(), Superbee()), s in (1, -1)
+        # c < 0 meets the reversed line as c > 0 meets the line
+        g = s > 0 ? line : reverse(line)
+        out = advect!(similar(g), g, Godunov(PiecewiseLinear(), limiter), s*eltype(g)(0.3))
+        @test all(isfinite, out)
+        @test all(x -> minimum(g) ≤ x ≤ maximum(g), out)
+    end
+
+    # The limiter itself: 2 at Inf, 0 at -Inf, and wherever the formula is
+    # finite the formula to the bit -- for every Float16, and for a million
+    # Float32 and Float64 bit patterns spread over every exponent and both signs.
+    formula(r) = (r + abs(r))/(1 + abs(r))
+    for (T, U, stride) in ((Float16, UInt16, 1), (Float32, UInt32, 4099),
+                           (Float64, UInt64, 18446744073709))
+        @test VanLeer()(T(Inf)) === T(2)
+        @test VanLeer()(T(-Inf)) === zero(T)
+        @test VanLeer()(floatmax(T)) === T(2)
+        @test isnan(VanLeer()(T(NaN)))
+        rs = reinterpret.(T, zero(U):U(stride):typemax(U))
+        rs = filter(!isnan, vcat(rs, floatmax(T)/2, prevfloat(floatmax(T)/2), nextfloat(floatmax(T)/2)))
+        @test all(r -> zero(T) ≤ VanLeer()(r) ≤ T(2), rs)
+        @test all(r -> !isfinite(formula(r)) || VanLeer()(r) === formula(r), rs)
+        @test count(r -> isfinite(formula(r)), rs) > 0.9*length(rs)
+    end
+    @test VanLeer()(BigFloat(Inf)) == 2 && VanLeer()(-BigFloat(Inf)) == 0
+    # and a type without `floatmax` takes the formula, as every type did, with
+    # the same guards: a rational can be infinite, and the formula threw there
+    @test VanLeer()(1) === 1.0
+    @test VanLeer()(1//2) === 2//3
+    @test VanLeer()(-3//1) === 0//1
+    @test VanLeer()(1//0) === 2//1
+    @test VanLeer()(-1//0) === 0//1
+end
+
 @testset "constructors refuse what the schemes cannot use" begin
     @test_throws ArgumentError PFC(fmin = 2.0, fmax = 1.0)
     @test_throws ArgumentError PFCNonUniform(fill(0.1, 8); fmin = 2.0, fmax = 1.0)
