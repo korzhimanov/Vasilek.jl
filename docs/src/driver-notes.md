@@ -85,38 +85,36 @@ trapezoid, 0.79% up at that amplitude.
 The uniform-grid schemes are split as well, which `line_advector` did not do.
 Within a cell the count is 1 -- `|α| ≤ h` exactly when `α/h` rounds to at most 1
 -- and `α/1` is `α`, so every call that ran before takes the same step to the
-bit, but a `PFC`'s step of exactly a cell; a call past `c = 1`, which was a
-`DomainError`, now runs in sub-steps. Nothing here asks a uniform scheme for
-more than `c = 0.50`. `SemiLagrangian`, which has no Courant limit, takes any
-step whole.
+bit; a call past `c = 1`, which was a `DomainError`, now runs in sub-steps.
+Nothing here asks a uniform scheme for more than `c = 0.50`. `SemiLagrangian`,
+which has no Courant limit, takes any step whole.
 
-**No `PFC` or `PFCNonUniform` sub-step is exactly a cell**: one cell is two
-halves, and `m` cells `m + 1` parts. At `|c| = 1` every flux is its upwind
-cell's whole value, and a cell takes `f[i] + (f[i−1] − f[i])`, which rounds
-unless the two are within a factor of two of each other: the shift is right to
-within an ulp of the larger, and from data that touches a `PFC`'s bounds it can
-leave a cell outside them. `OnGrid(PFCNonUniform(fill(0.1, 6); fmin = 0, fmax =
-1))` took `α = 0.2` in two steps of exactly 0.1, and the second refused the
-−1.7e-18 the first left in a cell that had held 0. On random lines of 8 cells of
-a random uniform width, bounded at their own extrema, a `PFCNonUniform` step of
-exactly the width took 1351 of 20000 above them and 974 below. `PFC` at `c = 1`
-took none out, but `[0.195, 0.694, 0.566, 0.987]` under `fmax = 0.987` goes to
-`0.9870000000000001`: the misses are rounding ties, which random data rarely
-holds and decimal data often does.
+**A step of exactly a cell is a one-cell shift only to within an ulp.** At `|c|
+= 1` every flux is its upwind cell's whole value, and a cell takes `f[i] +
+(f[i−1] − f[i])`, which rounds unless the two are within a factor of two of each
+other, to within an ulp of the larger, and from data that touches a `PFC`'s
+bounds it left a cell outside them. `OnGrid(PFCNonUniform(fill(0.1, 6); fmin =
+0, fmax = 1))` took `α = 0.2` in two steps of exactly 0.1, and the second
+refused the −1.7e-18 the first left in a cell that had held 0. On random lines
+of 8 cells of a random uniform width, bounded at their own extrema, a
+`PFCNonUniform` step of exactly the width took 1351 of 20000 above them and 974
+below; `PFC` at `c = 1` took none out, but `[0.195, 0.694, 0.566, 0.987]` under
+`fmax = 0.987` went to `0.9870000000000001`, a rounding tie, which random data
+rarely holds and decimal data often does. A few ulps short of a cell it did too,
+more rarely: `PFCNonUniform` in 255, 176, 166, 77, 9 and 1 of the 20000 above at
+1, 2, 4, 16, 256 and 4096 ulps short, 190 below at one, and none at 2²⁰; `PFC`
+in 38, 30, 4 and 1 above at 4, 16, 256 and 4096 ulps short of `c = 1`, and none
+at 1, 2 or 2²⁰.
 
-The split is theirs alone, as checking their bounds is. It was every scheme's
-for a while, and a unit spike under `OnGrid(Upwind())` at `α = h` came out as
-0.25, 0.5, 0.25 rather than shifted, a Gaussian 0.053 off its shift; `Upwind`,
-`Godunov` and `LaxWendroff` take their own step at `c = ±1` again, and an ulp
-they leave beside a default is the round-off the default allows for below.
-
-A sub-step a few ulps short of a cell still does it, more rarely, and `OnGrid`
-does not split that. `PFCNonUniform` took the lines above in 255, 176, 166, 77,
-9 and 1 of the 20000 at 1, 2, 4, 16, 256 and 4096 ulps short, below in 190 at
-one ulp short and none further, and out in none at 2²⁰; `PFC` above in 38, 30,
-4 and 1 at 4, 16, 256 and 4096 ulps short of `c = 1`, and in none at 1, 2 or
-2²⁰. A displacement that is a multiple of the cell is the one a caller writes
-down, and the one the split catches; one within 1e-10 of it is not.
+**`OnGrid` takes those steps as they come**, as it takes every scheme's step
+at `c = ±1`. For a while it split a `PFC`'s or a `PFCNonUniform`'s step of
+exactly a cell in two instead, which a step a few ulps short of it still beat,
+and which smeared the step it caught: a unit spike under `OnGrid(PFC(fmin = 0,
+fmax = 1))` at `α = h` came out as 0.219, 0.562, 0.219 rather than shifted.
+Before that it split every scheme's, and a unit spike under `OnGrid(Upwind())`
+came out as 0.25, 0.5, 0.25, a Gaussian 0.053 off its shift. The ulp outside is
+a known issue of the two schemes, in the CHANGELOG; a scheme given beside a
+default has its lines clamped into the default's bounds, below.
 
 **The line is worked in Float64**, its buffer and the scheme's scratch alike,
 and rounded into `f` once per step: the driver asks `strang_step!`'s workspace
@@ -417,8 +415,9 @@ runs, by up to 0.33 of its maximum, and above the maximum in 29% to 45%, by up
 to 0.24; a `PFC` bounded at 1.5 times the maximum took it above in 27%, by up
 to 0.115.
 
-**A scheme given beside a default has its lines clamped into the default's
-bounds**, `[0, maximum(f)]`, after every step it takes ([`Clamped`](@ref
+**A scheme given beside a default has the round-off it leaves outside the
+default's bounds clamped**, into `[0, maximum(f)]`, after every step it takes,
+and a step that leaves a line further out refused ([`Clamped`](@ref
 Vasilek.VlasovPoisson1D1V.Clamped)). The default refused the line such a scheme
 left an ulp above, and the run stopped, which the measurement above did not
 show. `Godunov` added a cell's inflow and subtracted its outflow in turn, the
@@ -446,21 +445,37 @@ up to 15. Over 200 steps, the peak of each run passed two ulps in 44 of 6000
 runs with `VanLeer`, by up to 50, and in 66 with `Superbee`, by up to 90. The
 constant reconstruction, `Upwind` and the linear `SemiLagrangian` never did. A
 clamped `Superbee` line stays inside where the bare one went 37 ulps over in 142
-steps.
+steps. Within a call it builds over the sub-steps `OnGrid` takes: on such lines,
+clamped after each of 10 calls, the most a call left above the maximum was an
+ulp per sub-step, with `VanLeer` 2, 4, 8, 9, 24 and 107 ulps in 2, 4, 8, 16, 64
+and 256 sub-steps and with `Superbee` 2, 4, 7, 13, 35 and 111. `Upwind`, the
+constant reconstruction and the linear `SemiLagrangian` left an ulp at most,
+whatever the count, above the maximum or below 0.
 
-A line inside the bounds is left as it is, to the bit, so a partnered run that
-went through takes the steps it took; the clamp acts only where the default
-would have stopped the run, and moves the mass by what it cuts. Its pass is 0.4%
-to 2% of a step at 64 × 81 and 128 × 161, and allocates nothing. The default
-keeps `maximum(f)` itself, its limiter as with no scheme given: for a while it
-was bounded two ulps above beside a given scheme instead, which let its limiter
-take a line up there, in 2406 of 20000 single steps on random lines peaking at
-their bound against 1 bounded at the peak, and the two ulps had to be taken in
-the lines' type, not the widths', BigFloat on a BigFloat grid. A `PFC` given is
-clamped as any other scheme is: one bounded a rounding above `maximum(f)` in its
-own type, which `keeps_bounds` takes, can take a line there. A negative `f`,
-which the clamp would take to 0, is refused before the first step, as the
-default refuses it on its first.
+The clamp cuts that round-off and no more: 4 ulps of the run's maximum for each
+sub-step of the call, four times the most measured, and for a `PFC` or
+`PFCNonUniform` what its own bounds lie outside `[0, maximum(f)]`, which
+`keeps_bounds` takes in the scheme's precision: a Float32 one bounded at 1/√(2π)
+rounded up lies 1.1e-8 above it, and can take a line there: on the rows that
+differ from each other, below, it stopped all of 40 runs to `t = 20` before its
+lines were clamped, and stops none now. A step that leaves a line further out is
+a `DomainError` naming the scheme, as the default would have stopped the run on
+it. For a while the clamp took anything, and an overshoot, `LaxWendroff`'s 10%
+over a pulse, would have gone off unseen, the mass with it. A line inside the
+bounds is left as it is, to the bit, so a partnered run that went through takes
+the steps it took: 18 runs to `t = 20` come out as they did under the clamp that
+took anything, and the clamp moves the mass by the round-off it cuts and no
+more. It is the copy of each line back into `f`, which the step makes anyway,
+and allocates nothing: a step at 64 × 81 to 256 × 321 costs 1% to 6.5% more than
+unclamped with the given scheme in x and 2% at most in v, where a pass of its
+own, after the copy, cost 8% to 13% in x. The default keeps `maximum(f)` itself,
+its limiter as with no scheme given: for a while it was bounded two ulps above
+beside a given scheme instead, which let its limiter take a line up there, in
+2406 of 20000 single steps on random lines peaking at their bound against 1
+bounded at the peak, and the two ulps had to be taken in the lines' type, not
+the widths', BigFloat on a BigFloat grid. A negative `f`, which the clamp would
+take to 0, is refused before the first step, as the default refuses it on its
+first.
 
 On the README's grid to `t = 20`, waterbags flat or perturbed in x by 1e-12 to
 5%, Landau at 1% and 50%, a two-stream case and Maxwellians capped at 0.2 to

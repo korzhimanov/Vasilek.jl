@@ -345,14 +345,11 @@ guide `docs/src/migration-0.2.md`, or a test.
 ### Fixed
 
 - **A scheme given for one direction no longer stops the run in the other's
-  default**: `Godunov` takes `f + (Φin − Φout)`, and the given scheme's lines
-  are clamped into the default's bounds. `docs/src/driver-notes.md`.
+  default**: `Godunov` takes `f + (Φin − Φout)`, and the given scheme's
+  round-off past the default's bounds is clamped. `docs/src/driver-notes.md`.
 - **`Godunov` keeps a constant line to the bit**, the constant reconstruction as
   `Upwind` to the bit; its four golden lines move by up to 4 ulps (7.0e-16
   relative), the other six not at all. `test/test_contracts.jl`.
-- **`OnGrid` gives `PFC` and `PFCNonUniform` no sub-step of exactly a cell**,
-  which took a cell an ulp outside their bounds; `substeps(2h, h; inside = true)`
-  is 3. `docs/src/driver-notes.md`.
 - **`vlasov_poisson` runs in the data's type, `T = float(eltype(f₀))`**: field,
   density, histories and `E_modes` follow it, and the lines are worked in
   Float64. `test/test_driver.jl`.
@@ -506,8 +503,9 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Known issues
 
-- A step a few ulps short of a cell can still leave `PFC` and `PFCNonUniform` an
-  ulp outside bounds at the data's own extrema. `docs/src/driver-notes.md`.
+- A step of a cell, or a few ulps short of one, can leave `PFC` and
+  `PFCNonUniform` an ulp outside bounds at the data's own extrema.
+  `docs/src/driver-notes.md`.
 - Rounding can still leave `PFCNonUniform` an ulp above `fmax` where a plateau
   at the bound meets rough data, and a driver run on such data stops, with a
   scheme given or none. `docs/src/driver-notes.md`.

@@ -195,7 +195,6 @@ limiter keeps the data inside `[fmin, fmax]` only as closely: with a bound at
 the data's own extremum a cell can land an ulp outside, and the next checked
 call refuses the line. Under `fmax = 0.987`, `c = 1` takes
 `[0.195, 0.694, 0.566, 0.987]` to a first cell of `0.9870000000000001`.
-[`OnGrid`](@ref) gives it no step of exactly a cell.
 """
 struct PFC{T<:AbstractFloat, Checked} <: AbstractAdvection1D
     fmin::T
@@ -237,7 +236,7 @@ At `|α| = minimum(Δx)` the narrowest cells take a step of exactly one cell, an
 [`PFC`](@ref)'s caveat holds for them, at that step and a few ulps short of it:
 with `fmin = 0` and data that touches it, `α = 0.1` over `fill(0.1, 6)` takes
 `[0, 0.01268125, 0.01268125, 0, 0, 0.01268125]` to `-1.7e-18` in its second
-cell. [`OnGrid`](@ref) gives it no step of exactly a cell.
+cell.
 """
 struct PFCNonUniform{T<:AbstractFloat, Checked} <: AbstractAdvection1D
     Δx::Vector{T}
@@ -578,26 +577,6 @@ be compiled out, and this is part of the schemes' contract.
     return nothing
 end
 
-"""
-    _hold!(dest, src, lo, hi)
-
-`src` clamped into `[lo, hi]`, into `dest`, which may be `src` itself: in
-`dest`'s type, the bounds rounded inward into it, so that a narrower `dest`
-holds nothing past them. Comparisons and `ifelse`, so that it vectorizes, where
-`clamp!` cost a third of a `PFC` step at N = 10000. The driver clamps the lines
-of a scheme given beside a default with it.
-"""
-function _hold!(dest, src, lo, hi)
-    l, u = _inward(eltype(dest), lo, hi)
-    @inbounds @simd for i in eachindex(dest, src)
-        x = src[i]
-        dest[i] = ifelse(x > u, u, ifelse(x < l, l, x))
-    end
-    return dest
-end
-_inward(::Type{S}, lo, hi) where {S<:AbstractFloat} = (S(lo, RoundUp), S(hi, RoundDown))
-_inward(::Type{S}, lo, hi) where {S} = (convert(S, lo), convert(S, hi))
-
 @noinline _err_bound_low(lo, m) = throw(DomainError(m,
     "fmin = $lo exceeds minimum(src) = $m: the PFC limiter is built on [fmin, fmax]"))
 @noinline _err_bound_high(hi, M) = throw(DomainError(M,
@@ -621,8 +600,7 @@ its upwind cell's whole value, and a cell takes `f[i] + (f[i−1] − f[i])` --
 `Upwind`'s `f[i] − (f[i] − f[i−1])` is the same rounding -- which is `f[i−1]`
 exactly only where the difference is exact, as it is between neighbours within
 a factor of two of each other. `LaxWendroff` rounds more terms. That ulp can
-take a cell outside a `PFC`'s bounds, so [`OnGrid`](@ref) never gives a `PFC`
-or a `PFCNonUniform` a step of exactly a cell; see [`nsubsteps`](@ref).
+take a cell outside a `PFC`'s bounds; see [`PFC`](@ref).
 
 The bounded method is the default, so a new scheme is checked unless it opts
 out, as `SemiLagrangian` does: one that forgets to opt out is refused loudly,
@@ -668,11 +646,9 @@ grid to the same `1e-12`, and refused otherwise.
 A step wider than a cell -- the narrowest one, for `PFCNonUniform` -- is split
 into the fewest equal sub-steps that fit, [`substeps`](@ref), since `advect!`
 refuses it whole and a translation by `α` is `m` translations by `α/m`. A
-`PFC` or a `PFCNonUniform` is split as well where a step would be exactly a
-cell, since that step can leave the data an ulp outside its bounds. A scheme
-with no Courant limit, `SemiLagrangian`, takes it in one step; see
-[`nsubsteps`](@ref). Every other step a scheme takes on its own is one step
-here, to the bit: within a cell `m = 1`, and `α/1` is `α`.
+scheme with no Courant limit, `SemiLagrangian`, takes it in one step; see
+[`nsubsteps`](@ref). Every step a scheme takes on its own is one step here, to
+the bit: within a cell `m = 1`, and `α/1` is `α`.
 
 `workspace(og, n[, T])` is scratch for the scheme and a line buffer for the
 sub-steps, in the grid's element type unless `T` is given; `n` is the grid's
@@ -750,50 +726,31 @@ end
     "$(nameof(typeof(og.scheme))) is on a grid of $(og.n) cells, not $n"))
 
 """
-    substeps(α, h; inside = false)
+    substeps(α, h)
 
 The fewest equal parts of `α` that are each no longer than `h`, and one for an
-`α` that is not finite, which `advect!` then refuses itself. With
-`inside = true`, each part is shorter than `h`: `substeps(2h, h)` is 2 and
-`substeps(2h, h; inside = true)` is 3.
-
-A part of exactly `h` is a step of `|c| = 1`, a one-cell shift only to within an
-ulp (see [`_validate_courant`](@ref)), and it took a cell of data that touches
-a `PFC`'s or a `PFCNonUniform`'s bounds an ulp outside them:
-`OnGrid(PFCNonUniform(fill(0.1, 6); fmin = 0, fmax = 1))` split `α = 0.2` into
-two steps of exactly 0.1, and the second refused what the first had left,
-`-1.7e-18` in a cell that had held 0. `OnGrid` asks for parts inside a cell for
-those two; see [`nsubsteps`](@ref).
+`α` that is not finite, which `advect!` then refuses itself.
 """
-function substeps(α, h; inside::Bool = false)
+function substeps(α, h)
     isfinite(α) || return 1
     m = max(1, ceil(Int, abs(α)/h))
-    # the quotient can round below the integer, and with `inside` a part of
-    # exactly `h` is one cell, which the part has to stay inside
-    a = abs(α/m)
-    return (a > h || inside && a == h) ? m + 1 : m
+    return abs(α/m) > h ? m + 1 : m    # the quotient can round below the integer
 end
 
 """
     nsubsteps(og::OnGrid, α)
 
 How many equal sub-steps [`OnGrid`](@ref) takes the displacement `α` in:
-[`substeps`](@ref)`(α, og.h)`, so that none crosses a cell; for `PFC` and
-`PFCNonUniform`, `substeps(α, og.h; inside = true)`, so that none is exactly a
-cell either; and 1 for a scheme with no Courant limit. `SemiLagrangian` has a
-method returning 1; a scheme of another type that has none adds one.
+[`substeps`](@ref)`(α, og.h)`, so that none crosses a cell, and 1 for a scheme
+with no Courant limit. `SemiLagrangian` has a method returning 1; a scheme of
+another type that has none adds one.
 
 `|α/m| ≤ h` is what `PFCNonUniform` checks, and for a scheme that takes a
 Courant number it gives `|(α/m)/h| ≤ 1`, division being monotone. Where `α`
 fits a cell, `|α| ≤ h` exactly when `|α/h| ≤ 1` after rounding, so `m = 1`
-wherever the step alone would have been taken: `Upwind` at `|α| = h` is its own
-step at `c = ±1`. A `PFC` or `PFCNonUniform` takes that step in two halves, and
-its parts give `|(α/m)/h| < 1`, since a float below `h` divided by `h` rounds
-below 1. Only the step of exactly a cell is split: one a few ulps short of it
-can still leave a cell an ulp outside the bounds, rarely.
+wherever the step alone would have been taken.
 """
 nsubsteps(og::OnGrid, α) = substeps(α, og.h)
-nsubsteps(og::OnGrid{<:Union{PFC, PFCNonUniform}}, α) = substeps(α, og.h; inside = true)
 nsubsteps(::OnGrid{<:SemiLagrangian}, α) = 1
 
 # The scheme's own fourth argument for a sub-step of displacement `a`: a
