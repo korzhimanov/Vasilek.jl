@@ -86,27 +86,59 @@ for stem in STUDIES
         postprocess = tidy)
 end
 
-# ------------------------------------------------------------------- the site
-const API_PAGES = ["vasilek", "advection", "strangsplitting", "collisions",
-                   "vlasovpoisson1d1v", "poissonfourier1d", "fdtd1d"]
+# ------------------------------------------------------------------- the API
+# A page per module, written from the list that also tells makedocs what to
+# document, so that a module added to it gets its page: `checkdocs = :exports`
+# does not check private docstrings, which a module left without a page would
+# silently lose. A generated page has no source to edit, hence `EditURL`.
+const API_MODULES = [Vasilek, Vasilek.Advection, Vasilek.StrangSplitting,
+                     Vasilek.Collisions, Vasilek.VlasovPoisson1D1V,
+                     Vasilek.PoissonFourier1D, Vasilek.FDTD1D]
 
+const API_DIR = joinpath(SRC, "api")
+rm(API_DIR; recursive = true, force = true)
+mkpath(API_DIR)
+api_page(m) = "api/$(lowercase(string(nameof(m)))).md"
+for m in API_MODULES
+    # `Modules` is evaluated in `CurrentModule`, where a module's own name
+    # resolves to it.
+    write(joinpath(SRC, api_page(m)), """
+        # `$m`
+
+        ```@meta
+        CurrentModule = $m
+        EditURL = nothing
+        ```
+
+        ```@autodocs
+        Modules = [$(nameof(m))]
+        Public = true
+        Private = true
+        ```
+        """)
+end
+
+# ------------------------------------------------------------------- the site
 makedocs(;
     sitename = "Vasilek.jl",
     authors = "Artem Korzhimanov",
-    modules = [Vasilek, Vasilek.Advection, Vasilek.StrangSplitting, Vasilek.Collisions,
-               Vasilek.VlasovPoisson1D1V, Vasilek.PoissonFourier1D, Vasilek.FDTD1D],
+    modules = API_MODULES,
     checkdocs = :exports,
     doctest = false,
     repo = Documenter.Remotes.GitHub("korzhimanov", "Vasilek.jl"),
+    # A page over 100 KiB, Documenter's default `size_threshold_warn`, fails the
+    # build instead of only warning: a warning leaves the build green, and the
+    # one-page API sat at the limit unnoticed until a docstring crossed it.
     format = Documenter.HTML(; prettyurls = get(ENV, "CI", nothing) == "true",
-                             edit_link = "master"),
+                             edit_link = "master",
+                             size_threshold = 100 * 2^10,
+                             size_threshold_warn = 100 * 2^10),
     pages = [
         "index.md",
         "Manual" => ["normalization.md", "driver-notes.md", "migration-0.2.md"],
         "Verification" => ["verification.md", ["studies/$stem.md" for stem in STUDIES]...],
-        # One page per module: on one page, the docstrings came within bytes of
-        # Documenter's 100 KiB `size_threshold_warn`.
-        "API" => ["api/index.md", ["api/$m.md" for m in API_PAGES]...],
+        # A page per module: on one page, the docstrings outgrew 100 KiB.
+        "API" => ["api.md", api_page.(API_MODULES)...],
     ],
 )
 

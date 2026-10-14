@@ -22,7 +22,7 @@ As for now, the following functionality has been implemented:
 * [Notes on the 1D1V driver](driver-notes.md): why `vlasov_poisson` makes each
   of its choices, and what each one changed when it was made.
 * [Migrating to 0.2](migration-0.2.md): from the 0.1 closures to scheme values.
-* [API](api/index.md): every docstring, a page per module, the internals included.
+* [API](api.md): every docstring, a page per module, the internals included.
 * [Verification](verification.md): the table of what the test suite asserts
   about the verification studies, the measurements behind each claim, study by
   study, and each study rendered with its output.

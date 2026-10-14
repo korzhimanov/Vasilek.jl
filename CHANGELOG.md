@@ -222,9 +222,9 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Changed
 
-- **The API reference is a page per module** (`docs/src/api/`): on one page it
-  reached 102391 bytes, at Documenter's 100 KiB `size_threshold_warn`; the
-  largest page is now `Advection`, at 51777 bytes.
+- **The API reference is a page per module, and a docs page over 100 KiB fails
+  the build**: the one-page API had reached Documenter's warning limit. Old
+  `api/#Name` anchors now land on the overview. `docs/make.jl`.
 - **The normalization notes link three measurements to the verification page**,
   and the README links the built notes; the harness's `em_omega` and `wakefield`
   docstrings keep the carrier's 4.5% apart from the pulse's 5.2% and 6.6%.
