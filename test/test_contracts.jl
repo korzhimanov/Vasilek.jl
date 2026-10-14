@@ -502,6 +502,11 @@ end
         @test all(r -> !isfinite(formula(r)) || VanLeer()(r) === formula(r), rs)
         @test count(r -> isfinite(formula(r)), rs) > 0.9*length(rs)
     end
+    @test VanLeer()(BigFloat(Inf)) == 2 && VanLeer()(-BigFloat(Inf)) == 0
+    # and a type without `floatmax` takes the formula, as every type did
+    @test VanLeer()(1) === 1.0
+    @test VanLeer()(1//2) === 2//3
+    @test VanLeer()(-3//1) === 0//1
 end
 
 @testset "constructors refuse what the schemes cannot use" begin

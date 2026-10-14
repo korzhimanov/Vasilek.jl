@@ -36,7 +36,7 @@ to [`LaxWendroff`](@ref), second order and not monotone; with
 """
 struct PiecewiseLinear <: AbstractReconstruction end
 
-"""Flux limiter. Callable as `limiter(r)`."""
+"""Flux limiter. Callable as `limiter(r)` for any `r`, `±Inf` included."""
 abstract type AbstractLimiter end
 
 """No limiting: `r -> 1`."""
@@ -74,15 +74,20 @@ struct Superbee <: AbstractLimiter end
 # and a negative r, for which it is 0, goes to 0 before any arithmetic. Wherever
 # the formula was finite this is it to the bit: `q + q` is the `r + |r|` of a
 # positive r, and a negative one still gives +0. NaN stays NaN. `ifelse` for the
-# reason `_ratio` gives, in schemes/godunov.jl. Clamping r to ±floatmax/2 and
-# keeping the formula did the same at 15% to 20% more per Float32 step on Julia
-# 1.13, 2% to 5% on 1.10; this form measured within 3% of the formula alone on
-# both, in Float32 and Float64.
-function (::VanLeer)(r)
+# reason `_ratio` gives, in schemes/godunov.jl.
+#
+# Clamping r in `_ratio` instead would serve any limiter that can take
+# floatmax/2, but it measured 6% to 19% over the unguarded VanLeer step, and up
+# to 12% on Superbee, which takes ±Inf as it is; this form measured at most 11%
+# over it. Julia 1.10 and 1.13, Float32 and Float64, best of 60 interleaved runs
+# on a shared host.
+function (::VanLeer)(r::AbstractFloat)
     h = floatmax(r)/2
     q = ifelse(r ≤ 0, zero(r), ifelse(r > h, h, r))
     return (q + q)/(1 + q)
 end
+# A type without `floatmax`, a rational or a dual number, takes the formula.
+(::VanLeer)(r) = (r + abs(r))/(1 + abs(r))
 (::Superbee)(r) = max(zero(r), min(2r, one(r)), min(r, oftype(r, 2)))
 
 """Interpolating spline used by [`SemiLagrangian`](@ref)."""
