@@ -77,10 +77,11 @@ only inside the bounds) and clamps what it returns into `[fmin, fmax]`. The
 clamp acts only where rounding left a cell outside the bounds, at the ulp level,
 or where the data it took were outside by round-off, even at `c = 0`, and moves
 the mass by the ulp it cuts, so `checked = true` and `checked = false` can
-differ in the last bits of such a cell. Over 10000 driver steps from a plateau at the bound meeting rough data,
-the clamp acted on six cells at most, all in the first 12 steps, and the mass
-moved no more than with `checked = false`, whose steps move it by round-off
-too. `checked = false` removes the check and the clamp, at compile time.
+differ in the last bits of such a cell. Over 10000 driver steps from a plateau
+at the bound meeting rough data, the clamp acted on six cells at most, all in
+the first 12 steps, and the mass moved no more than with `checked = false`,
+whose steps move it by round-off too. `checked = false` removes the check and
+the clamp, at compile time.
 
 ## Workspaces
 

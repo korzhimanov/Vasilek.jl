@@ -137,8 +137,11 @@ _beside(g::Union{PFC, PFCNonUniform}, hi) = max(hi, g.fmax)
 # and returned 0: at the bound's own scale a bound at 0 holds `f` exactly. To
 # round-off, since `f` is `f₀` renormalized by a factor 1 to round-off: held to
 # it exactly, one bounded at `maximum(f₀)` was refused in 2 of 40 Landau runs
-# for the ulp that added, which its first call takes. An unchecked one refuses
-# nothing, and is taken as given.
+# for the ulp that added, which its first call takes. In a Float32 run that ulp
+# is a Float32 one, past both this check and the call's, which takes no
+# round-off coarser than Float64's: the message points to a scheme given as a
+# function of `f`, bounded on `f` itself. An unchecked one refuses nothing, and
+# is taken as given.
 _holds(::AbstractAdvection1D, f) = true
 function _holds(g::Union{PFC{<:Any, true}, PFCNonUniform{<:Any, true}}, f)
     lo, hi, F = g.fmin, g.fmax, float(eltype(f))
@@ -149,7 +152,9 @@ function refuse_narrow(given, name, f)
     _holds(g, f) && return nothing
     throw(ArgumentError(
         "$name, a checked $(nameof(typeof(g))) on [$(g.fmin), $(g.fmax)], does not hold f, " *
-        "whose extrema are $(extrema(f)): bound it to hold f, or build it with checked = false"))
+        "whose extrema are $(extrema(f)) once renormalized: bound it to hold f -- a function " *
+        "of f, such as f -> PFC(fmin = 0, fmax = maximum(f)), is handed it renormalized -- " *
+        "or build it with checked = false"))
 end
 
 # A scheme given as a function of `f` is built here, and has to be a scheme.
@@ -242,12 +247,13 @@ round-off, as [`keeps_bounds`](@ref) decides, or the call throws an
 `ArgumentError` before the first step. The default takes the round-off it leaves
 past them and returns its lines inside; `f₀` has to lie inside them exactly, and
 a negative one is a `DomainError` before the first step, whichever scheme is
-given beside the default, once that scheme is not refused for itself as above.
-A given checked `PFC` or `PFCNonUniform` has to hold `f₀` inside its own bounds
+given beside the default, once that scheme is not refused for itself as above. A
+given checked `PFC` or `PFCNonUniform` has to hold `f₀` inside its own bounds
 too, to round-off at the scale of each bound, which holds a bound at 0 exactly,
-or the call throws an `ArgumentError` then. Pass both schemes, or a `PFCNonUniform` with bounds both
-sweeps keep (`fmin = -Inf, fmax = Inf` for none), for the other direction. With `collisions` the defaults have no upper bound, since a collision
-step can raise a line's peak above `maximum(f)`.
+or the call throws an `ArgumentError` then. Pass both schemes, or a
+`PFCNonUniform` with bounds both sweeps keep (`fmin = -Inf, fmax = Inf` for
+none), for the other direction. With `collisions` the defaults have no upper
+bound, since a collision step can raise a line's peak above `maximum(f)`.
 
 Why each of these choices was made, with the measurements behind them, is in
 `docs/src/driver-notes.md`. The run is [`setup`](@ref), then [`step!`](@ref) and

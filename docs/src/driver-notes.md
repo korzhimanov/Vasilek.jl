@@ -294,12 +294,12 @@ energy, so the field solved before the kick is still the field after the first
 half-collision, and the kinetic energy is still moved by the kick alone -- the
 centring above holds as it stands.
 
-**A scheme given for one direction while the other is left to its default has
-to keep `f` inside those bounds, or the call is refused**, with an
-`ArgumentError`, before the first step. Without that check the default refused
-such a call later, mid-run: it stops the run at the first line handed to it
-outside its bounds by more than round-off, and a scheme that does not keep them
-hands it one soon enough. At 50% amplitude on one wavelength of `k = 0.5`, 64 × 121 cells over ±6
+**A scheme given for one direction while the other is left to its default has to
+keep `f` inside those bounds, or the call is refused**, with an `ArgumentError`,
+before the first step. Without that check the default refused such a call later,
+mid-run: it stops the run at the first line handed to it outside its bounds by
+more than round-off, and a scheme that does not keep them hands it one soon
+enough. At 50% amplitude on one wavelength of `k = 0.5`, 64 × 121 cells over ±6
 (the case in `test_driver.jl`), `LaxWendroff` in `v` took `f` to −1.9e-9 on the
 16th step and the cubic `SemiLagrangian` to −7.0e-10 on the 21st.
 [`keeps_bounds`](@ref) decides. It passes the schemes that keep their data
@@ -310,8 +310,8 @@ refuses `LaxWendroff`, `Godunov(PiecewiseLinear())` without a limiter, the
 quadratic and cubic `SemiLagrangian`, a `PFC` bounded wider, and a scheme of any
 other type. Given both schemes, the driver checks neither: the same scheme for
 both, as `verification/scheme-comparison.jl` passes them, or for the other
-direction a `PFCNonUniform` with bounds both sweeps keep -- `fmin = -Inf,
-fmax = Inf` for none, which is PFC's reconstruction with nothing to limit it.
+direction a `PFCNonUniform` with bounds both sweeps keep -- `fmin = -Inf, fmax =
+Inf` for none, which is PFC's reconstruction with nothing to limit it.
 
 *Superseded for the upper bound:* with `collisions` the defaults no longer carry
 `maximum(f)` as an upper bound, so the `DomainError`s described next no longer

@@ -303,11 +303,12 @@ A trapped population colder than the bulk peaks at 1.79, above the f = 1 the
 harness once bounded PFC by. Bounded by `f₀`, as every run now is, it holds to
 0.99% of its peak. At the old bound the limiter, handed data above its `fmax`,
 turned inside out and took `f` 43.6% of its peak away, without an error.
-`PFCNonUniform` now checks its data as PFC does, and `vlasov_poisson` refuses
-a checked one whose bounds do not hold `f₀` before the first step; built
-unchecked, it reproduces the 43.6%, and the extended suite asserts both. Over the two-stream runs carried into saturation and the three
-equilibria, 3.8 million calls of the checked schemes stay inside their bounds,
-sub-steps included.
+`PFCNonUniform` now checks its data as PFC does, and `vlasov_poisson` refuses a
+checked one whose bounds do not hold `f₀` before the first step; built
+unchecked, it reproduces the 43.6%, and the extended suite asserts both. Over
+the two-stream runs carried into saturation and the three equilibria, 3.8
+million calls of the checked schemes stay inside their bounds, sub-steps
+included.
 
 ### Reversibility
 

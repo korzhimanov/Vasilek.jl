@@ -77,6 +77,7 @@ function advect!(dest, src, p::PFC{T,Checked}, c, ws) where {T,Checked}
         dest[n-1] = src[n-1] + (Φ - Φₙ)
         dest[n] = src[n] + (Φₙ - Φ₁)
     end
-    Checked && _hold!(dest, dest, l, u)
+    # Bounds at ±Inf, which the driver suggests for none, hold every line.
+    Checked && !(isinf(lo) && isinf(hi)) && _hold!(dest, dest, l, u)
     return dest
 end
