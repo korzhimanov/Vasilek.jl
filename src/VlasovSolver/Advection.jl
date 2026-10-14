@@ -586,8 +586,7 @@ end
 `dest`'s type, the bounds rounded inward into it, so that a narrower `dest`
 holds nothing past them. Comparisons and `ifelse`, so that it vectorizes, where
 `clamp!` cost a third of a `PFC` step at N = 10000. A checked `PFC` and
-`PFCNonUniform` clamp what they return with it, and the driver the lines of a
-scheme given beside a default.
+`PFCNonUniform` clamp what they return with it.
 """
 function _hold!(dest, src, lo, hi)
     l, u = _inward(eltype(dest), lo, hi)

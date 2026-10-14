@@ -263,10 +263,11 @@ end
 
     @testset "and every scheme its own step of exactly a cell" begin
         # For a while OnGrid split every scheme's step of exactly a cell in
-        # two, and a unit spike under OnGrid(Upwind()) at α = h came out as
-        # 0.25, 0.5, 0.25 rather than shifted; a Gaussian was 0.053 off its
-        # shift. At α = ±h every scheme takes its own step at c = ±1, to the
-        # bit, and on a smooth line that is the shift itself.
+        # two, and then a PFC's alone: a unit spike at α = h came out as 0.25,
+        # 0.5, 0.25 under OnGrid(Upwind()) and 0.219, 0.562, 0.219 under
+        # OnGrid(PFC) rather than shifted; a Gaussian was 0.053 off its shift.
+        # At α = ±h every scheme takes its own step at c = ±1, to the bit, and
+        # on a smooth line that is the shift itself.
         n = 32
         g = [exp(-((i - 12)/3)^2) for i in 1:n]
         h = 0.5

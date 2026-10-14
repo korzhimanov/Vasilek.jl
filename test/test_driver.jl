@@ -408,6 +408,7 @@ end
 struct UnvouchedScheme <: AbstractAdvection1D end
 
 using Vasilek.VlasovPoisson1D1V: keeps_bounds, Clamped
+using Vasilek.Advection: nsubsteps
 
 @testset "a scheme given alone has to keep the default's bounds" begin
     # One wavelength of k = 0.5 at 50% amplitude, 64 × 121 over ±6. With the
@@ -685,16 +686,27 @@ end
     @test maximum(r.fmax) ≤ M
     # A PFC given with its bound rounded outward, as keeps_bounds allows in its
     # own type, is clamped like any other: a Float32 one 1e-8 above maximum(f)
-    # can take a line there, which the default refused.
+    # can take a line there, which the default refused. The clamp takes that
+    # 1e-8 for round-off, as keeps_bounds does.
     prob, = setup(x, v, waterbag, t; nᵢ,
                   scheme_x = f -> PFC(fmin = 0f0, fmax = Float32(maximum(f), RoundUp)))
     @test prob.ox isa Clamped && prob.ox.hi == M && prob.ov.scheme.fmax == M
+    @test prob.ox.above == Float32(M, RoundUp) - M && prob.ox.below == 0
     # The clamp would take a negative f to 0, which the default refuses; it is
     # refused before the first step, as a run with no scheme given is on it.
     # f at -1e-6 in one row ran to the end under Upwind, its mass cut.
     negative = copy(waterbag); negative[3, :] .= -1e-6
     @test_throws DomainError vlasov_poisson(x, v, negative, t; scheme_x = Upwind(), nᵢ)
     @test_throws DomainError vlasov_poisson(x, v, negative, t; nᵢ)
+    # A scheme that need not keep the bounds is refused as such first, and a
+    # function of f has to return a scheme: one returning nothing fell back to
+    # the default for a while.
+    @test_throws ArgumentError setup(x, v, negative, t; scheme_x = LaxWendroff(), nᵢ)
+    @test_throws ArgumentError setup(x, v, waterbag, t; scheme_x = f -> nothing)
+    # The schemes are on their grids, taking a displacement; a bare one, which
+    # takes a Courant number, is no Problem's.
+    @test_throws MethodError Vasilek.VlasovPoisson1D1V.Problem(x, v, Δx, Δv, nᵢ, Upwind(),
+                                                               Upwind(), nothing, ())
 
     # The clamp holds what builds up. Godunov with Superbee took two lines, each
     # a plateau at 1/√(2π) meeting values up to 1e-12 below it, 5 ulps above in
@@ -714,7 +726,7 @@ end
         u = lcg_uniforms(seed, 33)
         line = [u[2i-1] < 0.5 ? M : M*(1 - 1e-12*u[2i]) for i in 1:16]
         c = 2u[end] - 1
-        clamped = Clamped(OnGrid(sb, fill(0.5, 16)), 0.0, hi)
+        clamped = Clamped(OnGrid(sb, fill(0.5, 16)), 0.0, hi, M, :scheme_x)
         bare, kept = copy(line), copy(line)
         ws = workspace(clamped, 16)
         inside, worst = true, M
@@ -730,6 +742,23 @@ end
         end
         @test worst > hi
     end
+    # It cuts round-off and no more: 4 ulps of the run's maximum for each
+    # sub-step a call takes. In 42 sub-steps the same scheme took the line
+    # below 42 ulps above, which the clamp takes, and LaxWendroff took a pulse
+    # 10% over, which is a DomainError naming the scheme, as the default would
+    # have refused the line; a clamp of anything took it off unseen.
+    u = lcg_uniforms(423, 33)
+    line = [u[2i-1] < 0.5 ? M : M*(1 - 1e-12*u[2i]) for i in 1:16]
+    og = OnGrid(sb, fill(0.5, 16))
+    α = 32*(2u[end] - 1)
+    bare = advect!(similar(line), line, og, α)
+    @test nsubsteps(og, α) == 42 && maximum(bare) == M + 42eps(M)
+    clamped = Clamped(og, 0.0, M, M, :scheme_x)
+    @test advect!(similar(line), line, clamped, α, workspace(clamped, 16)) == min.(bare, M)
+    pulse = [16 < i ≤ 40 ? 1.0 : 0.0 for i in 1:64]
+    lw = Clamped(OnGrid(LaxWendroff(), fill(1.0, 64)), 0.0, 1.0, 1.0, :scheme_x)
+    err = try advect!(similar(pulse), pulse, lw, 0.3, workspace(lw, 64)); nothing catch e; e end
+    @test err isa DomainError && occursin("scheme_x = LaxWendroff()", sprint(showerror, err))
     # The driver puts the given scheme in it, and not a default.
     for (kw, which) in (((; scheme_x = sb), :ox), ((; scheme_v = sb), :ov))
         prob, = setup(x, v, waterbag, t; nᵢ, kw...)

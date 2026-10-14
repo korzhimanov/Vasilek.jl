@@ -345,8 +345,8 @@ guide `docs/src/migration-0.2.md`, or a test.
 ### Fixed
 
 - **A scheme given for one direction no longer stops the run in the other's
-  default**: `Godunov` takes `f + (Φin − Φout)`, and the given scheme's lines
-  are clamped into the default's bounds. `docs/src/driver-notes.md`.
+  default**: `Godunov` takes `f + (Φin − Φout)`, and the given scheme's
+  round-off past the default's bounds is clamped. `docs/src/driver-notes.md`.
 - **`Godunov` keeps a constant line to the bit**, the constant reconstruction as
   `Upwind` to the bit; its four golden lines move by up to 4 ulps (7.0e-16
   relative), the other six not at all. `test/test_contracts.jl`.
