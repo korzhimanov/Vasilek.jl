@@ -200,5 +200,7 @@ that were supposed to agree.
 Both schemes check the data against the bounds on every call, and throw a
 `DomainError` naming the bound and the extremum that broke it. The limiter
 builds the bounds into the flux, so data outside them is not clipped but
-corrupted, and nothing else would say so. `checked = false` compiles the check
+corrupted, and nothing else would say so. Data past a bound by round-off, as
+another scheme's step leaves it, is taken, and what a checked call returns is
+clamped into the bounds. `checked = false` compiles the check and the clamp
 away where the bounds are known good.

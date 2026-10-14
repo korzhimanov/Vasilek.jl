@@ -10,7 +10,7 @@ that no user could run a Landau damping problem without copying it.
 """
 module VlasovPoisson1D1V
 
-using ..Advection: AbstractAdvection1D, PFCNonUniform, OnGrid, _check_bounds,
+using ..Advection: AbstractAdvection1D, PFCNonUniform, OnGrid,
                    Upwind, Godunov, PiecewiseConstant, PiecewiseLinear, VanLeer, Superbee,
                    SemiLagrangian, LinearSpline, PFC
 using ..StrangSplitting: strang_step!, Collide
@@ -126,26 +126,24 @@ _beside(::AbstractAdvection1D, lo, hi) = (lo, hi)
 _beside(g::Union{PFC, PFCNonUniform}, lo, hi) = (min(lo, g.fmin), max(hi, g.fmax))
 _beside(og::OnGrid, lo, hi) = _beside(og.scheme, lo, hi)
 
-# A checked `PFC` or `PFCNonUniform` given refuses a line its own bounds do not
-# hold, to round-off, and one narrower than `f₀` stopped the run on its first
-# sweep: it is refused here instead. An unchecked one refuses nothing, and is
-# taken as given.
+# A checked `PFC` or `PFCNonUniform` given has to hold `f₀` inside its own
+# bounds, exactly, as the default does. One narrower than `f₀` stopped the run
+# on its first sweep, and its call takes round-off past its bounds and clamps
+# it: with both schemes given it took -1e-14 in `f₀` for round-off and returned
+# 0. `f₀` is data, not a step's rounding. An unchecked one refuses nothing, and
+# is taken as given.
 _holds(::AbstractAdvection1D, f) = true
 _holds(og::OnGrid, f) = _holds(og.scheme, f)
-function _holds(g::Union{PFC{<:Any, true}, PFCNonUniform{<:Any, true}}, f)
-    try
-        _check_bounds(f, g.fmin, g.fmax)
-    catch e
-        e isa DomainError || rethrow()
-        return false
-    end
-    return true
-end
+_holds(g::Union{PFC{<:Any, true}, PFCNonUniform{<:Any, true}}, f) =
+    g.fmin ≤ minimum(f) && maximum(f) ≤ g.fmax
+_inner(s) = s
+_inner(og::OnGrid) = _inner(og.scheme)
 function refuse_narrow(given, name, f)
     _holds(given, f) && return nothing
+    g = _inner(given)
     throw(ArgumentError(
-        "$name = $(sprint(show, given)) is bounded where it does not hold f, whose extrema are " *
-        "$(extrema(f)), and would refuse the first line: bound it to hold f"))
+        "$name, a checked $(nameof(typeof(g))) on [$(g.fmin), $(g.fmax)], does not hold f, " *
+        "whose extrema are $(extrema(f)): bound it to hold f, or build it with checked = false"))
 end
 
 # A scheme given as a function of `f` is built here, and has to be a scheme.
@@ -236,8 +234,9 @@ default's bounds, `[0, maximum(f)]` (`[0, Inf)` with `collisions`), to
 round-off, as [`keeps_bounds`](@ref) decides, or the call throws an
 `ArgumentError` before the first step. The default takes the round-off it leaves
 past them and returns its lines inside; `f₀` has to lie inside them exactly, and
-a negative one is a `DomainError` before the first step. A given `PFC` or
-`PFCNonUniform` whose own bounds do not hold `f₀` is an `ArgumentError` then. Pass both schemes, or a `PFCNonUniform`
+a negative one is a `DomainError` before the first step. A given checked `PFC`
+or `PFCNonUniform` has to hold `f₀` inside its own bounds exactly too, or the
+call throws an `ArgumentError` then. Pass both schemes, or a `PFCNonUniform`
 with bounds both sweeps keep (`fmin = -Inf, fmax = Inf` for none), for the other
 direction. With `collisions` the defaults have no upper bound, since a collision
 step can raise a line's peak above `maximum(f)`.
@@ -437,7 +436,7 @@ function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants
     # keeps its own bounds, which `keeps_bounds` takes rounded outward in its
     # own precision, and the default is bounded where it is too: a Float32 one
     # at `maximum(f)` rounded up took a line 4e7 ulps of Float64 past it, which
-    # the default refused. One that does not hold `f₀` is refused.
+    # the default refused. One that does not hold `f₀` exactly is refused.
     gx === nothing || refuse_narrow(gx, :scheme_x, f)
     gv === nothing || refuse_narrow(gv, :scheme_v, f)
     lo, hi = 0.0, bound

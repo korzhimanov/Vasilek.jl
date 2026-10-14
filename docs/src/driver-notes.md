@@ -483,8 +483,10 @@ beside one, the step can end on the given scheme's sweep, and `f` is then as it
 left it, a linear `SemiLagrangian` x sweep of a waterbag with its own ions an
 ulp above. A `PFC` given is a checked one too, and takes its own previous
 sub-step's ulp: one taking a step of exactly two cells stopped on its second
-sub-step. One whose bounds do not hold `f₀` is refused before the first step,
-where it stopped on the first. Its own bounds bound the default too:
+sub-step. One whose bounds do not hold `f₀` exactly is refused before the first
+step, where it stopped on the first: `f₀` is data, not a step's rounding, and
+with both schemes given such PFCs took -1e-14 in it for round-off and returned
+0. Its own bounds bound the default too:
 `keeps_bounds` takes them rounded outward in the scheme's precision, and a
 Float32 one at `maximum(f)` rounded up let a line out to it, 4e7 Float64 ulps
 past `maximum(f)` on rows dipping 1e-3 below their plateau, which the default

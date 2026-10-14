@@ -717,6 +717,10 @@ end
         @test_throws DomainError setup(x, v, negative, t; scheme_x = Upwind(), nᵢ)
         @test_throws DomainError setup(x, v, negative, t; nᵢ)
         @test_throws DomainError setup(x, v, negative, t; nᵢ, collisions = BGK(1.0))
+        # And with both schemes given, checked: their calls take round-off
+        # past their bounds and clamp it, and took -1e-14 in f₀, returning 0.
+        @test_throws ArgumentError setup(x, v, negative, t; nᵢ, scheme_x = PFC(fmin = 0.0, fmax = 1.0),
+                                         scheme_v = PFCNonUniform(Δv; fmin = 0.0, fmax = 1.0))
     end
     negative = copy(waterbag); negative[3, :] .= -1e-6
     @test_throws ArgumentError setup(x, v, negative, t; scheme_x = LaxWendroff(), nᵢ)
