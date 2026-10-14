@@ -704,9 +704,20 @@ end
         @test maximum(r.fmax) ≤ Float32(M, RoundUp) && minimum(r.fmin) ≥ 0
     end
     # A given PFC that does not hold f₀ stopped the run on its first sweep, and
-    # is refused before it.
+    # is refused before it. One bounded at maximum(f₀) holds f, f₀
+    # renormalized, to round-off: held to f exactly, it was refused in 2 of 40
+    # such Landau runs for the ulp the renormalization added, which its first
+    # call takes.
     @test_throws ArgumentError setup(x, v, waterbag, t; nᵢ,
                                      scheme_x = f -> PFC(fmin = 0.0, fmax = maximum(f)/2))
+    v65 = collect(range(-6, 6; length = 65))
+    a = range(0.001, 0.05; length = 40)[34]
+    landau = [exp(-u^2/2)/sqrt(2π)*(1 + a*cos(k*y)) for u in v65, y in x]
+    M₀ = maximum(landau)
+    r = vlasov_poisson(x, v65, landau, [0.0, 0.1, 0.2]; invariants = true,
+                       scheme_x = PFC(fmin = 0.0, fmax = M₀),
+                       scheme_v = PFCNonUniform(cell_widths(v65); fmin = 0.0, fmax = M₀))
+    @test maximum(r.fmax) ≤ M₀
     # A negative f is refused before the first step, with a scheme given or
     # none, to the bit: the default takes round-off past its bounds from a step,
     # and took -1e-14 in f₀ for it. A scheme that need not keep the bounds is
@@ -717,6 +728,9 @@ end
         @test_throws DomainError setup(x, v, negative, t; scheme_x = Upwind(), nᵢ)
         @test_throws DomainError setup(x, v, negative, t; nᵢ)
         @test_throws DomainError setup(x, v, negative, t; nᵢ, collisions = BGK(1.0))
+        # The same DomainError beside a given checked PFC, held to f₀ after it.
+        @test_throws DomainError setup(x, v, negative, t; nᵢ,
+                                       scheme_x = f -> PFC(fmin = 0.0, fmax = maximum(f)))
         # And with both schemes given, checked: their calls take round-off
         # past their bounds and clamp it, and took -1e-14 in f₀, returning 0.
         @test_throws ArgumentError setup(x, v, negative, t; nᵢ, scheme_x = PFC(fmin = 0.0, fmax = 1.0),

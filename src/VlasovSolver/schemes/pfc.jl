@@ -37,14 +37,12 @@ function advect!(dest, src, p::PFC{T,Checked}, c, ws) where {T,Checked}
     _validate(dest, src, p, c, ws)
     n = length(dest)
     lo, hi = p.fmin, p.fmax
-    if Checked
-        # A minimum/maximum pass per call, about 7% of the step at N = 10000 on
-        # Julia 1.13 and 17% on 1.10. Compiled away entirely when the scheme is
-        # built with checked = false, as the clamp, `_hold!`, is, whose bounds
-        # in `dest`'s type are asked for before `dest` is written.
-        _check_bounds(src, lo, hi)
-        _inward(eltype(dest), lo, hi)
-    end
+    # A minimum/maximum pass per call, about 7% of the step at N = 10000 on Julia
+    # 1.13 and 17% on 1.10. Compiled away entirely when the scheme is built with
+    # checked = false, as the clamp, `_hold!`, is, whose bounds in `dest`'s type
+    # are rounded before `dest` is written.
+    Checked && _check_bounds(src, lo, hi)
+    l, u = Checked ? _inward(eltype(dest), lo, hi) : (lo, hi)
 
     # Each cell takes the difference of the fluxes through its two faces,
     # `src[i] + (Φleft - Φright)` (signed rightwards), as `PFCNonUniform` does,
@@ -79,6 +77,6 @@ function advect!(dest, src, p::PFC{T,Checked}, c, ws) where {T,Checked}
         dest[n-1] = src[n-1] + (Φ - Φₙ)
         dest[n] = src[n] + (Φₙ - Φ₁)
     end
-    Checked && _hold!(dest, dest, lo, hi)
+    Checked && _hold!(dest, dest, l, u)
     return dest
 end

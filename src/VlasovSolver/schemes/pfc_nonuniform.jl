@@ -30,13 +30,11 @@ function advect!(dest, src, p::PFCNonUniform{T,Checked}, α,
                  ws::PFCWorkspace) where {T,Checked}
     _validate(dest, src, p, α, ws)
     Δx, ξ, lo, hi = p.Δx, p.ξ, p.fmin, p.fmax
-    if Checked
-        # PFC's minimum/maximum pass, about 5% of this step at N = 10000 on
-        # Julia 1.13 and 10% on 1.10. Compiled away when checked = false, as
-        # the clamp below is, whose bounds are asked for here.
-        _check_bounds(src, lo, hi)
-        _inward(eltype(dest), lo, hi)
-    end
+    # PFC's minimum/maximum pass, about 5% of this step at N = 10000 on Julia
+    # 1.13 and 10% on 1.10. Compiled away when checked = false, as the clamp
+    # below is, whose bounds are rounded here.
+    Checked && _check_bounds(src, lo, hi)
+    l, u = Checked ? _inward(eltype(dest), lo, hi) : (lo, hi)
     n = length(Δx)
     acc = ws.accumulator
 
@@ -74,8 +72,9 @@ function advect!(dest, src, p::PFCNonUniform{T,Checked}, α,
         acc[end] = src[end] + (Φₙ - Φ₁)/Δx[end]
     end
     # As `PFC`, `_hold!`: a checked call returns a line inside [fmin, fmax],
-    # and takes one inside them to round-off. Rounding left a cell an ulp out where a plateau at a bound
-    # met rough data and at a step of a narrowest cell, and the next call
-    # refused the line. The clamp is the copy out of the accumulator.
-    return Checked ? _hold!(dest, acc, lo, hi) : copyto!(dest, acc)
+    # and takes one inside them to round-off. Rounding left a cell an ulp out
+    # where a plateau at a bound met rough data and at a step of a narrowest
+    # cell, and the next call refused the line. The clamp is the copy out of
+    # the accumulator.
+    return Checked ? _hold!(dest, acc, l, u) : copyto!(dest, acc)
 end

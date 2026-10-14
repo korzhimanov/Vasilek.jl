@@ -10,7 +10,7 @@ that no user could run a Landau damping problem without copying it.
 """
 module VlasovPoisson1D1V
 
-using ..Advection: AbstractAdvection1D, PFCNonUniform, OnGrid, _outward,
+using ..Advection: AbstractAdvection1D, PFCNonUniform, OnGrid, _outward, _roundoff,
                    Upwind, Godunov, PiecewiseConstant, PiecewiseLinear, VanLeer, Superbee,
                    SemiLagrangian, LinearSpline, PFC
 using ..StrangSplitting: strang_step!, Collide
@@ -120,27 +120,33 @@ end
     "f has a value below 0, the lower bound of the PFCNonUniform a direction left to its " *
     "default gets. Pass both schemes for data that is not a distribution"))
 
-# The bounds of the default beside a given scheme: its own, `[0, bound]`, and a
-# given `PFC`'s or `PFCNonUniform`'s too, where they lie a rounding outside them.
-_beside(::AbstractAdvection1D, lo, hi) = (lo, hi)
-_beside(g::Union{PFC, PFCNonUniform}, lo, hi) = (min(lo, g.fmin), max(hi, g.fmax))
-_beside(og::OnGrid, lo, hi) = _beside(og.scheme, lo, hi)
-
-# A checked `PFC` or `PFCNonUniform` given has to hold `f₀` inside its own
-# bounds, exactly, as the default does. One narrower than `f₀` stopped the run
-# on its first sweep, and its call takes round-off past its bounds and clamps
-# it: with both schemes given it took -1e-14 in `f₀` for round-off and returned
-# 0. `f₀` is data, not a step's rounding. An unchecked one refuses nothing, and
-# is taken as given.
-_holds(::AbstractAdvection1D, f) = true
-_holds(og::OnGrid, f) = _holds(og.scheme, f)
-_holds(g::Union{PFC{<:Any, true}, PFCNonUniform{<:Any, true}}, f) =
-    g.fmin ≤ minimum(f) && maximum(f) ≤ g.fmax
+# A scheme given, out of the `OnGrid` it may come in.
 _inner(s) = s
 _inner(og::OnGrid) = _inner(og.scheme)
+
+# The upper bound of the default beside a given scheme: its own, `bound`, and a
+# given `PFC`'s or `PFCNonUniform`'s too, where it lies a rounding above it. The
+# lower one stays 0, below which `keeps_bounds` takes no bound of theirs.
+_beside(::AbstractAdvection1D, hi) = hi
+_beside(g::Union{PFC, PFCNonUniform}, hi) = max(hi, g.fmax)
+
+# A checked `PFC` or `PFCNonUniform` given has to hold `f` inside its own
+# bounds, to round-off at the scale of each bound itself. One narrower than `f`
+# stopped the run on its first sweep. Its call takes round-off at the local
+# scale of the line, and with both schemes given took -1e-14 in `f₀` beside 0.4
+# and returned 0: at the bound's own scale a bound at 0 holds `f` exactly. To
+# round-off, since `f` is `f₀` renormalized by a factor 1 to round-off: held to
+# it exactly, one bounded at `maximum(f₀)` was refused in 2 of 40 Landau runs
+# for the ulp that added, which its first call takes. An unchecked one refuses
+# nothing, and is taken as given.
+_holds(::AbstractAdvection1D, f) = true
+function _holds(g::Union{PFC{<:Any, true}, PFCNonUniform{<:Any, true}}, f)
+    lo, hi, F = g.fmin, g.fmax, float(eltype(f))
+    return lo - minimum(f) ≤ _roundoff(F, abs(lo)) && maximum(f) - hi ≤ _roundoff(F, abs(hi))
+end
 function refuse_narrow(given, name, f)
-    _holds(given, f) && return nothing
     g = _inner(given)
+    _holds(g, f) && return nothing
     throw(ArgumentError(
         "$name, a checked $(nameof(typeof(g))) on [$(g.fmin), $(g.fmax)], does not hold f, " *
         "whose extrema are $(extrema(f)): bound it to hold f, or build it with checked = false"))
@@ -235,11 +241,12 @@ default's bounds, `[0, maximum(f)]` (`[0, Inf)` with `collisions`), to
 round-off, as [`keeps_bounds`](@ref) decides, or the call throws an
 `ArgumentError` before the first step. The default takes the round-off it leaves
 past them and returns its lines inside; `f₀` has to lie inside them exactly, and
-a negative one is a `DomainError` before the first step. A given checked `PFC`
-or `PFCNonUniform` has to hold `f₀` inside its own bounds exactly too, or the
-call throws an `ArgumentError` then. Pass both schemes, or a `PFCNonUniform`
-with bounds both sweeps keep (`fmin = -Inf, fmax = Inf` for none), for the other
-direction. With `collisions` the defaults have no upper bound, since a collision
+a negative one is a `DomainError` before the first step, whichever scheme is
+given beside the default, once that scheme is not refused for itself as above.
+A given checked `PFC` or `PFCNonUniform` has to hold `f₀` inside its own bounds
+too, to round-off at the scale of each bound, which holds a bound at 0 exactly,
+or the call throws an `ArgumentError` then. Pass both schemes, or a `PFCNonUniform` with bounds both
+sweeps keep (`fmin = -Inf, fmax = Inf` for none), for the other direction. With `collisions` the defaults have no upper bound, since a collision
 step can raise a line's peak above `maximum(f)`.
 
 Why each of these choices was made, with the measurements behind them, is in
@@ -427,26 +434,34 @@ function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants
     # bound `f` below only.
     bound = collisions === nothing ? maximum(f) : Inf
     gx, gv = _given(scheme_x, f, :scheme_x), _given(scheme_v, f, :scheme_v)
+    alone = (gx === nothing) != (gv === nothing)    # a given scheme beside a default
+    g = gx === nothing ? gv : gx
     # A default stops the run at the first line it is handed outside its bounds
     # by more than round-off; a scheme given for the other direction that need
-    # not keep them is refused here instead, before the first step. See the
-    # docstring. One that keeps them to round-off (`keeps_bounds`) left a line an
-    # ulp past them, which the default refused: a waterbag with its own ions
-    # under a `SemiLagrangian(LinearSpline())` x sweep stopped on its first
-    # step. The default takes that ulp now. A `PFC` or `PFCNonUniform` given
-    # keeps its own bounds, which `keeps_bounds` takes rounded outward in its
-    # own precision, and the default is bounded where it is too: a Float32 one
-    # at `maximum(f)` rounded up took a line 4e7 ulps of Float64 past it, which
-    # the default refused. One that does not hold `f₀` exactly is refused.
+    # not keep them is refused here instead, before the first step, whatever
+    # `f₀`. See the docstring. One that keeps them to round-off (`keeps_bounds`)
+    # left a line an ulp past them, which the default refused: a waterbag with
+    # its own ions under a `SemiLagrangian(LinearSpline())` x sweep stopped on
+    # its first step. The default takes that ulp now.
+    alone && refuse_unbounded(g, gx === nothing ? :scheme_v : :scheme_x,
+                              gx === nothing ? :scheme_x : :scheme_v, bound)
+    # A default takes round-off past its bounds from a step, and would take a
+    # negative `f₀` within it for round-off too, clamped to 0 unreported: `f₀`
+    # is checked exactly here, as the default's first call checked it, and
+    # before the schemes given are held to it, so that a negative `f₀` beside a
+    # default is the same `DomainError` whichever scheme is given.
+    if gx === nothing || gv === nothing
+        m = minimum(f)
+        m < 0 && _err_negative(m)
+    end
+    # A `PFC` or `PFCNonUniform` given keeps its own bounds, which `keeps_bounds`
+    # takes rounded outward in its own precision, and the default is bounded
+    # where it is too: a Float32 one at `maximum(f)` rounded up took a line 4e7
+    # ulps of Float64 past it, which the default refused. One that does not hold
+    # `f₀` is refused.
     gx === nothing || refuse_narrow(gx, :scheme_x, f)
     gv === nothing || refuse_narrow(gv, :scheme_v, f)
-    lo, hi = 0.0, bound
-    if (gx === nothing) != (gv === nothing)    # a given scheme beside a default
-        g = gx === nothing ? gv : gx
-        refuse_unbounded(g, gx === nothing ? :scheme_v : :scheme_x,
-                         gx === nothing ? :scheme_x : :scheme_v, bound)
-        lo, hi = _beside(g, lo, hi)
-    end
+    lo, hi = 0.0, alone ? _beside(_inner(g), bound) : bound
     # The defaults are Float64 at least, as the step works the line (`work`
     # below), for precision and for the mass: a Float32 one rounds each flux
     # difference to 6e-8 of the line, and an ulp it leaves past a bound is a
@@ -457,13 +472,6 @@ function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants
                                     fmin = lo, fmax = hi)
     sx = gx === nothing ? default(Δx) : gx
     sv = gv === nothing ? default(Δv) : gv
-    # A default takes round-off past its bounds from a step, and would take a
-    # negative `f₀` within it for round-off too, clamped to 0 unreported: `f₀`
-    # is checked exactly here, as the default's first call checked it.
-    if gx === nothing || gv === nothing
-        m = minimum(f)
-        m < 0 && _err_negative(m)
-    end
 
     # Each scheme on its grid, taking a displacement and splitting a step wider
     # than a cell; a uniform scheme on a non-uniform grid is refused here.

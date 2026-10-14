@@ -589,9 +589,10 @@ end
 # A line outside its bounds, cell by cell: each cell past a bound is taken if it
 # lies within `_roundoff` of it, at the scale of the bound, the cell and two
 # cells either side, as far as one step's stencil reads. Rare, and kept out of
-# the inlined check.
+# the inlined check. The refusal names the cell that failed: the line's
+# extremum can be one the check took, beside a larger neighbour.
 @noinline function _check_roundoff(src, lo, hi, m, M)
-    isnan(m) && _err_bound_low(lo, m)
+    isnan(m) && _err_nan(findfirst(isnan, src))
     F = float(eltype(src))
     i₁, n = firstindex(src), length(src)
     for i in eachindex(src)
@@ -604,7 +605,7 @@ end
             scale = max(scale, abs(S(src[i₁ + mod(i - i₁ + d, n)])))
         end
         abs(x - bound) ≤ _roundoff(F, scale) ||
-            (x < lo ? _err_bound_low(lo, m) : _err_bound_high(hi, M))
+            (x < lo ? _err_bound_low(lo, x, i) : _err_bound_high(hi, x, i))
     end
     return nothing
 end
@@ -645,16 +646,16 @@ function _roundoff(::Type{F}, scale) where {F}
 end
 
 """
-    _hold!(dest, src, lo, hi)
+    _hold!(dest, src, l, u)
 
-`src` clamped into `[lo, hi]`, into `dest`, which may be `src` itself: in
-`dest`'s type, the bounds rounded inward into it, so that a narrower `dest`
-holds nothing past them. Comparisons and `ifelse`, so that it vectorizes, where
-`clamp!` cost a third of a `PFC` step at N = 10000. A checked `PFC` and
-`PFCNonUniform` clamp what they return with it.
+`src` clamped into `[l, u]`, into `dest`, which may be `src` itself. `l` and
+`u` are the bounds already rounded inward into `dest`'s type, by `_inward`,
+so that a narrower `dest` holds nothing past them; a checked `PFC` and
+`PFCNonUniform` round them before they write `dest` and clamp what they return
+with this. Comparisons and `ifelse`, so that it vectorizes, where `clamp!` cost
+a third of a `PFC` step at N = 10000.
 """
-function _hold!(dest, src, lo, hi)
-    l, u = _inward(eltype(dest), lo, hi)
+function _hold!(dest, src, l, u)
     @inbounds @simd for i in eachindex(dest, src)
         x = src[i]
         dest[i] = ifelse(x > u, u, ifelse(x < l, l, x))
@@ -680,12 +681,14 @@ _inward(::Type{S}, lo, hi) where {S} = (convert(S, lo), convert(S, hi))
     "no $S lies in [fmin, fmax] = [$lo, $hi], and a checked call returns its line inside " *
     "them: widen the bounds to hold a value of the data's type"))
 
-@noinline _err_bound_low(lo, m) = throw(DomainError(m,
-    "fmin = $lo exceeds minimum(src) = $m by more than round-off: the PFC limiter is " *
+@noinline _err_bound_low(lo, x, i) = throw(DomainError(x,
+    "fmin = $lo exceeds src[$i] = $x by more than round-off: the PFC limiter is " *
     "built on [fmin, fmax]"))
-@noinline _err_bound_high(hi, M) = throw(DomainError(M,
-    "fmax = $hi is below maximum(src) = $M by more than round-off: the PFC limiter is " *
+@noinline _err_bound_high(hi, x, i) = throw(DomainError(x,
+    "fmax = $hi is below src[$i] = $x by more than round-off: the PFC limiter is " *
     "built on [fmin, fmax]"))
+@noinline _err_nan(i) = throw(DomainError(NaN,
+    "src[$i] is NaN, which no [fmin, fmax] holds: the PFC limiter is built on them"))
 
 """
     _validate_courant(scheme, c)

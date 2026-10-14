@@ -158,6 +158,10 @@ end
     p∞ = PFC(fmin = 0.0, fmax = Inf)
     @test accepts(p∞, [1e6, 1e-10, -2e-7, 1e-10, 0, 0, 0, 0])
     @test !accepts(p∞, [1e6, 1e-10, 1e-10, -2e-7, 1e-10, 0, 0, 0])
+    # The refusal names the cell that failed, not the line's minimum, which
+    # can be one the check took beside a larger neighbour.
+    e = try advect!(zeros(10), [-2e-7, 1e6, 0, 0, 0, 0, -1e-15, 0, 0, 0], p∞, 0.3) catch e; e end
+    @test e isa DomainError && e.val == -1e-15 && occursin("src[7] = -1.0e-15", e.msg)
     # In ulps of the line's type: 1024 of BigFloat for a BigFloat line, where
     # 2.3e-13 of the scale took -1e-13 for round-off.
     pb = PFC(fmin = big(0.0), fmax = big(1.0))
@@ -251,14 +255,14 @@ end
 
     @testset "and says what PFC says" begin
         # One function checks both schemes, so the same data draws the same
-        # message from either: the bound, and the extremum that broke it.
+        # message from either: the bound, and the cell that broke it.
         over = copy(f);  over[10] = 5.0
         under = copy(f); under[10] = -1.0
         message(s, c, g) = try march!(g, s, c, 1); "" catch e; e.msg end
         @test message(scheme(), 0.02, over) == message(PFC(fmin = 0.0, fmax = 2.0), 0.4, over) ==
-              "fmax = 2.0 is below maximum(src) = 5.0 by more than round-off: the PFC limiter is built on [fmin, fmax]"
+              "fmax = 2.0 is below src[10] = 5.0 by more than round-off: the PFC limiter is built on [fmin, fmax]"
         @test message(scheme(), 0.02, under) == message(PFC(fmin = 0.0, fmax = 2.0), 0.4, under) ==
-              "fmin = 0.0 exceeds minimum(src) = -1.0 by more than round-off: the PFC limiter is built on [fmin, fmax]"
+              "fmin = 0.0 exceeds src[10] = -1.0 by more than round-off: the PFC limiter is built on [fmin, fmax]"
     end
 
     @testset "checked = false compiles it away without changing the answer" begin
