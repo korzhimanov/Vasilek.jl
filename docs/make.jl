@@ -87,6 +87,9 @@ for stem in STUDIES
 end
 
 # ------------------------------------------------------------------- the site
+const API_PAGES = ["vasilek", "advection", "strangsplitting", "collisions",
+                   "vlasovpoisson1d1v", "poissonfourier1d", "fdtd1d"]
+
 makedocs(;
     sitename = "Vasilek.jl",
     authors = "Artem Korzhimanov",
@@ -101,7 +104,9 @@ makedocs(;
         "index.md",
         "Manual" => ["normalization.md", "driver-notes.md", "migration-0.2.md"],
         "Verification" => ["verification.md", ["studies/$stem.md" for stem in STUDIES]...],
-        "api.md",
+        # One page per module: on one page, the docstrings came within bytes of
+        # Documenter's 100 KiB `size_threshold_warn`.
+        "API" => ["api/index.md", ["api/$m.md" for m in API_PAGES]...],
     ],
 )
 
