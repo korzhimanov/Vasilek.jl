@@ -16,6 +16,9 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Breaking
 
+- **`advect!` and `collide!` refuse a workspace narrower than the data**, as a Float32
+  grid's `PFCNonUniform` or `OnGrid` and `BGK(0.5f0)` build, and `collide!` arguments that
+  share memory. Migration guide, "Workspaces" and "Collisions".
 - **Round-off no longer stops a run at a checked `PFC`'s bounds**: it takes a line
   within round-off of them and returns one clamped inside, so `checked` changes
   the last bits, and `Godunov` keeps a constant line (golden ≤ 4 ulps).
@@ -351,6 +354,9 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Fixed
 
+- **`OnGrid` takes a grid uniform to rounding, as `make_poisson` does**, with `scale`
+  for widths taken from coordinates; positional `PFC` constructors round bounds outward.
+  `test/test_driver.jl`; migration guide, "Advection" and "Note on the fourth argument".
 - **`Godunov(PiecewiseLinear(), VanLeer())` stays finite where the ratio of two
   finite differences overflows**: `VanLeer` is 2 at `r = Inf`, as `AbstractLimiter`
   now asks of every limiter, and else the same to the bit. `test/test_contracts.jl`.

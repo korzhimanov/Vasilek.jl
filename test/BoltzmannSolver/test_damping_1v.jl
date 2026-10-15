@@ -103,7 +103,39 @@ end
     @test_throws ArgumentError collide!(similar(g₀), ws.df, op, v, Δt, ws)
     @test_throws ArgumentError collide!(similar(g₀), view(ws.F, 2:length(v)+1), op, v, Δt, ws)
     @test_throws ArgumentError collide!(view(ws.F, 2:length(v)+1), g₀, op, v, Δt, ws)
+    @test_throws ArgumentError collide!(ws.df, g₀, op, v, Δt, ws)    # the workspace is its own
+    # and so is a dest one node on from src in the same array: the last loop
+    # wrote each node before it read it as the next one's src, 1.005 off
+    let a = vcat(g₀, 0.0)
+        @test_throws ArgumentError collide!(view(a, 2:length(a)), view(a, 1:length(g₀)), op, v, Δt)
+    end
+    # and nodes in the workspace, or under `dest`, which the last loop reads
+    # while it writes: `dest` the nodes themselves came back 1.6e-4 off
+    let ws = workspace(op, length(v), Float64)
+        copyto!(ws.df, v)
+        @test_throws ArgumentError collide!(similar(g₀), g₀, op, ws.df, Δt, ws)
+        nodes = copy(v)
+        @test_throws ArgumentError collide!(nodes, g₀, op, nodes, Δt)
+    end
     @test collide!([0.0], [0.7], op, [0.0], Δt) == [0.7]
+    # The workspace is checked before the O(n²) loop: one a node short threw a
+    # BoundsError after it, and one a node long ran. Nothing is written into it.
+    for m in (length(v) - 1, length(v) + 1)
+        short = workspace(op, m, Float64)
+        fill!(short.F, NaN); fill!(short.df, NaN)
+        @test_throws DimensionMismatch collide!(similar(g₀), g₀, op, v, Δt, short)
+        @test all(isnan, short.F) && all(isnan, short.df)
+    end
+    # and `dest`, `src` and `v` have one length
+    @test_throws DimensionMismatch collide!(zeros(length(v) - 1), g₀, op, v, Δt, ws)
+    @test_throws DimensionMismatch collide!(similar(g₀), g₀, op, v[1:end-1], Δt, ws)
+    # and so is its type: a Float32 operator's own, under Float64 data, is
+    # refused, and the five-argument form builds one in the data's type
+    op32 = Landau1P(1f-2; L = 20f0, Tₜ = 0.5f0)
+    @test op32 isa Landau1P{Float32}
+    @test_throws ArgumentError collide!(similar(g₀), g₀, op32, v, Δt, workspace(op32, length(v)))
+    @test collide!(similar(g₀), g₀, op32, v, Δt) ==
+          collide!(similar(g₀), g₀, op32, v, Δt, workspace(op32, length(v), Float64))
 
     # Tₜ is the bath's temperature, so it must be positive: Tₜ = 0 returned a
     # line of NaN and Tₜ = −1 threw from `sqrt` halfway through a step.
@@ -452,7 +484,46 @@ end
         for buf in (ws.maxwellian, ws.moment)
             copyto!(buf, f₁)
             @test_throws ArgumentError collide!(similar(f₁), buf, op, v, 0.05, ws)
+            # and so is a dest sharing it, as `advect!` refuses one: the
+            # workspace is the operator's own
+            @test_throws ArgumentError collide!(buf, f₁, op, v, 0.05, ws)
         end
+    end
+    # So is a dest one node on from src in the same array, as Landau1P's is:
+    # BGK came out right only by the broadcast's copy. `src` itself is the step
+    # in place.
+    let a = vcat(f₁, 0.0), op = BGK(0.1)
+        @test_throws ArgumentError collide!(view(a, 2:length(a)), view(a, 1:length(f₁)), op, v, 0.05)
+        x = copy(f₁)
+        @test collide!(x, x, op, v, 0.05) == collide!(similar(f₁), f₁, op, v, 0.05)
+    end
+    # and so are nodes `v` in the workspace, which the operator reads while it
+    # writes there, and a `dest` over them
+    for op in (BGK(0.1), BGK(0.1; conservative = false))
+        ws = Vasilek.workspace(op, length(v), Float64)
+        for buf in (ws.maxwellian, ws.moment)
+            copyto!(buf, v)
+            @test_throws ArgumentError collide!(similar(f₁), f₁, op, buf, 0.05, ws)
+        end
+        nodes = copy(v)
+        @test_throws ArgumentError collide!(nodes, f₁, op, nodes, 0.05)
+    end
+    # The workspace is checked before the step. One narrower than the data, as
+    # `workspace(BGK(0.5f0), n)` is, rounded a Float64 line's Maxwellian to
+    # Float32, 9.4e-9 off; it is refused, and the data's type is taken. One of
+    # the wrong length threw a BoundsError, a shorter one once the step was
+    # computed; `dest` is left as it was.
+    for op in (BGK(0.5f0), BGK(0.5f0; conservative = false))
+        @test_throws ArgumentError collide!(similar(f₁), f₁, op, v, 0.1, Vasilek.workspace(op, length(v)))
+        for m in (length(v) - 1, length(v) + 1)
+            dest = fill(-1.0, length(v))
+            @test_throws DimensionMismatch collide!(dest, f₁, op, v, 0.1, Vasilek.workspace(op, m, Float64))
+            @test all(==(-1.0), dest)
+        end
+        # and `dest`, `src` and `v` have one length
+        ws = Vasilek.workspace(op, length(v), Float64)
+        @test_throws DimensionMismatch collide!(zeros(length(v) - 1), f₁, op, v, 0.1, ws)
+        @test_throws DimensionMismatch collide!(similar(f₁), f₁, op, v[1:end-1], 0.1, ws)
     end
     # Landau1P is a model, exported from nowhere: reach it by its full name
     @test !(:Landau1P in names(Vasilek)) && !(:Landau1P in names(Vasilek.Collisions))

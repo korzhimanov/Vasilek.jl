@@ -10,7 +10,7 @@ that no user could run a Landau damping problem without copying it.
 """
 module VlasovPoisson1D1V
 
-using ..Advection: AbstractAdvection1D, PFCNonUniform, OnGrid, _outward, _roundoff,
+using ..Advection: AbstractAdvection1D, PFCNonUniform, OnGrid, _outward, _roundoff, _within_rounding,
                    Upwind, Godunov, PiecewiseConstant, PiecewiseLinear, VanLeer, Superbee,
                    SemiLagrangian, LinearSpline, PFC
 using ..StrangSplitting: strang_step!, Collide
@@ -28,8 +28,9 @@ with `∂e/∂x = ρ`: [`PoissonFFT1D`](@ref) with its centred derivative and a
 workspace of its own.
 
 The grid is checked to be uniform to rounding: each spacing must match the
-first to 1e-10 of it or to 8 ulps of the largest coordinate, whichever is more.
-A stretched grid would otherwise get a field from its first spacing alone.
+first to 1e-10 of it or to 8 ulps of the largest coordinate, whichever is more,
+the rule [`OnGrid`](@ref) takes a uniform scheme's grid by. A stretched grid
+would otherwise get a field from its first spacing alone.
 """
 function make_poisson(x)
     p = uniform_poisson(x)
@@ -42,9 +43,9 @@ end
 function uniform_poisson(x)
     length(x) ≥ 2 || throw(ArgumentError("the x grid needs at least 2 points, got $(length(x))"))
     Δx = x[2] - x[1]
-    tol = max(1e-10*abs(Δx), 8eps(float(maximum(abs, x))))    # rounding; see above
-    for j in 2:length(x)-1
-        abs(x[j+1] - x[j] - Δx) ≤ tol || throw(ArgumentError(
+    scale = maximum(abs, x)
+    for j in 2:length(x)-1    # to rounding, by `OnGrid`'s rule; see above
+        _within_rounding(x[j+1] - x[j], Δx, scale) || throw(ArgumentError(
             "the Poisson solve needs a uniform x grid: spacing $(x[j+1] - x[j]) at node $j, $Δx at node 1"))
     end
     return PoissonFFT1D(length(x), Δx)
@@ -480,8 +481,12 @@ function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants
     sv = gv === nothing ? default(Δv) : gv
 
     # Each scheme on its grid, taking a displacement and splitting a step wider
-    # than a cell; a uniform scheme on a non-uniform grid is refused here.
-    ox, ov = OnGrid(sx, Δx), OnGrid(sv, Δv)
+    # than a cell; a uniform scheme on a non-uniform grid is refused here. To the
+    # rounding of the coordinates, in their own type, which the widths in `W` no
+    # longer show: Float32 coordinates under Float64 `f`, and a grid far from
+    # the origin, were refused for it.
+    ox = OnGrid(sx, Δx; scale = maximum(abs, x))
+    ov = OnGrid(sv, Δv; scale = maximum(abs, v))
     # The step runs on `f[x, v]`, whose columns are the x lines, and sweeps v over
     # the transpose it keeps. The lines are worked in Float64 at least and
     # rounded into `f` once a step, whatever `f`'s own type; see the defaults.

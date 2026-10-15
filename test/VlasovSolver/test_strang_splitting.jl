@@ -293,7 +293,56 @@ end
             sprint(showerror, err)
         end
         @test occursin("LaxWendroff", message) && occursin("PFCNonUniform", message)
-        @test OnGrid(Upwind(), [1.0, 1.0 + 1e-14, 1.0]).h == 1.0     # uniform to 1e-12
+        @test OnGrid(Upwind(), [1.0, 1.0 + 1e-14, 1.0]).h == 1.0     # uniform to rounding
+        # Rounding is 1e-10 of the spacing, as `make_poisson` takes it, or 8 ulps
+        # of `scale`, the largest coordinate the widths come from, in its own
+        # type: a width carries the coordinates' rounding, not its own. At
+        # `1e-12` of the spacing the Float32 widths below, 4.9e-6 of themselves
+        # apart for coordinates up to 25, were refused, and the Float64 ones
+        # near 1e6, 1.2e-9 apart; so was any scheme but PFCNonUniform on such
+        # grids in `vlasov_poisson`.
+        @test_throws ArgumentError OnGrid(Upwind(), [1.0, 1.0 + 1e-9, 1.0])
+        cw = Vasilek.VlasovPoisson1D1V.cell_widths
+        x₃₂ = Float32.(collect(range(π/8; step = π/8, length = 64)))
+        w₃₂ = cw(x₃₂)
+        @test maximum(w₃₂) != minimum(w₃₂)
+        # By default `scale` is the widest width, the widths' own rounding: these,
+        # taken from coordinates, need the coordinates' scale. The grid's extent
+        # as the default took a cell 5e-4 wider than the rest of a Float32 grid
+        # of 4096 cells.
+        @test_throws ArgumentError OnGrid(Upwind(), w₃₂)
+        @test OnGrid(Upwind(), w₃₂; scale = maximum(abs, x₃₂)).h === first(w₃₂)
+        let w = fill(Float32(4π/4096), 4096)
+            @test OnGrid(Upwind(), w).h === first(w)
+            w[2048] *= 1.0005f0
+            @test_throws ArgumentError OnGrid(Upwind(), w)
+        end
+        # Widened to Float64, as the driver widens its widths to the data's
+        # type, they need the coordinates' own scale, in their own type
+        @test_throws ArgumentError OnGrid(Upwind(), Float64.(w₃₂))
+        @test OnGrid(Upwind(), Float64.(w₃₂); scale = maximum(abs, x₃₂)).h === Float64(first(w₃₂))
+        # and so does a grid far from the origin
+        far = collect(1e6 .+ (0:63)*0.1)
+        @test_throws ArgumentError OnGrid(LaxWendroff(), cw(far))
+        @test OnGrid(LaxWendroff(), cw(far); scale = maximum(abs, far)).h === first(cw(far))
+        let og = OnGrid(Upwind(), cw(far); scale = maximum(abs, far))
+            @test OnGrid(og, cw(far); scale = maximum(abs, far)) === og
+            @test_throws ArgumentError OnGrid(og, cw(far))
+        end
+        # An OnGrid built on Float32 widths is the same grid in Float64, to the
+        # rounding of its own spacing: it was refused at `scale`'s alone
+        let xs = collect(range(π/8; step = π/8, length = 32))
+            og = OnGrid(Upwind(), Float32.(cw(xs)))
+            @test OnGrid(og, cw(xs); scale = maximum(abs, xs)) === og
+            @test_throws ArgumentError OnGrid(og, 1.001 .* cw(xs); scale = maximum(abs, xs))
+        end
+        @test OnGrid(PFCNonUniform(cw(far); fmin = 0, fmax = 1), cw(far); scale = 1e6) isa OnGrid
+        # A Float32 PFCNonUniform built from a Float64 grid's widths holds them
+        # rounded, and takes that grid, to 4 ulps of Float32: at `1e-12` it was
+        # refused on the very grid it was built from. A grid 2e-5 off is not it.
+        p₃₂ = PFCNonUniform{Float32, true}(fill(0.05, 8), fill(2.0, 8), 0.05, 0.0, 1.0)
+        @test OnGrid(p₃₂, fill(0.05, 8)).h === 0.05f0
+        @test_throws ArgumentError OnGrid(p₃₂, fill(0.05 + 1e-6, 8))
         # A PFCNonUniform carries its grid, and is refused on another.
         Δz = [0.5 + 0.3sin(2π*i/16) for i in 1:16]
         p = PFCNonUniform(Δz; fmin = 0.0, fmax = 1.0)
@@ -306,7 +355,7 @@ end
         @test OnGrid(og, fill(0.5, 8)) === og
         @test_throws ArgumentError OnGrid(og, fill(0.25, 8))
         @test_throws ArgumentError OnGrid(og, 0.5, 8)
-        # To the same 1e-12 the grid is taken at: `L/N` and the widths of the
+        # To the same rounding the grid is taken to: `L/N` and the widths of the
         # cell centres `(j - 1/2)L/N` differ in the last bit (L = 4π, N = 6), and
         # an exact comparison refused an OnGrid on the very grid it was given.
         L, N = 4π, 6

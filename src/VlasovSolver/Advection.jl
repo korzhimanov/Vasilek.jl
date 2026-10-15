@@ -246,9 +246,12 @@ struct PFC{T<:AbstractFloat, Checked} <: AbstractAdvection1D
     # but a Bool used to construct, and then failed inside the first step.
     # The bracket is checked here, which every PFC is built through, rather
     # than in the keyword form only: `PFC{Float64, false}(2.0, 0.0)` built.
+    # Rounded outward into `T`, `_outward`, so that a narrower `T` keeps the data
+    # the bounds admit: a Float32 PFC built on ±0.4029317030250849 rounded both
+    # inside it, and its first checked step refused the data's own extrema.
     function PFC{T,Checked}(fmin, fmax) where {T<:AbstractFloat, Checked}
         Checked isa Bool || _err_checked(PFC, Checked)
-        lo, hi = T(fmin), T(fmax)
+        lo, hi = _outward(T, fmin, fmax)
         _check_bracket(lo, hi)
         return new{T,Checked}(lo, hi)
     end
@@ -290,16 +293,21 @@ struct PFCNonUniform{T<:AbstractFloat, Checked} <: AbstractAdvection1D
     # As for `PFC`: `Checked` is the `checked` flag, a Bool, and the invariants
     # are checked here, which every PFCNonUniform is built through. A `Δxmin`
     # wider than the narrowest cell let `advect!` take a step that crossed it.
+    # The widths are checked in `T`, as the scheme holds them: `Δxmin` rounded
+    # to `T` against widths as given refused Float64 widths of 0.05 for a
+    # Float32 scheme, and a width can round to zero or overflow in `T`. The
+    # bounds round outward, as `PFC`'s do.
     function PFCNonUniform{T,Checked}(Δx, ξ, Δxmin, fmin, fmax) where {T<:AbstractFloat, Checked}
         Checked isa Bool || _err_checked(PFCNonUniform, Checked)
+        Δx, ξ = convert(Vector{T}, Δx), convert(Vector{T}, ξ)
         _check_widths(Δx)
         length(ξ) == length(Δx) || throw(DimensionMismatch(
             "PFCNonUniform needs a ξ per cell, got $(length(ξ)) for $(length(Δx)) cells"))
         T(Δxmin) == minimum(Δx) || throw(ArgumentError(
             "PFCNonUniform: Δxmin = $Δxmin is not minimum(Δx) = $(minimum(Δx))"))
-        lo, hi = T(fmin), T(fmax)
+        lo, hi = _outward(T, fmin, fmax)
         _check_bracket(lo, hi)
-        return new{T,Checked}(Δx, ξ, Δxmin, lo, hi)
+        return new{T,Checked}(Δx, ξ, T(Δxmin), lo, hi)
     end
 end
 
@@ -326,11 +334,11 @@ Base.@constprop :aggressive function PFCNonUniform(Δx_::AbstractVector{T}; fmin
         d₊ = Δx[i == n ? 1 : i+1]
         ξ[i] = slope_limit(min(d₋, Δx[i], d₊)/max(d₋, Δx[i], d₊))
     end
+    # The inner constructor rounds the bounds outward into `T`: a Float32 grid's
+    # `fmax = maximum(f)` of Float64 data rounded below it as often as not, and
+    # the first checked step refused the data's own peak.
     fmn, fmx = promote(float(fmin), float(fmax))
-    # Outward, so that a narrower `T` keeps the data the bounds admit: a Float32
-    # grid's `fmax = maximum(f)` of Float64 data rounded below it as often as not,
-    # and the first checked step refused the data's own peak.
-    return PFCNonUniform{T, checked}(Δx, ξ, minimum(Δx), _outward(T, fmn, fmx)...)
+    return PFCNonUniform{T, checked}(Δx, ξ, minimum(Δx), fmn, fmx)
 end
 
 function _check_widths(Δx)
@@ -354,7 +362,8 @@ end
 Scratch memory for `scheme` at problem size `n` and element type `T`
 (`Float64` unless the scheme carries its own), or `nothing` when it needs
 none. One workspace per task: that is what makes the schemes safe to run
-concurrently over the lines of a multidimensional sweep.
+concurrently over the lines of a multidimensional sweep. `advect!` refuses one
+narrower than the data, which the step would round to it.
 """
 workspace(::AbstractAdvection1D, ::Integer, ::Type = Float64) = nothing
 
@@ -475,6 +484,9 @@ give a plausible wrong answer instead of an error:
     wrong as a shorter one, and a workspace built for another spline holds
     another spline's factorisation). A scheme that takes none now refuses any
     other, which it used to accept and ignore; see [`_validate_workspace`](@ref);
+  * a workspace narrower than the data, `_validate_eltype`: a step works the
+    line in its workspace's type and rounded the data to it, 5.9e-8 off for
+    Float64 data under a Float32 grid's `PFCNonUniform`;
   * a workspace whose buffers share memory with `dest` or `src`
     (`Base.mightalias` again): the spline prefilter overwrites its
     coefficients, which `dest` is then sampled from, and `PFCNonUniform`
@@ -514,7 +526,7 @@ end
     "workspace has length $got but this call needs $want; build it with " *
     "workspace(scheme, length(src))"))
 @noinline _err_narrow(T, S) = throw(ArgumentError(
-    "the workspace is $T, narrower than the $S data: the step computes in the " *
+    "the workspace is $T, narrower than the $S data: the step works in the " *
     "workspace's type and would round the data to it; build it with " *
     "workspace(scheme, length(src), $S)"))
 @noinline _err_knots(T, n) = throw(ArgumentError(
@@ -568,16 +580,23 @@ end
 _spline_of(::SplineWorkspace{<:Any, S}) where {S} = S
 _eltype(::SplineWorkspace{T}) where {T} = T
 function _validate_workspace(p::PFCNonUniform, ws::PFCWorkspace, n::Integer)
-    length(p.Δx) == n || _err_length(n, length(p.Δx))
+    length(p.Δx) == n || _err_grid(p, length(p.Δx), n)
     length(ws.accumulator) == n || _err_workspace(length(ws.accumulator), n)
     return nothing
 end
 
 # A workspace narrower than the data would round it on the way in: the spline
-# step computes in its workspace's type. A wider one is a choice, and allowed.
+# step computes in its workspace's type, `PFCNonUniform` accumulates in it, and
+# `OnGrid`'s sub-steps read the line back from its buffer. A wider one is a
+# choice, and allowed. A comparison of types, decided when the method compiles.
 _validate_eltype(ws, src) = nothing
-_validate_eltype(ws::SplineWorkspace{T}, src) where {T} =
-    promote_type(T, float(eltype(src))) === T ? nothing : _err_narrow(T, float(eltype(src)))
+_validate_eltype(ws::Union{SplineWorkspace, PFCWorkspace}, src) = _check_narrow(_eltype(ws), eltype(src))
+_check_narrow(::Type{T}, ::Type{S}) where {T, S} = _narrower(T, S) ? _err_narrow(T, float(S)) : nothing
+_eltype(::PFCWorkspace{T}) where {T} = T
+
+# Whether a workspace of type `T` is narrower than data of type `S`, and would
+# round it. The one rule for `advect!` and `collide!`, each with its own message.
+_narrower(::Type{T}, ::Type{S}) where {T, S} = promote_type(T, float(S)) !== T
 
 # `c` in the type a spline step computes in. `_validate_courant` has refused a
 # non-finite one; one finite in its own type can still overflow a narrower `T`.
@@ -774,7 +793,7 @@ _validate_courant(p::PFCNonUniform, α) =
 # ------------------------------------------------------------- on a grid
 
 """
-    OnGrid(scheme, Δz)
+    OnGrid(scheme, Δz; scale = maximum(abs, Δz))
     OnGrid(scheme::PFCNonUniform[, Δz])
 
 `scheme` on the grid whose cell widths are `Δz`. An `OnGrid` is itself a scheme,
@@ -782,14 +801,24 @@ and its fourth `advect!` argument is always a **displacement**, a length,
 whatever `scheme` takes:
 
   * a scheme that takes a Courant number gets the displacement divided by the
-    grid's spacing, and is refused on a non-uniform grid (each width has to
-    match the first to `1e-12` of it), rather than given one of its spacings
-    and left wrong by the ratio between them -- an `ArgumentError`;
+    grid's spacing, its first width, and is refused on a non-uniform grid,
+    rather than given one of its spacings and left wrong by the ratio between
+    them -- an `ArgumentError`. Uniform is to rounding, as `make_poisson` takes
+    it, [`_nonuniform_at`](@ref): each width matches the first to `1e-10` of
+    it, or to 8 ulps of `scale` in `scale`'s type. By default that is the
+    widths' own rounding, `scale` the widest of them. Widths taken from
+    coordinates carry the coordinates' rounding instead, so pass the largest
+    coordinate, in its own type, as `vlasov_poisson` does:
+    `OnGrid(scheme, cell_widths(x); scale = maximum(abs, x))`. The grid's
+    extent as the default took a Float32 grid of 4096 cells to 2.5e-3 of its
+    spacing, and a cell 5e-4 wider than the rest with it;
   * `PFCNonUniform` takes the displacement as it is. It carries its grid, so
-    `Δz` may be left out; given, it must be that grid.
+    `Δz` may be left out; given, it must be that grid, to `1e-12` of each width
+    or 4 ulps of the scheme's own type, so that a Float32 scheme built from a
+    Float64 grid's widths takes that grid. `scale` is unused.
 
 An `OnGrid` given again with a grid, `OnGrid(og, Δz)`, is `og` if `Δz` is its
-grid to the same `1e-12`, and refused otherwise.
+grid to the same rounding, and refused otherwise.
 
 A step wider than a cell -- the narrowest one, for `PFCNonUniform` -- is split
 into the fewest equal sub-steps that fit, [`substeps`](@ref), since `advect!`
@@ -799,8 +828,11 @@ scheme with no Courant limit, `SemiLagrangian`, takes it in one step; see
 the bit: within a cell `m = 1`, and `α/1` is `α`.
 
 `workspace(og, n[, T])` is scratch for the scheme and a line buffer for the
-sub-steps, in the grid's element type unless `T` is given; `n` is the grid's
-length.
+sub-steps; `n` is the grid's length. **Its type is the grid's unless `T` is
+given, not the data's**: Float64 data on a Float32 grid needs
+`workspace(og, n, Float64)`. `advect!` refuses a workspace narrower than the
+data, whose sub-steps it rounded to it, 8.9e-8 off at three sub-steps; the
+four-argument `advect!` builds one in the data's type.
 """
 struct OnGrid{S<:AbstractAdvection1D, T<:AbstractFloat} <: AbstractAdvection1D
     scheme::S
@@ -825,32 +857,73 @@ end
 OnGrid(scheme::S, h::T, n::Integer) where {S<:AbstractAdvection1D, T<:AbstractFloat} =
     OnGrid{S,T}(scheme, h, n)
 
-function OnGrid(s::PFCNonUniform, Δz = s.Δx)
+"""
+    _nonuniform_at(Δz, scale)
+
+The index of the first spacing in `Δz` that differs from the first by more than
+rounding, or `nothing` for a uniform grid: `1e-10` of the first spacing, or 8
+ulps of `scale` in `scale`'s own type, whichever is more. A spacing is the
+difference of two coordinates and carries their rounding, which scales with
+the coordinates, `scale` the largest of them, rather than with the spacing:
+Float32 coordinates up to 25 leave widths of π/8 4.9e-6 of themselves apart,
+Float64 ones near 1e6 widths of 0.1 1.2e-9 apart, and `OnGrid` refused both
+while it took `1e-12` of the spacing. `make_poisson` checks its nodes by the
+same rule, [`_within_rounding`](@ref), and [`OnGrid`](@ref) a uniform scheme's
+widths with this. NaN is never within rounding.
+"""
+function _nonuniform_at(Δz, scale)
+    h = first(Δz)
+    return findfirst(d -> !_within_rounding(d, h, scale), Δz)
+end
+
+"""
+    _within_rounding(d, h, scale)
+
+Whether the spacing `d` is `h` to rounding, as [`_nonuniform_at`](@ref) takes it.
+"""
+_within_rounding(d, h, scale) = d == h || abs(d - h) ≤ max(1e-10*abs(h), 8eps(float(scale)))
+
+# `OnGrid`'s default `scale`: the widest width, so that widths given as they are
+# are taken to their own rounding. `init`, so that an empty grid reaches
+# `OnGrid`'s own refusal.
+_widest(Δz) = maximum(abs, Δz; init = zero(float(eltype(Δz))))
+
+# `scale` serves the uniformity check, which a PFCNonUniform does not need: it
+# is taken, so that a caller can pass it whatever the scheme. Its widths are
+# compared with the grid's in its own type, as `Yee1D` compares its steps: a
+# Float32 scheme built from a Float64 grid's widths holds them rounded, and
+# `1e-12` refused it on that grid.
+function OnGrid(s::PFCNonUniform, Δz = s.Δx; scale = nothing)
     length(Δz) == length(s.Δx) || throw(DimensionMismatch(
         "PFCNonUniform has $(length(s.Δx)) cells, the grid $(length(Δz))"))
-    all(isapprox(d, w; rtol = 1e-12) for (d, w) in zip(Δz, s.Δx)) || throw(ArgumentError(
+    rtol = max(1e-12, 4eps(eltype(s.Δx)))
+    all(isapprox(d, w; rtol) for (d, w) in zip(Δz, s.Δx)) || throw(ArgumentError(
         "PFCNonUniform carries cell widths other than the grid's: it would advect " *
         "on its own grid while the run sums on this one"))
     return OnGrid(s, s.Δxmin, length(s.Δx))
 end
 
-function OnGrid(s::AbstractAdvection1D, Δz)
+function OnGrid(s::AbstractAdvection1D, Δz; scale = _widest(Δz))
     isempty(Δz) && throw(ArgumentError("OnGrid needs a grid of at least one cell"))
     h = float(first(Δz))
-    all(d -> isapprox(d, h; rtol = 1e-12), Δz) || throw(ArgumentError(
+    _nonuniform_at(Δz, scale) === nothing || throw(ArgumentError(
         "$(nameof(typeof(s))) takes a Courant number, which a non-uniform grid " *
         "does not have (spacings range over $(extrema(Δz))); use PFCNonUniform here"))
     return OnGrid(s, h, length(Δz))
 end
 
-# Already on a grid: kept, if it is this one, to the tolerance the grid is
-# taken at. Exactly was too strict: `L/N` and the widths of the cell centres
+# Already on a grid: kept, if it is this one, to the rounding the grid is taken
+# to. Exactly was too strict: `L/N` and the widths of the cell centres
 # `(j - 1/2)L/N` differ in the last bit for most `N`, and refused an `OnGrid`
 # built for the very grid it was given with.
-function OnGrid(og::OnGrid, Δz)
-    same = OnGrid(og.scheme, Δz)
-    isapprox(same.h, og.h; rtol = 1e-12) && same.n == og.n || throw(ArgumentError(
-        "an OnGrid on $(og.n) cells of $(og.h) given for a grid of $(same.n) cells of $(same.h)"))
+function OnGrid(og::OnGrid, Δz; scale = _widest(Δz))
+    same = OnGrid(og.scheme, Δz; scale)
+    # To the rounding of either: an `OnGrid` built on Float32 widths holds its
+    # spacing to Float32's, and was refused on the same grid in Float64.
+    (_within_rounding(same.h, og.h, scale) || _within_rounding(same.h, og.h, og.h)) &&
+        same.n == og.n ||
+        throw(ArgumentError("an OnGrid on $(og.n) cells of $(og.h) given for a grid of " *
+                            "$(same.n) cells of $(same.h)"))
     return og
 end
 
@@ -866,12 +939,14 @@ struct OnGridWorkspace{W, T}
 end
 
 function workspace(og::OnGrid{S,T}, n::Integer, ::Type{U} = T) where {S, T, U}
-    n == og.n || _err_grid(og, n)
+    n == og.n || _err_grid(og.scheme, og.n, n)
     return OnGridWorkspace(workspace(og.scheme, n, U), Vector{U}(undef, n))
 end
 
-@noinline _err_grid(og, n) = throw(DimensionMismatch(
-    "$(nameof(typeof(og.scheme))) is on a grid of $(og.n) cells, not $n"))
+# A scheme on a grid of `cells` cells, given a line or a workspace of `n`: an
+# `OnGrid`'s scheme, or a `PFCNonUniform`, which carries its grid.
+@noinline _err_grid(scheme, cells, n) = throw(DimensionMismatch(
+    "$(nameof(typeof(scheme))) is on a grid of $cells cells, not $n"))
 
 """
     substeps(α, h)
@@ -916,8 +991,14 @@ _argument(og::OnGrid, a) = a/og.h
 _argument(::OnGrid{<:PFCNonUniform}, a) = a
 
 function advect!(dest, src, og::OnGrid, α, ws::OnGridWorkspace)
-    length(src) == og.n || _err_grid(og, length(src))
+    length(src) == og.n || _err_grid(og.scheme, og.n, length(src))
     length(ws.buffer) == og.n || _err_workspace(length(ws.buffer), og.n)
+    # The sub-step line holds `dest` between sub-steps, which can be wider than
+    # `src`: Float32 data into a Float64 `dest` through a Float32 line came out
+    # 6.1e-8 off. Refused on every call, whether or not it sub-steps, so that a
+    # run whose displacement grows past a cell does not stop halfway; the
+    # scheme's own `advect!` checks its own scratch.
+    _check_narrow(eltype(ws.buffer), promote_type(eltype(dest), eltype(src)))
     _scratch_aliases(ws, dest, src) && _err_alias(ws)
     m = nsubsteps(og, α)
     a = _argument(og, α/m)
