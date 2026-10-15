@@ -113,6 +113,9 @@ end
         @test_throws DimensionMismatch collide!(similar(g₀), g₀, op, v, Δt, short)
         @test all(isnan, short.F) && all(isnan, short.df)
     end
+    # and `dest`, `src` and `v` have one length
+    @test_throws DimensionMismatch collide!(zeros(length(v) - 1), g₀, op, v, Δt, ws)
+    @test_throws DimensionMismatch collide!(similar(g₀), g₀, op, v[1:end-1], Δt, ws)
     # and so is its type: a Float32 operator's own, under Float64 data, is
     # refused, and the five-argument form builds one in the data's type
     op32 = Landau1P(1f-2; L = 20f0, Tₜ = 0.5f0)
@@ -485,6 +488,10 @@ end
             @test_throws DimensionMismatch collide!(dest, f₁, op, v, 0.1, Vasilek.workspace(op, m, Float64))
             @test all(==(-1.0), dest)
         end
+        # and `dest`, `src` and `v` have one length
+        ws = Vasilek.workspace(op, length(v), Float64)
+        @test_throws DimensionMismatch collide!(zeros(length(v) - 1), f₁, op, v, 0.1, ws)
+        @test_throws DimensionMismatch collide!(similar(f₁), f₁, op, v[1:end-1], 0.1, ws)
     end
     # Landau1P is a model, exported from nowhere: reach it by its full name
     @test !(:Landau1P in names(Vasilek)) && !(:Landau1P in names(Vasilek.Collisions))
