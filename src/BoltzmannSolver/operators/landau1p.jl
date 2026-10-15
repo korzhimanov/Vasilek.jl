@@ -78,16 +78,9 @@ workspace(::Landau1P{T}, n::Integer, ::Type{S} = T) where {T, S} =
     Landau1PWorkspace(Vector{S}(undef, n + 1), Vector{S}(undef, n))
 
 function collide!(dest, src, op::Landau1P, v, Δt, ws::Landau1PWorkspace)
-    Base.require_one_based_indexing(dest, src, v)
+    _validate_collide(dest, src, op, v, ws)
     n = length(src)
-    length(dest) == n == length(v) || throw(DimensionMismatch(
-        "collide! needs dest, src and v of one length, got $(length(dest)), " *
-        "$n and $(length(v))"))
     F, df = ws.F, ws.df
-    # Both are written while `src` is still being read, and `F` is read while
-    # `dest` is written.
-    (Base.mightalias(src, F) || Base.mightalias(src, df) || Base.mightalias(dest, F)) &&
-        _err_landau_alias()
     n < 2 && return copyto!(dest, src)       # no half-point, nothing can flow
     # A bath narrower than a cell is one the grid cannot hold: the drag between
     # neighbouring nodes then outruns the kernel's diffusion, and the line ends
@@ -131,7 +124,17 @@ function collide!(dest, src, op::Landau1P, v, Δt, ws::Landau1PWorkspace)
     return dest
 end
 
-@noinline _err_landau_alias() = throw(ArgumentError(
+# The workspace as `_validate_collide` checks it. Both buffers are written while
+# `src` is still being read, and `F` is read while `dest` is written; a `dest`
+# over `df` is refused with them, the workspace being the operator's own.
+function _scratch_lengths(ws::Landau1PWorkspace, n)
+    length(ws.F) == n + 1 || _err_scratch_length(:F, length(ws.F), n + 1)
+    length(ws.df) == n || _err_scratch_length(:df, length(ws.df), n)
+    return nothing
+end
+_scratch_eltype(::Landau1PWorkspace{T}) where {T} = T
+_scratch_aliases(ws::Landau1PWorkspace, dest, src) = _shares(ws.F, dest, src) || _shares(ws.df, dest, src)
+@noinline _err_scratch_alias(::Landau1PWorkspace) = throw(ArgumentError(
     "collide! requires src and dest not to share memory with the workspace: " *
     "Landau1P writes the derivative and the fluxes there while it reads src, " *
     "and reads the fluxes while it writes dest"))

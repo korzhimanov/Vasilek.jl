@@ -103,7 +103,23 @@ end
     @test_throws ArgumentError collide!(similar(g₀), ws.df, op, v, Δt, ws)
     @test_throws ArgumentError collide!(similar(g₀), view(ws.F, 2:length(v)+1), op, v, Δt, ws)
     @test_throws ArgumentError collide!(view(ws.F, 2:length(v)+1), g₀, op, v, Δt, ws)
+    @test_throws ArgumentError collide!(ws.df, g₀, op, v, Δt, ws)    # the workspace is its own
     @test collide!([0.0], [0.7], op, [0.0], Δt) == [0.7]
+    # The workspace is checked before the O(n²) loop: one a node short threw a
+    # BoundsError after it, and one a node long ran. Nothing is written into it.
+    for m in (length(v) - 1, length(v) + 1)
+        short = workspace(op, m, Float64)
+        fill!(short.F, NaN); fill!(short.df, NaN)
+        @test_throws DimensionMismatch collide!(similar(g₀), g₀, op, v, Δt, short)
+        @test all(isnan, short.F) && all(isnan, short.df)
+    end
+    # and so is its type: a Float32 operator's own, under Float64 data, is
+    # refused, and the five-argument form builds one in the data's type
+    op32 = Landau1P(1f-2; L = 20f0, Tₜ = 0.5f0)
+    @test op32 isa Landau1P{Float32}
+    @test_throws ArgumentError collide!(similar(g₀), g₀, op32, v, Δt, workspace(op32, length(v)))
+    @test collide!(similar(g₀), g₀, op32, v, Δt) ==
+          collide!(similar(g₀), g₀, op32, v, Δt, workspace(op32, length(v), Float64))
 
     # Tₜ is the bath's temperature, so it must be positive: Tₜ = 0 returned a
     # line of NaN and Tₜ = −1 threw from `sqrt` halfway through a step.
@@ -452,6 +468,22 @@ end
         for buf in (ws.maxwellian, ws.moment)
             copyto!(buf, f₁)
             @test_throws ArgumentError collide!(similar(f₁), buf, op, v, 0.05, ws)
+            # and so is a dest sharing it, as `advect!` refuses one: the
+            # workspace is the operator's own
+            @test_throws ArgumentError collide!(buf, f₁, op, v, 0.05, ws)
+        end
+    end
+    # The workspace is checked before the step. One narrower than the data, as
+    # `workspace(BGK(0.5f0), n)` is, rounded a Float64 line's Maxwellian to
+    # Float32, 9.4e-9 off; it is refused, and the data's type is taken. One of
+    # the wrong length threw a BoundsError, a shorter one once the step was
+    # computed; `dest` is left as it was.
+    for op in (BGK(0.5f0), BGK(0.5f0; conservative = false))
+        @test_throws ArgumentError collide!(similar(f₁), f₁, op, v, 0.1, Vasilek.workspace(op, length(v)))
+        for m in (length(v) - 1, length(v) + 1)
+            dest = fill(-1.0, length(v))
+            @test_throws DimensionMismatch collide!(dest, f₁, op, v, 0.1, Vasilek.workspace(op, m, Float64))
+            @test all(==(-1.0), dest)
         end
     end
     # Landau1P is a model, exported from nowhere: reach it by its full name

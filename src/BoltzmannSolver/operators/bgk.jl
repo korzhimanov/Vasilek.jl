@@ -43,14 +43,7 @@ workspace(::BGK{T}, n::Integer, ::Type{S} = T) where {T, S} =
     BGKWorkspace(Vector{S}(undef, n), Vector{S}(undef, n))
 
 function collide!(dest, src, op::BGK, v, Δt, ws::BGKWorkspace)
-    length(dest) == length(src) == length(v) || throw(DimensionMismatch(
-        "collide! needs dest, src and v of one length, got $(length(dest)), " *
-        "$(length(src)) and $(length(v))"))
-    # The Maxwellian, and the sampled operator's moments, are written before
-    # `src` is read for the last time: a `src` sharing their memory came back as
-    # the Maxwellian alone, 0.08 from the step, or 0.64 off through `moment`.
-    (Base.mightalias(src, ws.maxwellian) || Base.mightalias(src, ws.moment)) &&
-        _err_scratch_alias()
+    _validate_collide(dest, src, op, v, ws)
     e = exp(-Δt/op.τ)
     M = ws.maxwellian
     ok = op.conservative ? _discrete_maxwellian!(M, src, v) :
@@ -60,8 +53,21 @@ function collide!(dest, src, op::BGK, v, Δt, ws::BGKWorkspace)
     return dest
 end
 
-@noinline _err_scratch_alias() = throw(ArgumentError(
-    "collide! requires src not to share memory with the workspace: the operator " *
+# The workspace as `_validate_collide` checks it. The Maxwellian, and the
+# sampled operator's moments, are written before `src` is read for the last
+# time: a `src` sharing their memory came back as the Maxwellian alone, 0.08
+# from the step, or 0.64 off through `moment`. A `dest` sharing them is refused
+# with it, as `advect!` refuses one: the workspace is the operator's own.
+function _scratch_lengths(ws::BGKWorkspace, n)
+    length(ws.maxwellian) == n || _err_scratch_length(:maxwellian, length(ws.maxwellian), n)
+    length(ws.moment) == n || _err_scratch_length(:moment, length(ws.moment), n)
+    return nothing
+end
+_scratch_eltype(::BGKWorkspace{T}) where {T} = T
+_scratch_aliases(ws::BGKWorkspace, dest, src) =
+    _shares(ws.maxwellian, dest, src) || _shares(ws.moment, dest, src)
+@noinline _err_scratch_alias(::BGKWorkspace) = throw(ArgumentError(
+    "collide! requires dest and src not to share memory with the workspace: BGK " *
     "writes its Maxwellian and moments there before it is done reading src"))
 
 # The coarsest spacing: a line whose temperature is below its square is not
