@@ -135,8 +135,8 @@ end
 _scratch_eltype(::Landau1PWorkspace{T}) where {T} = T
 _scratch_aliases(ws::Landau1PWorkspace, dest, src) = _shares(ws.F, dest, src) || _shares(ws.df, dest, src)
 @noinline _err_scratch_alias(::Landau1PWorkspace) = throw(ArgumentError(
-    "collide! requires src and dest not to share memory with the workspace: " *
-    "Landau1P writes the derivative and the fluxes there while it reads src, " *
+    "collide! requires dest, src and v not to share memory with the workspace: " *
+    "Landau1P writes the derivative and the fluxes there while it reads src and v, " *
     "and reads the fluxes while it writes dest"))
 
 @noinline _err_landau_unresolved(Tₜ, Δv) = throw(ArgumentError(

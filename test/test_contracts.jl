@@ -640,6 +640,11 @@ end
     end
     # and Float32 data on a Float32 grid keeps the default
     @test eltype(advect!(similar(g), g, og32, 0.12f0, workspace(og32, N))) === Float32
+    # The line holds `dest` between sub-steps, so it is held against `dest` too:
+    # Float32 data into a Float64 `dest` through a Float32 line came out 6.1e-8 off
+    @test_throws ArgumentError advect!(zeros(N), g, og32, 0.12, workspace(og32, N))
+    @test advect!(zeros(N), g, og32, 0.12, workspace(og32, N, Float64)) ==
+          advect!(zeros(N), Float64.(g), og64, 0.12, workspace(og64, N))
 
     # Bounds narrower than they were given round outward, so a Float32 grid
     # keeps the Float64 data they admit: `fmax = maximum(f)` rounded below the

@@ -90,6 +90,12 @@ using Vasilek.Advection: substeps
                                                                      fmin = 0, fmax = maximum(f)))
     @test maximum(abs, r₃₂ₓ.f .- r.f) < 1e-7*maximum(r.f)
     @test maximum(abs, r₃₂ₓ.ε_e .- r.ε_e) < 1e-6*maximum(r.ε_e)
+    # and an OnGrid built on Float32 widths, refused on the Float64 grid while
+    # the spacings were compared at the coordinates' rounding alone: 8.8e-10 of
+    # the peak in `f` and 1.7e-8 in `ε_e` from the Upwind run on Julia 1.13
+    og₃₂ = vlasov_poisson(x, v, f₀, t; scheme_x = OnGrid(Upwind(), Float32.(cell_widths(x))))
+    @test maximum(abs, og₃₂.f .- up.f) < 1e-8*maximum(up.f)
+    @test maximum(abs, og₃₂.ε_e .- up.ε_e) < 2e-7*maximum(up.ε_e)
     # A single time has no step to record a history in: refused, rather than a
     # BoundsError from copying the last entry forward.
     @test_throws ArgumentError vlasov_poisson(x, v, f₀, [0.0])

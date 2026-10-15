@@ -329,6 +329,13 @@ end
             @test OnGrid(og, cw(far); scale = maximum(abs, far)) === og
             @test_throws ArgumentError OnGrid(og, cw(far))
         end
+        # An OnGrid built on Float32 widths is the same grid in Float64, to the
+        # rounding of its own spacing: it was refused at `scale`'s alone
+        let xs = collect(range(π/8; step = π/8, length = 32))
+            og = OnGrid(Upwind(), Float32.(cw(xs)))
+            @test OnGrid(og, cw(xs); scale = maximum(abs, xs)) === og
+            @test_throws ArgumentError OnGrid(og, 1.001 .* cw(xs); scale = maximum(abs, xs))
+        end
         @test OnGrid(PFCNonUniform(cw(far); fmin = 0, fmax = 1), cw(far); scale = 1e6) isa OnGrid
         # A Float32 PFCNonUniform built from a Float64 grid's widths holds them
         # rounded, and takes that grid, to 4 ulps of Float32: at `1e-12` it was

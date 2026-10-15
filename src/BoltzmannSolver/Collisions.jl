@@ -11,6 +11,9 @@ module Collisions
 # generic that the exported name never reached, so `workspace(BGK(τ), n)`
 # was a MethodError.
 import ..workspace
+# The rules `advect!` checks its workspace by, `_shares` for memory and
+# `_narrower` for the type: one copy of each for the whole package.
+using ..Advection: _shares, _narrower
 
 # `Landau1P` is defined here but not exported: it is a one-dimensional model of
 # the Landau operator, with a bath at a temperature of its own; see its
@@ -68,12 +71,14 @@ gave a wrong answer, or an error from the wrong place, before it was checked:
   * a workspace narrower than the data, which the operator computes into: a
     Float32 one, as `workspace(BGK(0.5f0), n)` is, rounded a Float64 line's
     Maxwellian to Float32, 9.4e-9 off;
-  * `dest` or `src` sharing memory with the workspace, which the operator
-    writes while it reads `src` and before it writes `dest`;
+  * `dest`, `src` or `v` sharing memory with the workspace, which the operator
+    writes while it reads `src` and `v` and before it writes `dest`;
   * `dest` sharing memory with `src` other than as `src` itself: `Landau1P`
     writes `dest[i]` before it reads `src[i+1]`, and `dest` one node on from
     `src` in the same array came back 1.005 off. `dest` may be `src` itself,
-    and the step is taken in place.
+    and the step is taken in place;
+  * `dest` sharing memory with `v`, which `Landau1P` reads while it writes
+    `dest`: 1.6e-4 off with `dest` the nodes themselves.
 
 An operator's workspace type has a method of `_scratch_lengths`,
 `_scratch_eltype`, `_scratch_aliases` and `_err_scratch_alias`. The checks are
@@ -85,14 +90,14 @@ comparisons outside the loop and allocate nothing; the error paths are
     n = length(src)
     length(dest) == n == length(v) || _err_collide_length(length(dest), n, length(v))
     _scratch_lengths(ws, n)
-    T, S = _scratch_eltype(ws), float(eltype(src))
-    promote_type(T, S) === T || _err_collide_narrow(T, S)
-    _scratch_aliases(ws, dest, src) && _err_scratch_alias(ws)
+    T = _scratch_eltype(ws)
+    _narrower(T, eltype(src)) && _err_collide_narrow(T, float(eltype(src)))
+    # `v` against each buffer as well, as a `dest` and `src` of its own
+    (_scratch_aliases(ws, dest, src) || _scratch_aliases(ws, v, v)) && _err_scratch_alias(ws)
     dest !== src && Base.mightalias(dest, src) && _err_collide_overlap()
+    Base.mightalias(dest, v) && _err_collide_nodes()
     return nothing
 end
-
-_shares(a, dest, src) = Base.mightalias(a, dest) || Base.mightalias(a, src)
 
 @noinline _err_collide_length(nd, ns, nv) = throw(DimensionMismatch(
     "collide! needs dest, src and v of one length, got $nd, $ns and $nv"))
@@ -102,6 +107,9 @@ _shares(a, dest, src) = Base.mightalias(a, dest) || Base.mightalias(a, src)
 @noinline _err_collide_overlap() = throw(ArgumentError(
     "collide! requires dest to be src itself or not to share memory with it: the " *
     "operator writes dest while it still reads src's neighbours"))
+@noinline _err_collide_nodes() = throw(ArgumentError(
+    "collide! requires dest not to share memory with v: the operator reads the nodes " *
+    "while it writes dest"))
 @noinline _err_collide_narrow(T, S) = throw(ArgumentError(
     "the workspace is $T, narrower than the $S data: the operator computes into the " *
     "workspace's type and would round the data to it; build it with " *

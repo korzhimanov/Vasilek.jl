@@ -67,8 +67,8 @@ _scratch_eltype(::BGKWorkspace{T}) where {T} = T
 _scratch_aliases(ws::BGKWorkspace, dest, src) =
     _shares(ws.maxwellian, dest, src) || _shares(ws.moment, dest, src)
 @noinline _err_scratch_alias(::BGKWorkspace) = throw(ArgumentError(
-    "collide! requires dest and src not to share memory with the workspace: BGK " *
-    "writes its Maxwellian and moments there before it is done reading src"))
+    "collide! requires dest, src and v not to share memory with the workspace: BGK " *
+    "writes its Maxwellian and moments there before it is done reading src and v"))
 
 # The coarsest spacing: a line whose temperature is below its square is not
 # resolved, and its Maxwellian would be a spike the grid cannot integrate.

@@ -109,6 +109,14 @@ end
     let a = vcat(g₀, 0.0)
         @test_throws ArgumentError collide!(view(a, 2:length(a)), view(a, 1:length(g₀)), op, v, Δt)
     end
+    # and nodes in the workspace, or under `dest`, which the last loop reads
+    # while it writes: `dest` the nodes themselves came back 1.6e-4 off
+    let ws = workspace(op, length(v), Float64)
+        copyto!(ws.df, v)
+        @test_throws ArgumentError collide!(similar(g₀), g₀, op, ws.df, Δt, ws)
+        nodes = copy(v)
+        @test_throws ArgumentError collide!(nodes, g₀, op, nodes, Δt)
+    end
     @test collide!([0.0], [0.7], op, [0.0], Δt) == [0.7]
     # The workspace is checked before the O(n²) loop: one a node short threw a
     # BoundsError after it, and one a node long ran. Nothing is written into it.
@@ -488,6 +496,17 @@ end
         @test_throws ArgumentError collide!(view(a, 2:length(a)), view(a, 1:length(f₁)), op, v, 0.05)
         x = copy(f₁)
         @test collide!(x, x, op, v, 0.05) == collide!(similar(f₁), f₁, op, v, 0.05)
+    end
+    # and so are nodes `v` in the workspace, which the operator reads while it
+    # writes there, and a `dest` over them
+    for op in (BGK(0.1), BGK(0.1; conservative = false))
+        ws = Vasilek.workspace(op, length(v), Float64)
+        for buf in (ws.maxwellian, ws.moment)
+            copyto!(buf, v)
+            @test_throws ArgumentError collide!(similar(f₁), f₁, op, buf, 0.05, ws)
+        end
+        nodes = copy(v)
+        @test_throws ArgumentError collide!(nodes, f₁, op, nodes, 0.05)
     end
     # The workspace is checked before the step. One narrower than the data, as
     # `workspace(BGK(0.5f0), n)` is, rounded a Float64 line's Maxwellian to

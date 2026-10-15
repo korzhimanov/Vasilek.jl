@@ -590,10 +590,13 @@ end
 # `OnGrid`'s sub-steps read the line back from its buffer. A wider one is a
 # choice, and allowed. A comparison of types, decided when the method compiles.
 _validate_eltype(ws, src) = nothing
-_validate_eltype(ws::Union{SplineWorkspace, PFCWorkspace}, src) = _check_narrow(_eltype(ws), src)
-_check_narrow(::Type{T}, src) where {T} =
-    promote_type(T, float(eltype(src))) === T ? nothing : _err_narrow(T, float(eltype(src)))
+_validate_eltype(ws::Union{SplineWorkspace, PFCWorkspace}, src) = _check_narrow(_eltype(ws), eltype(src))
+_check_narrow(::Type{T}, ::Type{S}) where {T, S} = _narrower(T, S) ? _err_narrow(T, float(S)) : nothing
 _eltype(::PFCWorkspace{T}) where {T} = T
+
+# Whether a workspace of type `T` is narrower than data of type `S`, and would
+# round it. The one rule for `advect!` and `collide!`, each with its own message.
+_narrower(::Type{T}, ::Type{S}) where {T, S} = promote_type(T, float(S)) !== T
 
 # `c` in the type a spline step computes in. `_validate_courant` has refused a
 # non-finite one; one finite in its own type can still overflow a narrower `T`.
@@ -915,7 +918,10 @@ end
 # built for the very grid it was given with.
 function OnGrid(og::OnGrid, Δz; scale = _widest(Δz))
     same = OnGrid(og.scheme, Δz; scale)
-    _within_rounding(same.h, og.h, scale) && same.n == og.n ||
+    # To the rounding of either: an `OnGrid` built on Float32 widths holds its
+    # spacing to Float32's, and was refused on the same grid in Float64.
+    (_within_rounding(same.h, og.h, scale) || _within_rounding(same.h, og.h, og.h)) &&
+        same.n == og.n ||
         throw(ArgumentError("an OnGrid on $(og.n) cells of $(og.h) given for a grid of " *
                             "$(same.n) cells of $(same.h)"))
     return og
@@ -931,10 +937,6 @@ struct OnGridWorkspace{W, T}
     inner::W
     buffer::Vector{T}
 end
-
-# The sub-step line holds the data between sub-steps, so it may not be narrower
-# than they are; the scheme's own `advect!` checks its own scratch.
-_validate_eltype(ws::OnGridWorkspace, src) = _check_narrow(eltype(ws.buffer), src)
 
 function workspace(og::OnGrid{S,T}, n::Integer, ::Type{U} = T) where {S, T, U}
     n == og.n || _err_grid(og.scheme, og.n, n)
@@ -991,7 +993,12 @@ _argument(::OnGrid{<:PFCNonUniform}, a) = a
 function advect!(dest, src, og::OnGrid, α, ws::OnGridWorkspace)
     length(src) == og.n || _err_grid(og.scheme, og.n, length(src))
     length(ws.buffer) == og.n || _err_workspace(length(ws.buffer), og.n)
-    _validate_eltype(ws, src)    # whether or not there are sub-steps, for every call alike
+    # The sub-step line holds `dest` between sub-steps, which can be wider than
+    # `src`: Float32 data into a Float64 `dest` through a Float32 line came out
+    # 6.1e-8 off. Refused on every call, whether or not it sub-steps, so that a
+    # run whose displacement grows past a cell does not stop halfway; the
+    # scheme's own `advect!` checks its own scratch.
+    _check_narrow(eltype(ws.buffer), promote_type(eltype(dest), eltype(src)))
     _scratch_aliases(ws, dest, src) && _err_alias(ws)
     m = nsubsteps(og, α)
     a = _argument(og, α/m)

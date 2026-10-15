@@ -122,7 +122,12 @@ every knot exactly, so `Float16` data on more than 2047 cells needs
 `OnGrid`'s, whose sub-steps read the line back from it. Both default to their
 grid's type, not the data's: Float64 data under a Float32 grid's scheme needs
 `workspace(scheme, n, Float64)`, and a narrower one is refused rather than
-rounding the data to it.
+rounding the data to it. An `OnGrid`'s is checked against `dest` as well as
+`src`, since its sub-steps hold `dest`, and on every call: one that takes a
+single step never reads the sub-step line and was exact, and is refused all the
+same, so that a run whose displacement grows past a cell does not stop halfway.
+Code that passed the grid's default `workspace(og, n)` with wider data has to
+pass the data's type.
 
 `advect!` also requires that `dest` and `src` share no memory (a view of `src`
 counts) and at least three cells. Both used to be quietly wrong rather than an
@@ -275,8 +280,10 @@ Float64 data needs `workspace(op, n, Float64)`, which the five-argument
 `collide!` builds. Some calls that ran are now refused:
 
   * `BGK` with `dest`, `src` or `v` not one-based, as `Landau1P` already was;
-  * a `dest` sharing any buffer of the workspace, `Landau1P`'s `df` included,
-    where only one over its `F` was refused;
+  * a `dest` or `v` sharing any buffer of the workspace, `Landau1P`'s `df`
+    included, where only a `dest` over its `F` was refused;
+  * a `dest` sharing memory with `v`: `Landau1P` came back 1.6e-4 off with
+    `dest` the nodes themselves;
   * a `dest` sharing memory with `src` other than as `src` itself:
     `collide!(f, f, op, v, Δt, ws)` is the step in place, but a `dest` one node
     on from `src` in the same array came back 1.005 off under `Landau1P`.
