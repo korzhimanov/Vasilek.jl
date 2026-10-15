@@ -368,9 +368,22 @@ end
         @test_throws DimensionMismatch advect!(dst, f, s, 0.02, workspace(s, N + 10))
         @test_throws DimensionMismatch advect!(dst, f, s, 0.02, workspace(s, N - 10))
 
-        # and a scheme whose grid does not match the data
+        # and a scheme whose grid does not match the data, which says so: it
+        # blamed `dest` and `src`, whose lengths agreed, "advect! requires
+        # length(dest) == length(src), got 16 and 8"
         wrong = PFCNonUniform(fill(0.05, 32); fmin = 0.0, fmax = 2.0)
         @test_throws DimensionMismatch advect!(dst, f, wrong, 0.02, workspace(wrong, 32))
+        message(call) = try
+            call()
+            ""
+        catch err
+            sprint(showerror, err)
+        end
+        @test occursin("PFCNonUniform is on a grid of 32 cells, not 64",
+                       message(() -> advect!(dst, f, wrong, 0.02, workspace(wrong, 32))))
+        eight = PFCNonUniform(fill(1.0, 8); fmin = 0.0, fmax = 2.0)
+        @test occursin("PFCNonUniform is on a grid of 8 cells, not 16",
+                       message(() -> advect!(zeros(16), ones(16), eight, 0.5)))
     end
 
     @testset "so is a workspace for a scheme that takes none" begin
@@ -611,6 +624,18 @@ end
     line = [peak*sin(2π*(i-1)/N) for i in 1:N]
     line[N÷4 + 1] = peak
     @test all(isfinite, advect!(similar(line), line, s, 0.02f0))
+    # and so do the positional constructors every PFC is built through, which
+    # rounded to nearest: `PFC{Float32, true}(-peak, peak)` refused the line's
+    # own extrema, 1.5e-8 past its bounds and so past round-off. Bounds already
+    # in the scheme's type keep their bits.
+    line[3N÷4 + 1] = -peak
+    for p in (PFC{Float32, true}(-peak, peak),
+              PFCNonUniform{Float32, true}(fill(0.05, N), fill(2.0, N), 0.05, -peak, peak))
+        @test p.fmin ≤ -peak && p.fmax ≥ peak
+        @test all(isfinite, advect!(similar(line), line, p, p isa PFC ? 0.4 : 0.02))
+    end
+    @test PFC{Float64, true}(-peak, peak).fmin === -peak && PFC{Float64, true}(-peak, peak).fmax === peak
+    @test PFC{Float32, true}(-0.5f0, 2.0f0).fmin === -0.5f0
 
     # The driver's cell widths keep a Float32 grid's type, where a `0.5` in
     # them used to make Float64 of it.
@@ -697,6 +722,13 @@ end
     @test_throws ArgumentError PFCNonUniform{Float64, true}(-Δx, fill(2.0, 40), -0.05, 0.0, 1.0)
     @test_throws DimensionMismatch PFCNonUniform{Float64, true}(Δx, fill(2.0, 39), 0.05, 0.0, 2.0)
     @test PFCNonUniform{Float64, true}(Δx, fill(2.0, 40), 0.05, 0.0, 2.0).Δxmin == 0.05
+    # The widths are compared in the scheme's type, which holds them: Float64
+    # widths of 0.05 refused a Float32 scheme's own narrowest cell, "Δxmin = 0.05
+    # is not minimum(Δx) = 0.05". A width that rounds to zero in that type is
+    # refused as one given as zero is.
+    p = PFCNonUniform{Float32, true}(fill(0.05, 8), fill(2.0, 8), 0.05, 0.0, 1.0)
+    @test p.Δx == fill(0.05f0, 8) && p.ξ isa Vector{Float32} && p.Δxmin === 0.05f0
+    @test_throws ArgumentError PFCNonUniform{Float32, true}([1e-50, 0.1, 0.1], fill(2.0, 3), 1e-50, 0.0, 1.0)
     # a piecewise-constant reconstruction has no slope to limit
     @test_throws ArgumentError Godunov(PiecewiseConstant(), VanLeer())
     @test_throws ArgumentError Godunov(PiecewiseConstant(), Superbee())

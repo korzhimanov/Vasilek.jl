@@ -246,9 +246,12 @@ struct PFC{T<:AbstractFloat, Checked} <: AbstractAdvection1D
     # but a Bool used to construct, and then failed inside the first step.
     # The bracket is checked here, which every PFC is built through, rather
     # than in the keyword form only: `PFC{Float64, false}(2.0, 0.0)` built.
+    # Rounded outward into `T`, `_outward`, so that a narrower `T` keeps the data
+    # the bounds admit: a Float32 PFC built on ±0.4029317030250849 rounded both
+    # inside it, and its first checked step refused the data's own extrema.
     function PFC{T,Checked}(fmin, fmax) where {T<:AbstractFloat, Checked}
         Checked isa Bool || _err_checked(PFC, Checked)
-        lo, hi = T(fmin), T(fmax)
+        lo, hi = _outward(T, fmin, fmax)
         _check_bracket(lo, hi)
         return new{T,Checked}(lo, hi)
     end
@@ -290,16 +293,21 @@ struct PFCNonUniform{T<:AbstractFloat, Checked} <: AbstractAdvection1D
     # As for `PFC`: `Checked` is the `checked` flag, a Bool, and the invariants
     # are checked here, which every PFCNonUniform is built through. A `Δxmin`
     # wider than the narrowest cell let `advect!` take a step that crossed it.
+    # The widths are checked in `T`, as the scheme holds them: `Δxmin` rounded
+    # to `T` against widths as given refused Float64 widths of 0.05 for a
+    # Float32 scheme, and a width can round to zero or overflow in `T`. The
+    # bounds round outward, as `PFC`'s do.
     function PFCNonUniform{T,Checked}(Δx, ξ, Δxmin, fmin, fmax) where {T<:AbstractFloat, Checked}
         Checked isa Bool || _err_checked(PFCNonUniform, Checked)
+        Δx, ξ = convert(Vector{T}, Δx), convert(Vector{T}, ξ)
         _check_widths(Δx)
         length(ξ) == length(Δx) || throw(DimensionMismatch(
             "PFCNonUniform needs a ξ per cell, got $(length(ξ)) for $(length(Δx)) cells"))
         T(Δxmin) == minimum(Δx) || throw(ArgumentError(
             "PFCNonUniform: Δxmin = $Δxmin is not minimum(Δx) = $(minimum(Δx))"))
-        lo, hi = T(fmin), T(fmax)
+        lo, hi = _outward(T, fmin, fmax)
         _check_bracket(lo, hi)
-        return new{T,Checked}(Δx, ξ, Δxmin, lo, hi)
+        return new{T,Checked}(Δx, ξ, T(Δxmin), lo, hi)
     end
 end
 
@@ -326,11 +334,11 @@ Base.@constprop :aggressive function PFCNonUniform(Δx_::AbstractVector{T}; fmin
         d₊ = Δx[i == n ? 1 : i+1]
         ξ[i] = slope_limit(min(d₋, Δx[i], d₊)/max(d₋, Δx[i], d₊))
     end
+    # The inner constructor rounds the bounds outward into `T`: a Float32 grid's
+    # `fmax = maximum(f)` of Float64 data rounded below it as often as not, and
+    # the first checked step refused the data's own peak.
     fmn, fmx = promote(float(fmin), float(fmax))
-    # Outward, so that a narrower `T` keeps the data the bounds admit: a Float32
-    # grid's `fmax = maximum(f)` of Float64 data rounded below it as often as not,
-    # and the first checked step refused the data's own peak.
-    return PFCNonUniform{T, checked}(Δx, ξ, minimum(Δx), _outward(T, fmn, fmx)...)
+    return PFCNonUniform{T, checked}(Δx, ξ, minimum(Δx), fmn, fmx)
 end
 
 function _check_widths(Δx)
@@ -568,7 +576,7 @@ end
 _spline_of(::SplineWorkspace{<:Any, S}) where {S} = S
 _eltype(::SplineWorkspace{T}) where {T} = T
 function _validate_workspace(p::PFCNonUniform, ws::PFCWorkspace, n::Integer)
-    length(p.Δx) == n || _err_length(n, length(p.Δx))
+    length(p.Δx) == n || _err_grid(p, length(p.Δx), n)
     length(ws.accumulator) == n || _err_workspace(length(ws.accumulator), n)
     return nothing
 end
@@ -866,12 +874,14 @@ struct OnGridWorkspace{W, T}
 end
 
 function workspace(og::OnGrid{S,T}, n::Integer, ::Type{U} = T) where {S, T, U}
-    n == og.n || _err_grid(og, n)
+    n == og.n || _err_grid(og.scheme, og.n, n)
     return OnGridWorkspace(workspace(og.scheme, n, U), Vector{U}(undef, n))
 end
 
-@noinline _err_grid(og, n) = throw(DimensionMismatch(
-    "$(nameof(typeof(og.scheme))) is on a grid of $(og.n) cells, not $n"))
+# A scheme on a grid of `cells` cells, given a line or a workspace of `n`: an
+# `OnGrid`'s scheme, or a `PFCNonUniform`, which carries its grid.
+@noinline _err_grid(scheme, cells, n) = throw(DimensionMismatch(
+    "$(nameof(typeof(scheme))) is on a grid of $cells cells, not $n"))
 
 """
     substeps(α, h)
@@ -916,7 +926,7 @@ _argument(og::OnGrid, a) = a/og.h
 _argument(::OnGrid{<:PFCNonUniform}, a) = a
 
 function advect!(dest, src, og::OnGrid, α, ws::OnGridWorkspace)
-    length(src) == og.n || _err_grid(og, length(src))
+    length(src) == og.n || _err_grid(og.scheme, og.n, length(src))
     length(ws.buffer) == og.n || _err_workspace(length(ws.buffer), og.n)
     _scratch_aliases(ws, dest, src) && _err_alias(ws)
     m = nsubsteps(og, α)
