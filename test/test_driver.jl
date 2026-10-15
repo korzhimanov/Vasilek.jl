@@ -32,7 +32,7 @@ using Vasilek.Advection: substeps
     @test advect!(similar(col), col, og, 0.5, workspace(og, 32)) == ref
     @test_throws ArgumentError OnGrid(Upwind(), [1.0, 2.0, 1.0, 1.0])
     @test substeps(2.5, 1.0) == 3
-    # An OnGrid given to the driver is kept on its grid to 1e-12. On cell
+    # An OnGrid given to the driver is kept on its grid to rounding. On cell
     # centres `L/N` and the widths differ in the last bit, which an exact
     # comparison refused; it runs as the bare scheme does, but for that bit.
     xc = [(j - 0.5)*4π/6 for j in 1:6]
@@ -65,6 +65,24 @@ using Vasilek.Advection: substeps
     @test maximum(abs, r₃₂.ε_e .- r.ε_e) < 1e-4*maximum(r.ε_e)
     @test Vasilek.VlasovPoisson1D1V.make_poisson(collect(1e6 .+ (0:63)*0.1)) isa Function
     @test_throws ArgumentError Vasilek.VlasovPoisson1D1V.make_poisson(@. x + 1e-6*(2π/k/Nx)*sin(2π*s))
+    # A scheme that takes a Courant number takes those grids to the same
+    # rounding, at the scale of the coordinates in their own type, which the
+    # widths widened to the data's type no longer show. `OnGrid` took them to
+    # 1e-12 of the spacing and refused all three below. Measured against the
+    # Float64 run on Julia 1.13, as fractions of the peak: Float32 x under
+    # Float64 f, 9.9e-10 in `f` and 2.1e-7 in `ε_e`, the Float32 spacing's own
+    # rounding of the Courant number; all in Float32, 5.8e-7 and 5.3e-6; x at
+    # 1e6, 1.1e-12 and 7.6e-11.
+    up = vlasov_poisson(x, v, f₀, t; scheme_x = Upwind())
+    for (run, ftol, εtol) in ((vlasov_poisson(Float32.(x), v, f₀, t; scheme_x = Upwind()), 1e-8, 2e-6),
+                             (vlasov_poisson(Float32.(x), Float32.(v), Float32.(f₀), Float32.(t);
+                                             scheme_x = Upwind()), 1e-5, 1e-4),
+                             (vlasov_poisson(1e6 .+ x, v, f₀, t; scheme_x = Upwind()), 1e-10, 1e-8))
+        @test maximum(abs, run.f .- up.f) < ftol*maximum(up.f)
+        @test maximum(abs, run.ε_e .- up.ε_e) < εtol*maximum(up.ε_e)
+    end
+    @test_throws ArgumentError vlasov_poisson(@.(x + 1e-6*(2π/k/Nx)*sin(2π*s)), v, f₀, t;
+                                              scheme_x = Upwind())
     # A single time has no step to record a history in: refused, rather than a
     # BoundsError from copying the last entry forward.
     @test_throws ArgumentError vlasov_poisson(x, v, f₀, [0.0])

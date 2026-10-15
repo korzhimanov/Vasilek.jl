@@ -790,7 +790,7 @@ _validate_courant(p::PFCNonUniform, α) =
 # ------------------------------------------------------------- on a grid
 
 """
-    OnGrid(scheme, Δz)
+    OnGrid(scheme, Δz; scale = sum(abs, Δz))
     OnGrid(scheme::PFCNonUniform[, Δz])
 
 `scheme` on the grid whose cell widths are `Δz`. An `OnGrid` is itself a scheme,
@@ -798,14 +798,21 @@ and its fourth `advect!` argument is always a **displacement**, a length,
 whatever `scheme` takes:
 
   * a scheme that takes a Courant number gets the displacement divided by the
-    grid's spacing, and is refused on a non-uniform grid (each width has to
-    match the first to `1e-12` of it), rather than given one of its spacings
-    and left wrong by the ratio between them -- an `ArgumentError`;
+    grid's spacing, its first width, and is refused on a non-uniform grid,
+    rather than given one of its spacings and left wrong by the ratio between
+    them -- an `ArgumentError`. Uniform is to rounding, as `make_poisson` takes
+    it, [`_nonuniform_at`](@ref): each width matches the first to `1e-10` of
+    it, or to 8 ulps of `scale` in `scale`'s type. A width carries the rounding
+    of the coordinates it was taken from, so `scale` is the largest of them; by
+    default the grid's extent, which it is for a grid from the origin. Pass it
+    for a grid far from the origin, or for widths in a wider type than their
+    coordinates, as `vlasov_poisson` does:
+    `OnGrid(scheme, cell_widths(x); scale = maximum(abs, x))`;
   * `PFCNonUniform` takes the displacement as it is. It carries its grid, so
-    `Δz` may be left out; given, it must be that grid.
+    `Δz` may be left out; given, it must be that grid, and `scale` is unused.
 
 An `OnGrid` given again with a grid, `OnGrid(og, Δz)`, is `og` if `Δz` is its
-grid to the same `1e-12`, and refused otherwise.
+grid to the same rounding, and refused otherwise.
 
 A step wider than a cell -- the narrowest one, for `PFCNonUniform` -- is split
 into the fewest equal sub-steps that fit, [`substeps`](@ref), since `advect!`
@@ -844,7 +851,28 @@ end
 OnGrid(scheme::S, h::T, n::Integer) where {S<:AbstractAdvection1D, T<:AbstractFloat} =
     OnGrid{S,T}(scheme, h, n)
 
-function OnGrid(s::PFCNonUniform, Δz = s.Δx)
+"""
+    _nonuniform_at(Δz, scale)
+
+The index of the first spacing in `Δz` that differs from the first by more than
+rounding, or `nothing` for a uniform grid: `1e-10` of the first spacing, or 8
+ulps of `scale` in `scale`'s own type, whichever is more. A spacing is the
+difference of two coordinates and carries their rounding, which scales with
+the coordinates, `scale` the largest of them, rather than with the spacing:
+Float32 coordinates up to 25 leave widths of π/8 4.9e-6 of themselves apart,
+Float64 ones near 1e6 widths of 0.1 1.2e-9 apart, and `OnGrid` refused both
+while it took `1e-12` of the spacing. `make_poisson` checks its nodes with
+it and [`OnGrid`](@ref) a uniform scheme's widths. NaN is never within rounding.
+"""
+function _nonuniform_at(Δz, scale)
+    h = first(Δz)
+    return findfirst(d -> !_within_rounding(d, h, scale), Δz)
+end
+_within_rounding(d, h, scale) = d == h || abs(d - h) ≤ max(1e-10*abs(h), 8eps(float(scale)))
+
+# `scale` serves the uniformity check, which a PFCNonUniform does not need: it
+# is taken, so that a caller can pass it whatever the scheme.
+function OnGrid(s::PFCNonUniform, Δz = s.Δx; scale = nothing)
     length(Δz) == length(s.Δx) || throw(DimensionMismatch(
         "PFCNonUniform has $(length(s.Δx)) cells, the grid $(length(Δz))"))
     all(isapprox(d, w; rtol = 1e-12) for (d, w) in zip(Δz, s.Δx)) || throw(ArgumentError(
@@ -853,23 +881,24 @@ function OnGrid(s::PFCNonUniform, Δz = s.Δx)
     return OnGrid(s, s.Δxmin, length(s.Δx))
 end
 
-function OnGrid(s::AbstractAdvection1D, Δz)
+function OnGrid(s::AbstractAdvection1D, Δz; scale = nothing)
     isempty(Δz) && throw(ArgumentError("OnGrid needs a grid of at least one cell"))
     h = float(first(Δz))
-    all(d -> isapprox(d, h; rtol = 1e-12), Δz) || throw(ArgumentError(
+    _nonuniform_at(Δz, something(scale, sum(abs, Δz))) === nothing || throw(ArgumentError(
         "$(nameof(typeof(s))) takes a Courant number, which a non-uniform grid " *
         "does not have (spacings range over $(extrema(Δz))); use PFCNonUniform here"))
     return OnGrid(s, h, length(Δz))
 end
 
-# Already on a grid: kept, if it is this one, to the tolerance the grid is
-# taken at. Exactly was too strict: `L/N` and the widths of the cell centres
+# Already on a grid: kept, if it is this one, to the rounding the grid is taken
+# to. Exactly was too strict: `L/N` and the widths of the cell centres
 # `(j - 1/2)L/N` differ in the last bit for most `N`, and refused an `OnGrid`
 # built for the very grid it was given with.
-function OnGrid(og::OnGrid, Δz)
-    same = OnGrid(og.scheme, Δz)
-    isapprox(same.h, og.h; rtol = 1e-12) && same.n == og.n || throw(ArgumentError(
-        "an OnGrid on $(og.n) cells of $(og.h) given for a grid of $(same.n) cells of $(same.h)"))
+function OnGrid(og::OnGrid, Δz; scale = nothing)
+    same = OnGrid(og.scheme, Δz; scale)
+    _within_rounding(same.h, og.h, something(scale, sum(abs, Δz))) && same.n == og.n ||
+        throw(ArgumentError("an OnGrid on $(og.n) cells of $(og.h) given for a grid of " *
+                            "$(same.n) cells of $(same.h)"))
     return og
 end
 
