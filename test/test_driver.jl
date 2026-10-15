@@ -83,6 +83,13 @@ using Vasilek.Advection: substeps
     end
     @test_throws ArgumentError vlasov_poisson(@.(x + 1e-6*(2π/k/Nx)*sin(2π*s)), v, f₀, t;
                                               scheme_x = Upwind())
+    # A Float32 PFCNonUniform on the Float64 grid it was built from: refused as
+    # carrying other widths while they were compared to 1e-12, it runs, 5.2e-9 of
+    # the peak in `f` and 2.3e-8 in `ε_e` from the default on Julia 1.13.
+    r₃₂ₓ = vlasov_poisson(x, v, f₀, t; scheme_x = f -> PFCNonUniform(Float32.(cell_widths(x));
+                                                                     fmin = 0, fmax = maximum(f)))
+    @test maximum(abs, r₃₂ₓ.f .- r.f) < 1e-7*maximum(r.f)
+    @test maximum(abs, r₃₂ₓ.ε_e .- r.ε_e) < 1e-6*maximum(r.ε_e)
     # A single time has no step to record a history in: refused, rather than a
     # BoundsError from copying the last entry forward.
     @test_throws ArgumentError vlasov_poisson(x, v, f₀, [0.0])

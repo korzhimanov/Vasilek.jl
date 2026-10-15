@@ -104,6 +104,11 @@ end
     @test_throws ArgumentError collide!(similar(g₀), view(ws.F, 2:length(v)+1), op, v, Δt, ws)
     @test_throws ArgumentError collide!(view(ws.F, 2:length(v)+1), g₀, op, v, Δt, ws)
     @test_throws ArgumentError collide!(ws.df, g₀, op, v, Δt, ws)    # the workspace is its own
+    # and so is a dest one node on from src in the same array: the last loop
+    # wrote each node before it read it as the next one's src, 1.005 off
+    let a = vcat(g₀, 0.0)
+        @test_throws ArgumentError collide!(view(a, 2:length(a)), view(a, 1:length(g₀)), op, v, Δt)
+    end
     @test collide!([0.0], [0.7], op, [0.0], Δt) == [0.7]
     # The workspace is checked before the O(n²) loop: one a node short threw a
     # BoundsError after it, and one a node long ran. Nothing is written into it.
@@ -475,6 +480,14 @@ end
             # workspace is the operator's own
             @test_throws ArgumentError collide!(buf, f₁, op, v, 0.05, ws)
         end
+    end
+    # So is a dest one node on from src in the same array, as Landau1P's is:
+    # BGK came out right only by the broadcast's copy. `src` itself is the step
+    # in place.
+    let a = vcat(f₁, 0.0), op = BGK(0.1)
+        @test_throws ArgumentError collide!(view(a, 2:length(a)), view(a, 1:length(f₁)), op, v, 0.05)
+        x = copy(f₁)
+        @test collide!(x, x, op, v, 0.05) == collide!(similar(f₁), f₁, op, v, 0.05)
     end
     # The workspace is checked before the step. One narrower than the data, as
     # `workspace(BGK(0.5f0), n)` is, rounded a Float64 line's Maxwellian to

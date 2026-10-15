@@ -306,7 +306,17 @@ end
         x₃₂ = Float32.(collect(range(π/8; step = π/8, length = 64)))
         w₃₂ = cw(x₃₂)
         @test maximum(w₃₂) != minimum(w₃₂)
-        @test OnGrid(Upwind(), w₃₂).h === first(w₃₂)    # by default `scale` is the extent
+        # By default `scale` is the widest width, the widths' own rounding: these,
+        # taken from coordinates, need the coordinates' scale. The grid's extent
+        # as the default took a cell 5e-4 wider than the rest of a Float32 grid
+        # of 4096 cells.
+        @test_throws ArgumentError OnGrid(Upwind(), w₃₂)
+        @test OnGrid(Upwind(), w₃₂; scale = maximum(abs, x₃₂)).h === first(w₃₂)
+        let w = fill(Float32(4π/4096), 4096)
+            @test OnGrid(Upwind(), w).h === first(w)
+            w[2048] *= 1.0005f0
+            @test_throws ArgumentError OnGrid(Upwind(), w)
+        end
         # Widened to Float64, as the driver widens its widths to the data's
         # type, they need the coordinates' own scale, in their own type
         @test_throws ArgumentError OnGrid(Upwind(), Float64.(w₃₂))
@@ -320,6 +330,12 @@ end
             @test_throws ArgumentError OnGrid(og, cw(far))
         end
         @test OnGrid(PFCNonUniform(cw(far); fmin = 0, fmax = 1), cw(far); scale = 1e6) isa OnGrid
+        # A Float32 PFCNonUniform built from a Float64 grid's widths holds them
+        # rounded, and takes that grid, to 4 ulps of Float32: at `1e-12` it was
+        # refused on the very grid it was built from. A grid 2e-5 off is not it.
+        p₃₂ = PFCNonUniform{Float32, true}(fill(0.05, 8), fill(2.0, 8), 0.05, 0.0, 1.0)
+        @test OnGrid(p₃₂, fill(0.05, 8)).h === 0.05f0
+        @test_throws ArgumentError OnGrid(p₃₂, fill(0.05 + 1e-6, 8))
         # A PFCNonUniform carries its grid, and is refused on another.
         Δz = [0.5 + 0.3sin(2π*i/16) for i in 1:16]
         p = PFCNonUniform(Δz; fmin = 0.0, fmax = 1.0)

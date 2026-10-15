@@ -10,7 +10,7 @@ that no user could run a Landau damping problem without copying it.
 """
 module VlasovPoisson1D1V
 
-using ..Advection: AbstractAdvection1D, PFCNonUniform, OnGrid, _outward, _roundoff, _nonuniform_at,
+using ..Advection: AbstractAdvection1D, PFCNonUniform, OnGrid, _outward, _roundoff, _within_rounding,
                    Upwind, Godunov, PiecewiseConstant, PiecewiseLinear, VanLeer, Superbee,
                    SemiLagrangian, LinearSpline, PFC
 using ..StrangSplitting: strang_step!, Collide
@@ -43,10 +43,11 @@ end
 function uniform_poisson(x)
     length(x) ≥ 2 || throw(ArgumentError("the x grid needs at least 2 points, got $(length(x))"))
     Δx = x[2] - x[1]
-    spacings = [x[j+1] - x[j] for j in 1:length(x)-1]
-    j = _nonuniform_at(spacings, maximum(abs, x))    # rounding; see above
-    j === nothing || throw(ArgumentError(
-        "the Poisson solve needs a uniform x grid: spacing $(spacings[j]) at node $j, $Δx at node 1"))
+    scale = maximum(abs, x)
+    for j in 2:length(x)-1    # to rounding, by `OnGrid`'s rule; see above
+        _within_rounding(x[j+1] - x[j], Δx, scale) || throw(ArgumentError(
+            "the Poisson solve needs a uniform x grid: spacing $(x[j+1] - x[j]) at node $j, $Δx at node 1"))
+    end
     return PoissonFFT1D(length(x), Δx)
 end
 

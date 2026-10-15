@@ -69,8 +69,11 @@ gave a wrong answer, or an error from the wrong place, before it was checked:
     Float32 one, as `workspace(BGK(0.5f0), n)` is, rounded a Float64 line's
     Maxwellian to Float32, 9.4e-9 off;
   * `dest` or `src` sharing memory with the workspace, which the operator
-    writes while it reads `src` and before it writes `dest`. `dest` may be
-    `src` itself.
+    writes while it reads `src` and before it writes `dest`;
+  * `dest` sharing memory with `src` other than as `src` itself: `Landau1P`
+    writes `dest[i]` before it reads `src[i+1]`, and `dest` one node on from
+    `src` in the same array came back 1.005 off. `dest` may be `src` itself,
+    and the step is taken in place.
 
 An operator's workspace type has a method of `_scratch_lengths`,
 `_scratch_eltype`, `_scratch_aliases` and `_err_scratch_alias`. The checks are
@@ -85,6 +88,7 @@ comparisons outside the loop and allocate nothing; the error paths are
     T, S = _scratch_eltype(ws), float(eltype(src))
     promote_type(T, S) === T || _err_collide_narrow(T, S)
     _scratch_aliases(ws, dest, src) && _err_scratch_alias(ws)
+    dest !== src && Base.mightalias(dest, src) && _err_collide_overlap()
     return nothing
 end
 
@@ -95,6 +99,9 @@ _shares(a, dest, src) = Base.mightalias(a, dest) || Base.mightalias(a, src)
 @noinline _err_scratch_length(name, got, want) = throw(DimensionMismatch(
     "the workspace's $name has length $got, but this call needs $want; build it with " *
     "workspace(op, length(v), float(eltype(src)))"))
+@noinline _err_collide_overlap() = throw(ArgumentError(
+    "collide! requires dest to be src itself or not to share memory with it: the " *
+    "operator writes dest while it still reads src's neighbours"))
 @noinline _err_collide_narrow(T, S) = throw(ArgumentError(
     "the workspace is $T, narrower than the $S data: the operator computes into the " *
     "workspace's type and would round the data to it; build it with " *
