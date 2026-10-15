@@ -362,7 +362,8 @@ end
 Scratch memory for `scheme` at problem size `n` and element type `T`
 (`Float64` unless the scheme carries its own), or `nothing` when it needs
 none. One workspace per task: that is what makes the schemes safe to run
-concurrently over the lines of a multidimensional sweep.
+concurrently over the lines of a multidimensional sweep. `advect!` refuses one
+narrower than the data, which the step would round to it.
 """
 workspace(::AbstractAdvection1D, ::Integer, ::Type = Float64) = nothing
 
@@ -483,6 +484,9 @@ give a plausible wrong answer instead of an error:
     wrong as a shorter one, and a workspace built for another spline holds
     another spline's factorisation). A scheme that takes none now refuses any
     other, which it used to accept and ignore; see [`_validate_workspace`](@ref);
+  * a workspace narrower than the data, `_validate_eltype`: a step works the
+    line in its workspace's type and rounded the data to it, 5.9e-8 off for
+    Float64 data under a Float32 grid's `PFCNonUniform`;
   * a workspace whose buffers share memory with `dest` or `src`
     (`Base.mightalias` again): the spline prefilter overwrites its
     coefficients, which `dest` is then sampled from, and `PFCNonUniform`
@@ -522,7 +526,7 @@ end
     "workspace has length $got but this call needs $want; build it with " *
     "workspace(scheme, length(src))"))
 @noinline _err_narrow(T, S) = throw(ArgumentError(
-    "the workspace is $T, narrower than the $S data: the step computes in the " *
+    "the workspace is $T, narrower than the $S data: the step works in the " *
     "workspace's type and would round the data to it; build it with " *
     "workspace(scheme, length(src), $S)"))
 @noinline _err_knots(T, n) = throw(ArgumentError(
@@ -582,10 +586,14 @@ function _validate_workspace(p::PFCNonUniform, ws::PFCWorkspace, n::Integer)
 end
 
 # A workspace narrower than the data would round it on the way in: the spline
-# step computes in its workspace's type. A wider one is a choice, and allowed.
+# step computes in its workspace's type, `PFCNonUniform` accumulates in it, and
+# `OnGrid`'s sub-steps read the line back from its buffer. A wider one is a
+# choice, and allowed. A comparison of types, decided when the method compiles.
 _validate_eltype(ws, src) = nothing
-_validate_eltype(ws::SplineWorkspace{T}, src) where {T} =
+_validate_eltype(ws::Union{SplineWorkspace, PFCWorkspace}, src) = _check_narrow(_eltype(ws), src)
+_check_narrow(::Type{T}, src) where {T} =
     promote_type(T, float(eltype(src))) === T ? nothing : _err_narrow(T, float(eltype(src)))
+_eltype(::PFCWorkspace{T}) where {T} = T
 
 # `c` in the type a spline step computes in. `_validate_courant` has refused a
 # non-finite one; one finite in its own type can still overflow a narrower `T`.
@@ -807,8 +815,11 @@ scheme with no Courant limit, `SemiLagrangian`, takes it in one step; see
 the bit: within a cell `m = 1`, and `α/1` is `α`.
 
 `workspace(og, n[, T])` is scratch for the scheme and a line buffer for the
-sub-steps, in the grid's element type unless `T` is given; `n` is the grid's
-length.
+sub-steps; `n` is the grid's length. **Its type is the grid's unless `T` is
+given, not the data's**: Float64 data on a Float32 grid needs
+`workspace(og, n, Float64)`. `advect!` refuses a workspace narrower than the
+data, whose sub-steps it rounded to it, 8.9e-8 off at three sub-steps; the
+four-argument `advect!` builds one in the data's type.
 """
 struct OnGrid{S<:AbstractAdvection1D, T<:AbstractFloat} <: AbstractAdvection1D
     scheme::S
@@ -873,6 +884,10 @@ struct OnGridWorkspace{W, T}
     buffer::Vector{T}
 end
 
+# The sub-step line holds the data between sub-steps, so it may not be narrower
+# than they are; the scheme's own `advect!` checks its own scratch.
+_validate_eltype(ws::OnGridWorkspace, src) = _check_narrow(eltype(ws.buffer), src)
+
 function workspace(og::OnGrid{S,T}, n::Integer, ::Type{U} = T) where {S, T, U}
     n == og.n || _err_grid(og.scheme, og.n, n)
     return OnGridWorkspace(workspace(og.scheme, n, U), Vector{U}(undef, n))
@@ -928,6 +943,7 @@ _argument(::OnGrid{<:PFCNonUniform}, a) = a
 function advect!(dest, src, og::OnGrid, α, ws::OnGridWorkspace)
     length(src) == og.n || _err_grid(og.scheme, og.n, length(src))
     length(ws.buffer) == og.n || _err_workspace(length(ws.buffer), og.n)
+    _validate_eltype(ws, src)    # whether or not there are sub-steps, for every call alike
     _scratch_aliases(ws, dest, src) && _err_alias(ws)
     m = nsubsteps(og, α)
     a = _argument(og, α/m)

@@ -613,6 +613,34 @@ end
     s32 = PFCNonUniform(fill(0.05f0, N); fmin = 0.0f0, fmax = 2.0f0)
     @test workspace(s32, N).accumulator isa Vector{Float32}
 
+    # A workspace narrower than the data is refused, as the spline's was: the
+    # step works the line in it. A Float32 grid's `PFCNonUniform` and `OnGrid`
+    # build theirs in the grid's type by default, and took Float64 data to
+    # Float32 without a word: 5.9e-8 from the Float64 scheme, every value a
+    # Float32 one, and 8.9e-8 over three `OnGrid` sub-steps. Built in the data's
+    # type, the step is the Float64 one to the bit.
+    src = [1.0 + 0.5*sin(2π*(i-1)/N) for i = 1:N]
+    # `PFCNonUniform` accumulates in its workspace. Over widths of 0.0625, whose
+    # sums are exact in Float32: the scheme sums its own widths in its own type,
+    # and over 0.05 that left 1.4e-11 between the two.
+    p32 = PFCNonUniform(fill(0.0625f0, N); fmin = 0.0, fmax = 2.0)
+    p64 = PFCNonUniform(fill(0.0625, N); fmin = 0.0, fmax = 2.0)
+    @test_throws ArgumentError advect!(similar(src), src, p32, 0.02, workspace(p32, N))
+    wide = advect!(similar(src), src, p32, 0.02, workspace(p32, N, Float64))
+    @test wide == advect!(similar(src), src, p64, 0.02, workspace(p64, N))
+    @test wide == advect!(similar(src), src, p32, 0.02)
+    # `OnGrid`'s sub-steps read the line back from its buffer, refused on every
+    # call alike, three sub-steps or one.
+    og32, og64 = OnGrid(Upwind(), fill(0.05f0, N)), OnGrid(Upwind(), Float64.(fill(0.05f0, N)))
+    @test workspace(og32, N).buffer isa Vector{Float32}     # the grid's type, by default
+    for α in (0.12, 0.02)
+        @test_throws ArgumentError advect!(similar(src), src, og32, α, workspace(og32, N))
+        @test advect!(similar(src), src, og32, α, workspace(og32, N, Float64)) ==
+              advect!(similar(src), src, og64, α, workspace(og64, N))
+    end
+    # and Float32 data on a Float32 grid keeps the default
+    @test eltype(advect!(similar(g), g, og32, 0.12f0, workspace(og32, N))) === Float32
+
     # Bounds narrower than they were given round outward, so a Float32 grid
     # keeps the Float64 data they admit: `fmax = maximum(f)` rounded below the
     # peak as often as not, and the first checked step refused the data's own.
