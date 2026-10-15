@@ -53,10 +53,10 @@ statement about the schemes rather than about floating point.
 
 ## `OnGrid`
 
-    OnGrid(scheme, Δz)
+    OnGrid(scheme, Δz; scale)
 
-The driver puts each scheme on its grid, `OnGrid(scheme_x, Δx)` and
-`OnGrid(scheme_v, Δv)`, and hands it a **displacement** -- a length -- whatever
+The driver puts each scheme on its grid, `OnGrid(scheme_x, Δx; scale)` and
+`OnGrid(scheme_v, Δv; scale)`, and hands it a **displacement** -- a length -- whatever
 the scheme's own fourth argument means. [`OnGrid`](@ref Vasilek.Advection.OnGrid)
 is a scheme in `Vasilek.Advection`; it replaces `line_advector`, a closure the
 driver built for itself, which took the same arguments and gave the same bits.
@@ -68,6 +68,26 @@ differently -- and **refuses** a non-uniform grid rather than picking one of its
 spacings and being quietly wrong by the ratio between them. That asymmetry is a
 documented wart of the advection API (see [normalization.md](normalization.md));
 `OnGrid` is where it is absorbed.
+
+**Uniform is to rounding, as the field solve takes `x`**: each width matches the
+first to 1e-10 of it, or to 8 ulps of the largest coordinate in the
+coordinates' own type. The driver passes that coordinate as `OnGrid`'s `scale`,
+since the widths it holds are widened to the data's type and no longer show
+it. At 1e-12 of the spacing, `OnGrid` refused Float32 coordinates and a Float64
+grid at 1e6, both of which `make_poisson` takes, so only `PFCNonUniform` could
+run on them. With `scheme_x = Upwind()` on the Landau run of
+`test/test_driver.jl`, against the Float64 run on `x`, as fractions of the peak
+on Julia 1.13:
+
+| `x` | `f` | `ε_e` |
+|---|---|---|
+| `Float32.(x)`, Float64 `f₀` | 9.9e-10 | 2.1e-7 |
+| all Float32 | 5.8e-7 | 5.3e-6 |
+| `1e6 .+ x` | 1.1e-12 | 7.6e-11 |
+
+The first is the Float32 spacing's own rounding of the Courant number, the
+spacing being the first width as before; a grid `OnGrid` took before gives the
+same bits.
 
 **A displacement wider than a cell is split** into the fewest equal sub-steps
 that fit ([`substeps`](@ref Vasilek.Advection.substeps)), the narrowest cell

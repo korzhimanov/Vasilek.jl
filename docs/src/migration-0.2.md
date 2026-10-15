@@ -112,7 +112,11 @@ that spline's prefilter, factorised when it is built, and one built for another
 spline is refused. Its element type is the type the step computes in, whatever
 the type of `c`: it may be wider than the data, not narrower, and it has to hold
 every knot exactly, so `Float16` data on more than 2047 cells needs
-`workspace(scheme, n, Float32)`.
+`workspace(scheme, n, Float32)`. So is a `PFCNonUniform` workspace's, and an
+`OnGrid`'s, whose sub-steps read the line back from it. Both default to their
+grid's type, not the data's: Float64 data under a Float32 grid's scheme needs
+`workspace(scheme, n, Float64)`, and a narrower one is refused rather than
+rounding the data to it.
 
 `advect!` also requires that `dest` and `src` share no memory (a view of `src`
 counts) and at least three cells. Both used to be quietly wrong rather than an
@@ -134,7 +138,10 @@ no single Courant number to quote.
 `OnGrid(scheme, Δz)` puts a scheme on the grid of cell widths `Δz` and takes
 the displacement for every scheme: it divides by the spacing for a uniform-grid
 one, refuses that on a non-uniform grid, and splits a step wider than a cell
-into equal sub-steps that fit. It is a scheme like the others, with a workspace
+into equal sub-steps that fit. Uniform is to rounding, by the rule
+`make_poisson` applies to its nodes; for widths taken from coordinates far from
+the origin, or widened from a narrower type, pass the coordinates' size as
+`scale`: `OnGrid(scheme, cell_widths(x); scale = maximum(abs, x))`. It is a scheme like the others, with a workspace
 of its own. It replaces `VlasovPoisson1D1V.line_advector`, a closure added and
 removed during 0.2; `substeps` moved with it to `Vasilek.Advection`.
 
@@ -253,6 +260,12 @@ op = BGK(τ)
 ws = workspace(op, length(f))
 collide!(f, f₀, op, v, Δt, ws)
 ```
+
+The workspace is checked as `advect!`'s is: its buffers of the lengths
+`workspace(op, length(v))` gives them, a type no narrower than the data's, and
+no memory shared with `dest` or `src`. `workspace(BGK(0.5f0), n)` is Float32;
+Float64 data needs `workspace(op, n, Float64)`, which the five-argument
+`collide!` builds.
 
 `BGK(τ)` now relaxes to the *discrete* Maxwellian, which conserves density,
 momentum and energy to round-off on the grid it is given; 0.1's sampled

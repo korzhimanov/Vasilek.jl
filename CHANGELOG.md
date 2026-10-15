@@ -351,6 +351,12 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Fixed
 
+- **`advect!` and `collide!` refuse a workspace narrower than the data**, as a
+  Float32 grid's `PFCNonUniform` or `OnGrid` and `BGK(0.5f0)` build, and `collide!`
+  one of the wrong length or under `dest`. `test/test_contracts.jl`, `test_damping_1v.jl`.
+- **`OnGrid` takes a grid uniform to rounding, as `make_poisson` does** (`scale`), and
+  positional `PFC` constructors work in their type and round bounds outward, a Float32
+  `PFC`'s by a bit. `test/test_driver.jl`, `docs/src/driver-notes.md`.
 - **`Godunov(PiecewiseLinear(), VanLeer())` stays finite where the ratio of two
   finite differences overflows**: `VanLeer` is 2 at `r = Inf`, as `AbstractLimiter`
   now asks of every limiter, and else the same to the bit. `test/test_contracts.jl`.
