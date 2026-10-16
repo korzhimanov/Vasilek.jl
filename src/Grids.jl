@@ -51,8 +51,8 @@ The nodes agree with it to their own rounding only.
   * `UniformGrid(h, nodes)` takes the spacing as given, for nodes uniform to
     rounding that it is the spacing of, to their rounding: cell centres
     `(j - 1/2)L/N` with `h = L/N`, whose differences round otherwise. An `h`
-    the nodes do not have is an `ArgumentError`, since the field solve and the
-    Courant numbers would take it while the sums take the nodes' cells.
+    the nodes do not have is an `ArgumentError`: a run would advect, solve and
+    sum on it a distribution sampled at other places.
   * `UniformGrid(h, n)` has no nodes: enough for a scheme on a grid, not for
     the driver, which samples `f₀` and the ions at the nodes.
 
@@ -124,8 +124,9 @@ function _uniform(h, z)
     return UniformGrid{T, Vector{T}}(T(h), length(z), collect(T, z))
 end
 
-# In the nodes' own arithmetic: exact for Rational nodes.
-_mean_spacing(z) = (z[end] - z[1])/(length(z) - 1)
+# In the nodes' own arithmetic, exact for Rational nodes, or for integers in
+# Float64.
+_mean_spacing(z) = _diff(z[end], z[1])/(length(z) - 1)
 
 """
     NonUniformGrid(z::AbstractVector)
@@ -214,13 +215,18 @@ the first node `j` whose spacing is not that to rounding,
 one is.
 """
 function _uniform_spacing(z::AbstractVector)
-    h = z[2] - z[1]
+    h = _diff(z[2], z[1])
     scale = maximum(abs, z)
     for j in 2:length(z)-1
-        _within_rounding(z[j+1] - z[j], h, scale) || return (h, j)
+        _within_rounding(_diff(z[j+1], z[j]), h, scale) || return (h, j)
     end
     return (h, 0)
 end
+
+# A difference of nodes, integers in Float64: `Int8[-100, 0, 100]` spans 200,
+# which Int8 wraps to -56.
+_diff(a, b) = a - b
+_diff(a::Integer, b::Integer) = float(a) - float(b)
 
 """
     grid(z)
@@ -333,15 +339,16 @@ narrowest(g::NonUniformGrid) = g.hmin
     cell_widths(z)
     cell_widths(g::AbstractGrid1D)
 
-The width each node of the grid `z` stands for: the spacing at the two ends,
-and half the distance between its neighbours inside. These are the weights of
-the sums `Σ f ΔvΔx` that the flux-form schemes conserve. A floating-point grid
-gets widths of its own element type. Of a grid, its [`widths`](@ref); of a
-range, its step in every cell, as of its `UniformGrid` -- not the differences of
-its nodes, which round in the last bit.
+The width each node of the vector `z` stands for: the spacing at the two ends,
+and half the distance between its neighbours inside, the weights that a
+`PFCNonUniform` built on them conserves `Σ f Δv` with. A floating-point vector
+gets widths of its own element type. Of a grid, its [`widths`](@ref), which the
+driver sums with: on a uniform grid its spacing in every cell, which the nodes'
+differences round about in the last bits. Of a range, those of
+[`grid`](@ref)`(r)`: its step in every cell if it is uniform.
 """
 cell_widths(z::AbstractVector) = vcat([z[2]-z[1]], (z[3:end] - z[1:end-2])/2, [z[end]-z[end-1]])
-cell_widths(r::AbstractRange) = widths(UniformGrid(r))
+cell_widths(r::AbstractRange) = widths(grid(r))
 cell_widths(g::AbstractGrid1D) = widths(g)
 
 # ----------------------------------------------------------- the same grid

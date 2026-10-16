@@ -40,6 +40,10 @@ Vasilek.Advection.takes(::DisplacedShift) = Displacement()
         @test grid(r16) isa NonUniformGrid{Float16}
         @test_throws ArgumentError UniformGrid(r16)
         @test grid(Float16(-4):Float16(0.25):Float16(4)) isa UniformGrid{Float16}
+        # A range's cell widths are its grid's: its step in every cell, or its
+        # nodes' own where it is not uniform, which threw.
+        @test cell_widths(-4.0:0.2:4.0) == fill(0.2, 41)
+        @test cell_widths(r16) == cell_widths(collect(r16))
         @test isbitstype(typeof(UniformGrid(0.1, 8)))
     end
 
@@ -110,6 +114,10 @@ Vasilek.Advection.takes(::DisplacedShift) = Displacement()
             sprint(showerror, err)
         end
         @test occursin("widths", message)
+        # Integers are differenced in Float64: Int8 wrapped the span of
+        # [-100, 0, 100] to -56, and the mean spacing with it.
+        @test spacing(grid(Int8[-100, 0, 100])) === 100.0
+        @test spacing(UniformGrid(Int16[-20000, 0, 20000])) === 20000.0
     end
 
     @testset "a vector's spacing is its mean, and its cells span its box" begin
@@ -277,5 +285,25 @@ Vasilek.Advection.takes(::DisplacedShift) = Displacement()
         w = [0.5 + 0.3sin(2π*i/16) for i in 1:16]
         @test PFCNonUniform(NonUniformGrid(; widths = w); fmin = 0, fmax = 1).Δx == w
         @test PFCNonUniform(UniformGrid(0.1f0, 8); fmin = 0, fmax = 1) isa PFCNonUniform{Float32}
+        # One on the nodes' own widths is held to the grid's to 1e-12 in
+        # Float64. They are an ulp of the largest node off: on [0, 4π) 1.8e-13 of
+        # a cell at 4096 nodes, taken, and 1.6e-12 at 16384, refused with how far
+        # and what to build instead.
+        for (N, taken) in ((4096, true), (16384, false))
+            x = collect((0:N-1) .* (4π/N))
+            p = PFCNonUniform(cell_widths(x); fmin = 0, fmax = 1)
+            if taken
+                @test OnGrid(p, x).grid isa UniformGrid
+            else
+                message = try
+                    OnGrid(p, x)
+                    ""
+                catch err
+                    sprint(showerror, err)
+                end
+                @test occursin("of a cell off", message) &&
+                      occursin("PFCNonUniform(Vasilek.Grids.grid(x)", message)
+            end
+        end
     end
 end

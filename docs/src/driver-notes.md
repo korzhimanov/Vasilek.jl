@@ -82,7 +82,7 @@ the rounding of the nodes either grid was built from, by the rule above. An
 difference is an ulp off; one built on a Float32 spacing is kept on the Float64
 grid; one built on `0.1` is kept on nodes near 1e6, whose first difference is
 2.3e-10 of a cell off. A `PFCNonUniform` is held closer, to 4 ulps of the
-coarser type alone, as it was: the widths it advects on have to be the widths
+coarser type or 1e-12, whichever is more, alone, as it was: the widths it advects on have to be the widths
 the run sums with, and allowed the nodes' rounding, one on a Float32 grid's
 first difference in every cell ran with its mass drifting by 1e-8 rather than
 1e-16. `PFCNonUniform(grid(x); …)` is built on the widths the run sums with.
@@ -90,18 +90,29 @@ first difference in every cell ran with its mass drifting by 1e-8 rather than
 **A uniform grid's widths are its spacing.** On a `UniformGrid` every cell is
 `h`: the driver sums on `fill(h, n)`, a `PFCNonUniform` built on the grid takes
 those widths, its limiter coefficient 2 to the bit, and `cell_widths` of a range
-is its step in every cell. They were the nodes' cell widths, which take 4 to 7
-distinct values in their last bits on every uniform grid the suite uses. Every
-number the driver returns moved at round-off for it: on the Landau runs the
-bit gate of this change takes, at most 8.3e-16 of the peak in `f` and 3.9e-14
-of the largest `ε_e` in Float64, and the Float32 runs by their own rounding,
-2.2e-7 and 5.1e-6.
+is its step in every cell. They were the nodes' cell widths, which take up to 9
+distinct values in their last bits on the uniform grids the suite uses, and one
+on the two whose nodes are exact. Every number the driver returns moved at
+round-off for it. Against the nodes' widths, over Landau runs of 100 to 400
+steps with the defaults, `Upwind`, `BGK`, `Landau1P` or a Rational `v`: in
+Float64 near the origin at most 1.8e-15 of the peak in `f` and 6.1e-15 of the
+largest `ε_e`; 5.2e-12 at 1e6, by the bias the mean spacing lost, below; and by
+the Float32 nodes' rounding, 1.2e-8 on a Float32 `x` under Float64 data and
+4.3e-7 all in Float32.
+
+**The collision operators sum on them too.** The driver hands an operator the
+grid's nodes as [`GridNodes`](@ref Vasilek.Collisions.GridNodes), which carry
+its widths, through `Collide(op, grid, Δt)`; on a vector of nodes an operator
+still takes the nodes' own cell widths. Summed on those while the run summed on
+the spacing, a two-stream run on a Float32 `v` to `t = 5` lost 1.2e-9 of its
+mass under `BGK` and 2.6e-10 under `Landau1P`; it keeps it to 3e-16 now.
 
 **A vector's spacing is its mean**, `(z[end] − z[1])/(n − 1)`, not its first
 difference, which carries the rounding of the largest node: `n` cells of the
 first difference were 2.3e-10 off the box of `1e6 .+ (0:63)*0.1`, `n` cells of
-the mean 7.4e-12, and the Landau run on it under `Upwind` is 1.2e-14 of the peak
-from the run at the origin, where it was 1.1e-12. The collected nodes of
+the mean 7.4e-12. On the 32 cells of the Landau run in `test/test_driver.jl`
+moved to 1e6 they are 3.9e-11 and 4.4e-13 off, and the run there under `Upwind`
+is 1.2e-14 of the peak from the run at the origin, where it was 1.1e-12. The collected nodes of
 `-4.0:0.2:4.0` have the mean 0.2, the step written, where their first
 difference is 0.20000000000000018.
 
@@ -112,14 +123,18 @@ too: a Float16 range over [−4, 4] is not uniform. On the grids of
 on ranges is the run on the collected nodes to the bit, with the defaults and
 under `Upwind`; before the grid types it was 8.3e-16 of the peak from it,
 through range arithmetic in its widths. A Rational `v` runs on its nodes in
-Float64, to the bit of `Float64.(v)`.
+Float64, its spacing the exact mean rounded once: to the bit of `Float64.(v)`
+where the two means round alike, as on `-4:1/5:4`, and an ulp of the spacing
+apart where they do not, 1.1e-15 of the peak on `-3/2 .+ (0:20) .// 3`.
 
 **A `PFCNonUniform` beside a uniform grid belongs on the grid**,
 `PFCNonUniform(grid(x); …)`, on the widths the run sums with. One built on the
-nodes' `cell_widths` is held to those to 4 ulps of the coarser type: in Float64
-near the origin they are 2.4e-15 of a cell from the spacing at most, and it is
-taken; on a Float32 `x` they are 8.3e-7 of a cell off, and near 1e6 9.2e-10,
-and it is refused. Taken to the nodes' rounding, the Float32 one ran with its
+nodes' `cell_widths` is held to those to 4 ulps of the coarser type or 1e-12,
+whichever is more. The nodes' widths are about an ulp of the largest node off
+the spacing: in Float64 1.1e-15 to 1.4e-14 of a cell on the suite's common
+grids, and on [0, 4π) 1.8e-13 at 4096 cells, and it is taken; 1.6e-12 at 16384 cells, 8.3e-7
+on a Float32 `x` and 9.2e-10 near 1e6, and it is refused, with how far and what
+to build instead. Taken to the nodes' rounding, the Float32 one ran with its
 mass drifting by 6.1e-10 over 20 steps, where one built on the grid keeps it
 to 1e-12, as `test/test_driver.jl` asserts.
 
@@ -408,12 +423,14 @@ Landau run over `[−6, 6]`:
 
 `benchmark/results.json`, taken on the development machine, has the kernels
 2.1 times apart at 100 to 10⁴ cells. Every run with a default on a uniform grid
-moved at round-off for it, in Float64 at most 8.3e-16 of the peak in `f` and
-1.1e-14 of the largest `ε_e` over the bit gate's runs. The difference grows with
-the run: over 400 steps of Landau runs at 5% and 50% on 64 × 81 and 64 × 129 it
-reached 3.2e-15 of the peak with the defaults and 1.6e-14 beside a given linear
-`SemiLagrangian`. A default given by hand as
-`f -> PFC(fmin = 0, fmax = maximum(f))` is the default to the bit.
+moved at round-off for it: in Float64 at most 8.3e-16 of the peak in `f` and
+1.1e-14 of the largest `ε_e` over 20 steps on the 32 × 41 Landau grid of
+`test/test_driver.jl`, with the defaults alone and beside given schemes. The
+difference grows with the run: over 400 steps of Landau runs at 5% and 50% on
+64 × 81 and 64 × 129 it reached 3.2e-15 of the peak with the defaults and
+1.6e-14 beside a given linear `SemiLagrangian`. A default given by hand as
+`f -> PFC(fmin = 0, fmax = maximum(f))`, with `fmax = Inf` under `collisions`,
+is the default to the bit.
 
 **Either may also be a function of the initial `f` that returns a scheme**, as
 in `f -> PFC(fmin = 0.0, fmax = maximum(f))`, and is called with the `f` the run
@@ -551,7 +568,9 @@ stopped. A checked call now takes such a subnormal for round-off and clamps it;
 the lines stay in Float64 for their precision, and for the mass, of which a
 clamp cuts an ulp of the line's type where it acts. The all-Float32 Landau run of
 `test_driver.jl` matches the Float64 one to 7.7e-7 of the peak in `f` and
-6.9e-6 in `ε_e` on Julia 1.13, 1.2e-6 and 3.3e-6 on 1.10.
+1.1e-5 in `ε_e` on Julia 1.13, 9.1e-7 and 4.2e-6 on 1.10; 7.0e-7 in `f` on 1.13
+while the default was `PFCNonUniform` on the grid's widths, and 7.7e-7 and
+6.9e-6, and 1.2e-6 and 3.3e-6, while the widths were the nodes' cell widths.
 
 The density is the exception the other way. Float32 data on Float64 grids
 sums `Σ f Δv` in Float64 and cancels it against Float64 ions, as

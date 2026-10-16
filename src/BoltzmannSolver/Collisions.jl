@@ -14,6 +14,7 @@ import ..workspace
 # The rules `advect!` checks its workspace by, `_shares` for memory and
 # `_narrower` for the type: one copy of each for the whole package.
 using ..Advection: _shares, _narrower
+using ..Grids: UniformGrid, NonUniformGrid, nodes
 
 # `Landau1P` is defined here but not exported: it is a one-dimensional model of
 # the Landau operator, with a bath at a temperature of its own; see its
@@ -114,6 +115,33 @@ end
     "the workspace is $T, narrower than the $S data: the operator computes into the " *
     "workspace's type and would round the data to it; build it with " *
     "workspace(op, length(v), $S)"))
+
+"""
+    GridNodes(g)
+
+The nodes of the grid `g` of [`Vasilek.Grids`](@ref Vasilek.Grids), as a vector
+that carries the grid's cell widths for the operators' sums: a uniform grid's
+spacing in every cell, a non-uniform grid's widths. On a vector of nodes the
+operators take the nodes' own cell widths, `(v₂ − v₁, (v₃ − v₁)/2, …)`, which on a
+uniform grid scatter about its spacing by the nodes' rounding: 1e-7 of a cell on
+a Float32 grid. A run sums on the grid's widths, and with the nodes' own a BGK
+run on a Float32 `v` lost 1.2e-9 of its mass. [`Collide`](@ref
+Vasilek.StrangSplitting.Collide) hands a grid to the operators as one.
+"""
+struct GridNodes{T, W<:Union{T, Vector{T}}} <: AbstractVector{T}
+    nodes::Vector{T}
+    widths::W
+end
+GridNodes(g::UniformGrid) = GridNodes(nodes(g), g.h)
+GridNodes(g::NonUniformGrid) = GridNodes(nodes(g), g.widths)
+Base.size(v::GridNodes) = size(v.nodes)
+Base.IndexStyle(::Type{<:GridNodes}) = IndexLinear()
+Base.@propagate_inbounds Base.getindex(v::GridNodes, i::Int) = v.nodes[i]
+# For the aliasing checks: a `dest` over the nodes is refused as it is over a
+# vector of them.
+Base.dataids(v::GridNodes) = (Base.dataids(v.nodes)..., _ids(v.widths)...)
+_ids(w::AbstractArray) = Base.dataids(w)
+_ids(::Number) = ()
 
 include(joinpath("operators", "bgk.jl"))
 include(joinpath("operators", "landau1p.jl"))

@@ -932,15 +932,26 @@ function _same_widths(p::PFCNonUniform, g::AbstractGrid1D)
         "PFCNonUniform has $(length(p.Δx)) cells, the grid $(length(g))"))
     rtol = max(_rtol(eltype(p.Δx)), _rtol(eltype(typeof(g))))
     all(isapprox(d, w; rtol) for (d, w) in zip(p.Δx, _reference_widths(g))) ||
-        throw(ArgumentError("PFCNonUniform carries cell widths other than the grid's: " *
-                            "it would advect on its own grid while the run sums on this one"))
+        _err_other_widths(p, g, rtol)
     return nothing
+end
+
+@noinline function _err_other_widths(p, g, rtol)
+    off = maximum(abs(d - w)/abs(w) for (d, w) in zip(p.Δx, _reference_widths(g)))
+    throw(ArgumentError(
+        "PFCNonUniform carries cell widths other than the grid's, " *
+        "$(round(off; sigdigits = 2)) of a cell off where $(round(rtol; sigdigits = 2)) " *
+        "is taken: it would advect on its own grid while the run sums on this one. " *
+        "Build it on the grid, PFCNonUniform(grid; fmin, fmax), as " *
+        "PFCNonUniform(Vasilek.Grids.grid(x); fmin, fmax) for the nodes x"))
 end
 
 # The widths a PFCNonUniform on `g` is held to: the grid's own, which the run
 # sums with. A caller's `PFCNonUniform(cell_widths(nodes))` beside a uniform grid
-# differs from them by the nodes' rounding: taken within 4 ulps of the coarser
-# type, refused further, as on a Float32 grid or one far from the origin.
+# differs from them by the nodes' rounding, about an ulp of the largest node:
+# taken within `_rtol` of the coarser type, 1e-12 in Float64, which a grid of a
+# few thousand cells near the origin keeps, and refused further, as on a Float32
+# grid, one far from the origin or one of 10⁴ cells.
 _reference_widths(g::AbstractGrid1D) = widths(g)
 
 """
