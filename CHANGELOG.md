@@ -234,13 +234,12 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Changed
 
-- **A uniform grid's widths are its spacing, and a vector's spacing is its mean**: every
-  run moves at round-off, ≤ 8.3e-16 of the peak, and one at 1e6 from the origin comes to
-  1.2e-14 of the run at 0, from 1.1e-12. Driver notes, "Grids"; migration guide, "Grids".
-- **A run on ranges, or on a Rational `v`, moves at round-off**: their widths are their
-  nodes' in Float64, and a range's spacing its `step`; 8.3e-16 and 5.5e-16 of the peak
-  with the defaults, a range now as its collected nodes if its step is their first
-  difference. Driver notes, "Grids".
+- **A uniform grid's widths are its spacing, in the sums and the collision operators', and a
+  vector's spacing is its mean**: a Float64 run moves ≤ 1.8e-15 of the peak, and one at 1e6
+  comes to 1.2e-14 of the run at 0, from 1.1e-12. Driver notes, "Grids"; migration, "Grids".
+- **A run on ranges, or on a Rational `v`, moves at round-off**: their nodes are in Float64,
+  and a range's spacing is its `step`; 8.3e-16 and 5.5e-16 of the peak with the defaults, a
+  range as its collected nodes where its step is their mean spacing. Driver notes, "Grids".
 - **The API reference is a page per module, and a docs page over 100 KiB fails
   the build**: the one-page API had reached Documenter's warning limit. Old
   `api/#Name` anchors now land on the overview. `docs/make.jl`.

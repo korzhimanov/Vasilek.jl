@@ -77,8 +77,8 @@ using Vasilek.Grids: grid, spacing
     # Float64 f, 8.4e-10 in `f` and 2.3e-7 in `ε_e`, the Float32 spacing's own
     # rounding of the Courant number; all in Float32, 6.5e-7 and 5.4e-6; x at
     # 1e6, 1.2e-14 and 1.3e-12 -- 1.1e-12 and 7.6e-11 while the spacing was the
-    # first difference, which carries 9.3e-10 of a cell of the nodes' rounding
-    # where the mean carries 7.4e-12.
+    # first difference, which on these nodes carries 3.9e-11 of a cell of their
+    # rounding where the mean carries 4.4e-13.
     up = vlasov_poisson(x, v, f₀, t; scheme_x = Upwind())
     for (run, ftol, εtol) in ((vlasov_poisson(Float32.(x), v, f₀, t; scheme_x = Upwind()), 1e-8, 2e-6),
                              (vlasov_poisson(Float32.(x), Float32.(v), Float32.(f₀), Float32.(t);
@@ -341,6 +341,8 @@ end
         wsx, wsv = workspace(sx, Nx), workspace(sv, Nv)
         bx, bv, cbuf = similar(x), similar(v), similar(v)
         cws = collisions === nothing ? nothing : workspace(collisions, Nv, eltype(f))
+        # collided at the grid's nodes, on its widths
+        vw = Vasilek.Collisions.GridNodes(grid(v))
         p = P.PoissonFFT1D(Nx, spacing(grid(x)))
         pws = workspace(p)
         e = similar(x)
@@ -355,12 +357,12 @@ end
             for i in 1:Nx
                 col = view(f, :, i)
                 if collisions !== nothing
-                    collide!(cbuf, col, collisions, v, Δt/2, cws)
+                    collide!(cbuf, col, collisions, vw, Δt/2, cws)
                     copyto!(col, cbuf)
                 end
                 most_v = max(most_v, line!(col, e[i]*Δt, sv, Δv, bv, wsv))
                 if collisions !== nothing
-                    collide!(cbuf, col, collisions, v, Δt/2, cws)
+                    collide!(cbuf, col, collisions, vw, Δt/2, cws)
                     copyto!(col, cbuf)
                 end
             end
@@ -552,6 +554,26 @@ end
     f₀ = [exp(-u^2/2)/sqrt(2π)*(1 + 0.1cos(0.5y)) for u in v, y in x]
     r = vlasov_poisson(x, v, f₀, t; collisions = BGK(0.5f0), invariants = true)
     @test maximum(abs, r.mass .- r.mass[1])/r.mass[1] < 1e-12
+
+    # The operators sum on the grid's widths, as the run does, a uniform v's
+    # spacing in every cell: on the nodes' own cell widths, which a Float32 v
+    # scatters by 1e-7 of a cell, a two-stream run to t = 5 lost 1.2e-9 of its
+    # mass under BGK and 2.6e-10 under Landau1P, and holds it to 3e-16 now.
+    v32 = Float32.(collect(range(-6, 6; length = 81)))
+    xs = collect((0:31) .* (4π/32))
+    twostream = [0.5/sqrt(2π)*(exp(-(u - 2)^2/2) + exp(-(u + 2)^2/2))*(1 + 0.05cos(0.5y))
+                 for u in Float64.(v32), y in xs]
+    for op in (BGK(0.5), Vasilek.Collisions.Landau1P(0.01))
+        r = vlasov_poisson(xs, v32, twostream, collect(0.0:0.1:5.0); collisions = op,
+                           invariants = true)
+        @test maximum(abs, r.mass .- r.mass[1])/r.mass[1] < 1e-14
+    end
+    # The hook hands them the grid's nodes with its widths, and a `dest` over
+    # the nodes is refused as over a vector of them.
+    g = grid(v32)
+    hook = Vasilek.StrangSplitting.Collide(BGK(0.5), g, 0.1)
+    @test hook.v isa Vasilek.Collisions.GridNodes && hook.v == Vasilek.Grids.nodes(g)
+    @test_throws ArgumentError collide!(Vasilek.Grids.nodes(g), ones(Float32, 81), BGK(0.5), hook.v, 0.1)
 
     # A conservative BGK step can raise a line's peak above maximum(f): a flat
     # line over |v| < 2 relaxes towards a taller Maxwellian. The defaults used

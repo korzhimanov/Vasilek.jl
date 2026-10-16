@@ -199,22 +199,31 @@ Calls that ran and are refused now, or take other bits:
     driver notes' "Grids" tabulates; so is an `x` of them, by the field solve,
     whatever the schemes. The default `PFCNonUniform` runs on such a `v` as
     before;
-  * every run on a uniform grid moves at round-off, at most 8.3e-16 of the
-    peak in Float64: its widths are the grid's spacing in every cell, where they
+  * every run on a uniform grid moves at round-off: in Float64 near the
+    origin at most 1.8e-15 of the peak over 100 to 400 steps, far from it by
+    the bias the mean spacing removes, and on a Float32 grid by its nodes'
+    rounding, 1.2e-8 under Float64 data. Its widths are the grid's spacing in
+    every cell, in the driver's sums and the collision operators', where they
     were the nodes' cell widths, and a vector's spacing is its mean, where it
-    was its first difference; `cell_widths` of a range is its step in every
-    cell;
+    was its first difference; `cell_widths` of a range is its grid's, its step
+    in every cell where it is uniform;
+  * a collision operator takes a grid's widths through `GridNodes`, which
+    `Collide(op, grid, Δt)` hands it; on a vector of nodes `collide!` still
+    takes their own cell widths, so a step written out to match the driver
+    passes `Vasilek.Collisions.GridNodes(grid(v))`;
   * a `PFCNonUniform` built on the nodes' `cell_widths` beside a uniform grid is
     refused where they are further from the grid's spacing than 4 ulps of the
-    coarser type: on a Float32 grid, 8.3e-7 of a cell, or one far from the
-    origin, 9.2e-10 at 1e6. Build it on the grid, `PFCNonUniform(grid(x); …)`;
-    in Float64 near the origin the nodes' widths are a few ulps from it, and
-    are taken;
+    coarser type or 1e-12, whichever is more: on a Float32 grid, 8.3e-7 of a
+    cell; far from the origin, 9.2e-10 at 1e6; on 10⁴ cells or more, 1.6e-12 at
+    16384 on [0, 4π). Build it on the grid, `PFCNonUniform(grid(x); …)`, as the
+    error says; on the suite's common Float64 grids the nodes' widths are
+    within 1.4e-14 of it, and are taken;
   * `vlasov_poisson` on ranges takes their nodes collected and their `step` for
     the spacing, where their widths were range arithmetic: a run on ranges is
     the run on the collected nodes to the bit where the step is their mean
     spacing, as on the suite's grids;
-  * a Rational `v` runs on its nodes in Float64, where its widths were Rational;
+  * a Rational `v` runs on its nodes in Float64, where its widths were Rational,
+    its spacing the exact mean rounded once;
   * `vlasov_poisson` with a non-uniform `x` throws the field solve's
     `ArgumentError` whatever `scheme_x`, where `OnGrid`'s came first under a
     scheme that takes a Courant number, and before `f₀`'s own `DomainError`.

@@ -9,11 +9,13 @@ Relaxation towards the local Maxwellian on timescale `τ`: the exact solution of
 **`conservative = true` (the default)** takes `M` as the *discrete* Maxwellian
 of the line (Mieussens, Math. Models Methods Appl. Sci. 10, 1121 (2000)): the
 function `exp(a + bv + cv²)` whose density, momentum and energy, summed on the
-grid with the cell widths the advection schemes conserve,
+grid with its cell widths,
 
     Σᵢ wᵢ fᵢ (1, vᵢ, vᵢ²),   w = (v₂ − v₁, (v₃ − v₁)/2, …, vₙ − vₙ₋₁),
 
-equal those of `src`. It is found by Newton's method on the convex dual,
+equal those of `src`; on a grid's [`GridNodes`](@ref
+Vasilek.Collisions.GridNodes), as the driver hands it the nodes, `w` is the
+grid's widths, a uniform grid's spacing in every cell, which the run sums with. It is found by Newton's method on the convex dual,
 starting from the continuous Maxwellian, so `collide!` conserves all three to
 round-off on any grid and any window, and a sampled Maxwellian is a fixed point.
 
@@ -74,11 +76,14 @@ _scratch_aliases(ws::BGKWorkspace, dest, src) =
 # resolved, and its Maxwellian would be a spike the grid cannot integrate.
 _coarsest(v) = maximum(v[i+1] - v[i] for i in 1:length(v)-1)
 
-# Cell width of node i, the weight of the flux-form sums.
+# Cell width of node i, the weight of the flux-form sums: the nodes' own, or
+# the grid's that `GridNodes` carries.
 @inline function _width(v, i)
     n = length(v)
     return i == 1 ? v[2] - v[1] : i == n ? v[n] - v[n-1] : (v[i+1] - v[i-1])/2
 end
+@inline _width(v::GridNodes{T, T}, i) where {T} = v.widths
+Base.@propagate_inbounds _width(v::GridNodes{T, Vector{T}}, i) where {T} = v.widths[i]
 
 function _trapezoid(v, y)
     s = zero(promote_type(eltype(v), eltype(y)))
