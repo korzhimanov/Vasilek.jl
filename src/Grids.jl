@@ -283,7 +283,7 @@ end
     "as NonUniformGrid(; widths), or a uniform spacing as (h, n)"))
 
 @noinline _err_nonuniform(z, h, j) = throw(ArgumentError(
-    "the nodes are not uniformly spaced: spacing $(z[j+1] - z[j]) at node $j, " *
+    "the nodes are not uniformly spaced: spacing $(_diff(z[j+1], z[j])) at node $j, " *
     "$h at node 1; NonUniformGrid takes them, or grid(z) decides"))
 
 # ------------------------------------------------------------------ accessors

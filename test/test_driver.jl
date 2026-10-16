@@ -556,8 +556,8 @@ end
     @test maximum(abs, r.mass .- r.mass[1])/r.mass[1] < 1e-12
 
     # The operators sum on the grid's widths, as the run does, a uniform v's
-    # spacing in every cell: on the nodes' own cell widths, which a Float32 v
-    # scatters by 1e-7 of a cell, a two-stream run to t = 5 lost 1.2e-9 of its
+    # spacing in every cell: on the nodes' own cell widths, which this Float32 v
+    # scatters by 9.9e-7 of a cell, a two-stream run to t = 5 lost 1.2e-9 of its
     # mass under BGK and 2.6e-10 under Landau1P, and holds it to 3e-16 now.
     v32 = Float32.(collect(range(-6, 6; length = 81)))
     xs = collect((0:31) .* (4π/32))

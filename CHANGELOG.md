@@ -235,8 +235,8 @@ guide `docs/src/migration-0.2.md`, or a test.
 ### Changed
 
 - **A uniform grid's widths are its spacing, in the sums and the collision operators', and a
-  vector's spacing is its mean**: a Float64 run moves ≤ 1.8e-15 of the peak, and one at 1e6
-  comes to 1.2e-14 of the run at 0, from 1.1e-12. Driver notes, "Grids"; migration, "Grids".
+  vector's spacing is its mean**: Float64 runs near the origin moved ≤ 1.9e-15 of the peak, one
+  at 1e6 comes to 1.2e-14 of the run at 0, from 1.1e-12. Driver notes and migration, "Grids".
 - **A run on ranges, or on a Rational `v`, moves at round-off**: their nodes are in Float64,
   and a range's spacing is its `step`; 8.3e-16 and 5.5e-16 of the peak with the defaults, a
   range as its collected nodes where its step is their mean spacing. Driver notes, "Grids".

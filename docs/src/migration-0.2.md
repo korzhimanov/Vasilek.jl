@@ -200,9 +200,10 @@ Calls that ran and are refused now, or take other bits:
     whatever the schemes. The default `PFCNonUniform` runs on such a `v` as
     before;
   * every run on a uniform grid moves at round-off: in Float64 near the
-    origin at most 1.8e-15 of the peak over 100 to 400 steps, far from it by
-    the bias the mean spacing removes, and on a Float32 grid by its nodes'
-    rounding, 1.2e-8 under Float64 data. Its widths are the grid's spacing in
+    origin 1.9e-15 of the peak at most on the Landau runs of the driver notes'
+    "Grids", over 100 to 400 steps; far from it by the bias the mean spacing
+    removes, 6.7e-12 at 1e6; and on a Float32 grid by its nodes' rounding,
+    1.2e-8 under Float64 data. Its widths are the grid's spacing in
     every cell, in the driver's sums and the collision operators', where they
     were the nodes' cell widths, and a vector's spacing is its mean, where it
     was its first difference; `cell_widths` of a range is its grid's, its step
@@ -213,9 +214,10 @@ Calls that ran and are refused now, or take other bits:
     passes `Vasilek.Collisions.GridNodes(grid(v))`;
   * a `PFCNonUniform` built on the nodes' `cell_widths` beside a uniform grid is
     refused where they are further from the grid's spacing than 4 ulps of the
-    coarser type or 1e-12, whichever is more: on a Float32 grid, 8.3e-7 of a
-    cell; far from the origin, 9.2e-10 at 1e6; on 10⁴ cells or more, 1.6e-12 at
-    16384 on [0, 4π). Build it on the grid, `PFCNonUniform(grid(x); …)`, as the
+    coarser type or 1e-12, whichever is more: on the suite's Float32 test `x`,
+    8.3e-7 of a cell; far from the origin, 9.2e-10 at 1e6; on enough cells that
+    an ulp of the largest node passes 1e-12 of one, 1.6e-12 at 16384 on
+    [0, 4π), where 4096 are 1.8e-13 off and taken. Build it on the grid, `PFCNonUniform(grid(x); …)`, as the
     error says; on the suite's common Float64 grids the nodes' widths are
     within 1.4e-14 of it, and are taken;
   * `vlasov_poisson` on ranges takes their nodes collected and their `step` for

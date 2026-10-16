@@ -123,8 +123,8 @@ The nodes of the grid `g` of [`Vasilek.Grids`](@ref Vasilek.Grids), as a vector
 that carries the grid's cell widths for the operators' sums: a uniform grid's
 spacing in every cell, a non-uniform grid's widths. On a vector of nodes the
 operators take the nodes' own cell widths, `(v₂ − v₁, (v₃ − v₁)/2, …)`, which on a
-uniform grid scatter about its spacing by the nodes' rounding: 1e-7 of a cell on
-a Float32 grid. A run sums on the grid's widths, and with the nodes' own a BGK
+uniform grid scatter about its spacing by the nodes' rounding, about an ulp of
+the largest node: 9.9e-7 of a cell on `Float32.(range(-6, 6; length = 81))`. A run sums on the grid's widths, and with the nodes' own a BGK
 run on a Float32 `v` lost 1.2e-9 of its mass. [`Collide`](@ref
 Vasilek.StrangSplitting.Collide) hands a grid to the operators as one.
 """
