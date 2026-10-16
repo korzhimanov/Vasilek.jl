@@ -63,6 +63,7 @@ the first, over collected `range(h; step, length)` and `range(a, b; length)`,
 | Float32, the other four | 10⁵ | 5.8e-3 to 9.4e-3 | 6.1e-2 | non-uniform |
 | Float32, every builder | 10⁶ | ≥ 3.9e-2 | ≥ 0.31 | non-uniform |
 | `Float16.(-4:0.25:4)`, exact | 33 | 0 | 0.13 | uniform |
+| Float16 range over [−4, 4] | 41 | 9.8e-3 | 0.16 | non-uniform |
 | `Float16.(-4:0.2:4)` | 41 | 9.8e-3 | 0.16 | non-uniform |
 | `Float16.(-6:0.1:6)` | 121 | 3.9e-2 | 0.31 | non-uniform |
 | Float16, cells 12% apart | 41 | 0.11 | 0.15 | non-uniform |
@@ -79,12 +80,20 @@ and the same spacing, or the same widths, to 4 ulps of the coarser type or to
 the rounding of the nodes either grid was built from, by the rule above. An
 `OnGrid` built on `L/N` is kept on cell centres `(j − 1/2)L/N`, whose first
 difference is an ulp off; one built on a Float32 spacing is kept on the Float64
-grid; one built on `0.1` is kept on nodes near 1e6, 9.3e-10 of a cell off.
+grid; one built on `0.1` is kept on nodes near 1e6, whose first difference is
+2.3e-10 of a cell off. A `PFCNonUniform` is held closer, to 4 ulps of the
+coarser type alone, as it was: the widths it advects on have to be the widths
+the run sums with, and allowed the nodes' rounding, one on a Float32 grid's
+first difference in every cell ran with its mass drifting by 1e-8 rather than
+1e-16. `PFCNonUniform(grid(x); …)` is built on the widths the run sums with.
 
 **A range keeps its step.** The driver takes a range's nodes collected and their
 widths as a vector's, where they were range arithmetic, so that a range run with
-the defaults is the collected one to the bit; before, it was 8.3e-16 of the peak
-from it. Its spacing is the range's `step`, the step written, where the
+the defaults is the collected one to the bit where its step is the collected
+nodes' first difference, as for the README's `x`; before, it was 8.3e-16 of the
+peak from it. Its nodes are checked as a vector's are, against the cap too: a
+Float16 range over [−4, 4] is not uniform. Its spacing is the `step`, the step
+written, where the
 collected nodes' first difference can differ in the last bit: 0.2 for
 `-4.0:0.2:4.0`, against 0.20000000000000018. Under a scheme that takes a Courant
 number a run on ranges moves by that bit, 1.4e-16 of the peak in `f` and 1.2e-15 in `ε_e` from
@@ -148,8 +157,10 @@ the type. That asymmetry is a documented wart of the advection API (see
 [normalization.md](normalization.md)); `OnGrid` is where it is absorbed.
 
 A vector given to `OnGrid` is the grid's **nodes**: it was the cell widths,
-which the driver computed from the nodes and handed over with their scale, and
-which are refused now as nodes that do not increase. On grids of nodes that
+which the driver computed from the nodes and handed over with their scale.
+Widths that do not increase, a uniform grid's among them, are refused now as
+nodes; widths that do are nodes to `OnGrid`, and no check can tell them apart.
+On grids of nodes that
 `OnGrid` refused at 1e-12, with `scheme_x = Upwind()` on the Landau run of
 `test/test_driver.jl`, against the Float64 run on `x`, as fractions of the peak
 on Julia 1.13 -- the same bits with the grid types as with `scale`:

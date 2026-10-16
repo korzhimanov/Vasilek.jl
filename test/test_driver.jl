@@ -132,12 +132,19 @@ end
 
     # A partner built as the defaults are, on the Float32 grid: refused as
     # outside [0, maximum(f)] when its Float32 `fmax` rounded up, a DomainError
-    # on its first step when it rounded down.
-    partner = f -> PFCNonUniform(cell_widths(x32); fmin = 0.0, fmax = maximum(f))
-    for a in (0.01, 0.05)
+    # on its first step when it rounded down. Built on the grid it is the same
+    # scheme, on the widths the run sums with.
+    for partner in (f -> PFCNonUniform(cell_widths(x32); fmin = 0.0, fmax = maximum(f)),
+                    f -> PFCNonUniform(grid(x32); fmin = 0.0, fmax = maximum(f))), a in (0.01, 0.05)
         r = vlasov_poisson(x32, v, landau(a), t; scheme_x = partner, invariants = true)
         @test drift(r) < 1e-12
     end
+    # One on widths an ulp of the coordinates from those, the first difference
+    # in every cell, is refused: it would advect on other widths than the run
+    # sums with, and its mass drifted by 1e-8 while it was taken to the nodes'
+    # rounding.
+    @test_throws ArgumentError vlasov_poisson(x32, v, landau(0.05), t;
+        scheme_x = f -> PFCNonUniform(fill(x32[2] - x32[1], Nx); fmin = 0.0, fmax = maximum(f)))
 
     # All Float32, a two-stream whose peaks move: a Float32 default rounded each
     # flux sum, and at a peak the sum landed an ulp above its `fmax` in 8 of 30
@@ -818,9 +825,12 @@ using Vasilek.Grids: grid
     # OnGrid's under one that takes a Courant number.
     s = (0:Nx-1)/Nx
     stretched = @. 2π/k*(s + 0.08sin(2π*s)/(2π)) + x[1]
-    for kw in ((;), (; scheme_x = Upwind()), (; scheme_x = SemiLagrangian(CubicSpline())))
+    # So is an x given as a NonUniformGrid, uniform nodes or not: the refusal
+    # read past the nodes for a grid whose nodes are uniform.
+    for z in (stretched, NonUniformGrid(x)), kw in ((;), (; scheme_x = Upwind()),
+                                                   (; scheme_x = SemiLagrangian(CubicSpline())))
         message = try
-            vlasov_poisson(stretched, v, f(x, v), t; kw...)
+            vlasov_poisson(z, v, f(x, v), t; kw...)
             ""
         catch err
             sprint(showerror, err)

@@ -2,6 +2,10 @@ using Vasilek
 using Vasilek.Grids
 using Vasilek.Advection: substep_bound, nsubsteps, takes, Courant, Displacement
 
+# A scheme of one's own that takes a displacement: `takes` is the extension point.
+struct DisplacedShift <: AbstractAdvection1D end
+Vasilek.Advection.takes(::DisplacedShift) = Displacement()
+
 # Grids are types: whether a grid is uniform is decided where it is built, by
 # `grid` and the constructors, and everything after dispatches on the answer.
 # These are their rules; the schemes on them are tested beside `OnGrid` in
@@ -22,6 +26,13 @@ using Vasilek.Advection: substep_bound, nsubsteps, takes, Courant, Displacement
         @test spacing(grid(-4.0:0.2:4.0)) === 0.2
         @test spacing(grid(collect(-4.0:0.2:4.0))) === 0.20000000000000018
         @test_throws ArgumentError grid(10.0:-1.0:1.0)     # nodes have to increase
+        # A range's nodes are where the run samples its data, and are held to
+        # the cap as a vector's are: a Float16 range over [−4, 4] rounds its
+        # nodes by 1% of a cell, and is not uniform, whatever its step.
+        r16 = range(Float16(-4), Float16(4); length = 41)
+        @test grid(r16) isa NonUniformGrid{Float16}
+        @test_throws ArgumentError UniformGrid(r16)
+        @test grid(Float16(-4):Float16(0.25):Float16(4)) isa UniformGrid{Float16}
         @test isbitstype(typeof(UniformGrid(0.1, 8)))
     end
 
@@ -41,6 +52,8 @@ using Vasilek.Advection: substep_bound, nsubsteps, takes, Courant, Displacement
             collect(range(L/10^6; step = L/10^6, length = 10^6)),              # 1.4e-10
             collect(LinRange(0.0, L, 10^6)),                                    # 1.8e-10
             cumsum(fill(L/10^6, 10^6)),                                         # 1.4e-10
+            collect(range(-Float32(L/2), Float32(L/2); length = 2000)),         # 7.6e-5
+            cumsum(fill(Float32(L/2000), 2000)),                                # 2.1e-4
             collect(range(Float32(L/20000); step = Float32(L/20000), length = 20000)),  # 1.3e-3
             Float32.(collect(range(π/8; step = π/8, length = 64))),
             collect(1e6 .+ (0:63)*0.1),                                         # 1.2e-9
@@ -101,11 +114,23 @@ using Vasilek.Advection: substep_bound, nsubsteps, takes, Courant, Displacement
             @test_throws ArgumentError UniformGrid(h, 8)
         end
         @test_throws ArgumentError UniformGrid(0.1, 0)
-        # The spacing as given, beside nodes whose differences round otherwise
+        # The spacing as given, beside nodes whose differences round otherwise,
+        # if it is theirs: the field solve and the Courant numbers take it, the
+        # sums the nodes.
         xc = [(j - 0.5)*4π/6 for j in 1:6]
         gc = UniformGrid(4π/6, xc)
         @test spacing(gc) === 4π/6 && nodes(gc) == xc && xc[2] - xc[1] != 4π/6
         @test_throws ArgumentError UniformGrid(0.1, [0.0, 0.2, 0.1])
+        @test_throws ArgumentError UniformGrid(0.2, collect(0.1:0.1:1.0))
+        @test_throws ArgumentError UniformGrid(4π/6*(1 + 1e-6), xc)
+        @test_throws ArgumentError UniformGrid(0.1, [0.0, 0.1, 0.3])
+        # Built through the parametric constructors too, a grid is checked in
+        # its own type: a spacing or a width that rounds to 0 in it, nodes that
+        # do not increase.
+        @test_throws ArgumentError UniformGrid{Float32, Nothing}(1e-50, 8, nothing)
+        @test_throws ArgumentError UniformGrid{Float64, Vector{Float64}}(0.1, 3, [0.0, 0.2, 0.1])
+        @test_throws ArgumentError NonUniformGrid{Float32, Nothing}([1e-50, 1.0], 1e-50, nothing)
+        @test_throws ArgumentError NonUniformGrid{Float64, Vector{Float64}}([1.0, 1.0], 1.0, [1.0, 1.0])
         # A non-uniform grid has widths, the narrowest, and no spacing.
         w = [0.5 + 0.3sin(2π*i/16) for i in 1:16]
         n = NonUniformGrid(; widths = w)
@@ -130,11 +155,20 @@ using Vasilek.Advection: substep_bound, nsubsteps, takes, Courant, Displacement
         # 4 ulps of the coarser type
         @test samecells(UniformGrid(0.1f0, 8), g)
         @test !samecells(UniformGrid(0.1f0*(1 + 1f-5), 8), g)
-        # or the rounding of the nodes a spacing is a difference of: 9.3e-10 of
-        # 0.1 near 1e6
+        # or the rounding of the nodes a spacing is a difference of: 2.3e-10 of
+        # 0.1 near 1e6, its first difference
         far = grid(collect(1e6 .+ (0:63)*0.1))
         @test samecells(far, UniformGrid(0.1, 64)) && samecells(UniformGrid(0.1, 64), far)
         @test !samecells(far, UniformGrid(0.1*(1 + 1e-7), 64))
+        # each in its own type: Float32 nodes from -L/2 on L = 20π, whose
+        # first difference is 1.0e-6 of L/N off, are a grid of L/N; their
+        # rounding taken in Float64 was lost, and an OnGrid on L/N refused them.
+        let L = 20π, N = 64
+            x₃₂ = Float32.(collect(range(-L/2; step = L/N, length = N)))
+            @test samecells(grid(x₃₂), UniformGrid(L/N, N))
+            og = OnGrid(Upwind(), L/N, N)
+            @test OnGrid(og, x₃₂) === og
+        end
         w = [0.5 + 0.3sin(2π*i/16) for i in 1:16]
         @test samecells(NonUniformGrid(; widths = w), NonUniformGrid(; widths = w .* (1 + 1e-13)))
         @test !samecells(NonUniformGrid(; widths = w), NonUniformGrid(; widths = reverse(w)))
@@ -145,6 +179,21 @@ using Vasilek.Advection: substep_bound, nsubsteps, takes, Courant, Displacement
     @testset "OnGrid dispatches on the grid and on what the scheme takes" begin
         @test takes(Upwind()) === Courant() && takes(PFC(fmin = 0, fmax = 1)) === Courant()
         @test takes(PFCNonUniform(fill(0.1, 8); fmin = 0, fmax = 1)) === Displacement()
+        # An OnGrid takes a displacement, whatever its scheme takes.
+        @test takes(OnGrid(Upwind(), 0.1, 8)) === Displacement()
+        # A scheme of one's own that takes a displacement goes on any grid, and
+        # an OnGrid of it is held to its grid as one of a Courant scheme is.
+        og = OnGrid(DisplacedShift(), UniformGrid(0.1, 8))
+        @test OnGrid(og, UniformGrid(0.1, 8)) === og && substep_bound(og) === 0.1
+        @test_throws ArgumentError OnGrid(og, UniformGrid(0.2, 8))
+        @test_throws ArgumentError OnGrid(og, UniformGrid(0.1, 9))
+        # A PFCNonUniform is held to its widths in the coarser type's 4 ulps,
+        # not to the nodes' rounding, which admitted widths a 1e-10 apart and a
+        # run that summed on other widths than it advected on.
+        far = collect(1e6 .+ (0:63)*0.1)
+        p = PFCNonUniform(cell_widths(far) .* (1 + 1e-10); fmin = 0.0, fmax = 1.0)
+        @test_throws ArgumentError OnGrid(p, far)
+        @test OnGrid(PFCNonUniform(cell_widths(far); fmin = 0.0, fmax = 1.0), far) isa OnGrid
         n = 64
         src = [1.0 + 0.5sin(2π*i/n) for i in 1:n]
         x = collect(range(0.1; step = 0.1, length = n))

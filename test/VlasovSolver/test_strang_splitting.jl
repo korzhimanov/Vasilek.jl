@@ -297,8 +297,9 @@ end
             sprint(showerror, err)
         end
         @test occursin("LaxWendroff", message) && occursin("PFCNonUniform", message)
-        # Cell widths, which a vector was until 0.2, are not nodes: they do not
-        # increase, and are refused as such rather than taken for some grid.
+        # Cell widths, which a vector was until 0.2, are not nodes: a uniform
+        # grid's do not increase, and are refused as such. A graded grid's do,
+        # and no check tells them from nodes.
         message = try
             OnGrid(Upwind(), fill(0.5, 8))
             ""
@@ -324,7 +325,8 @@ end
         @test spacing(OnGrid(LaxWendroff(), far).grid) === far[2] - far[1]
         let og = OnGrid(Upwind(), far)
             @test OnGrid(og, far) === og
-            # the spacing written, to the nodes' rounding: 9.3e-10 of it apart
+            # the spacing written, to the nodes' rounding: the first difference is
+            # 2.3e-10 of it apart
             @test OnGrid(og, 0.1, 64) === og
             @test_throws ArgumentError OnGrid(og, 0.1*(1 + 1e-6), 64)
         end

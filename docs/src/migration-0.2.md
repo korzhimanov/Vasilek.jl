@@ -184,8 +184,9 @@ now, and a vector is its nodes:
 | `og.h`, `og.n` | `og.grid`: `spacing(og.grid)`, `length(og.grid)`; `Vasilek.Advection.substep_bound(og)` |
 | `VlasovPoisson1D1V.cell_widths` | `Vasilek.Grids.cell_widths`, still exported where it was |
 
-A vector of widths given as before is refused, as nodes that do not increase,
-with a message that says so; it is never taken for some other grid.
+A vector of widths given as before is refused where it does not increase, as a
+uniform grid's widths never do, with a message that says so. Widths that
+increase, as a graded grid's may, are taken for nodes: rewrite every such call.
 `OnGrid(og, grid)` keeps `og` on a grid with its cells, to the rounding either
 carries, and `OnGrid(og, h, n)` is now one of those rather than an error.
 
@@ -193,15 +194,16 @@ Calls that ran and are refused now, or take other bits:
 
   * a scheme that takes a Courant number on a grid whose spacings differ by
     more than 0.5% of a cell, which its rounding admitted: a Float16 `v` (8
-    ulps of its largest node are 16% of a cell on [−4, 4]) and Float32 grids
-    of 10⁵ cells or more, as the driver notes' "Grids" tabulates; so is an `x`
-    of them, by the field solve. The default `PFCNonUniform` runs on them as
+    ulps of its largest node are 16% of a cell on [−4, 4]), a Float16 range
+    included, and Float32 grids that reach 10⁵ cells from the origin, as the
+    driver notes' "Grids" tabulates; so is an `x` of them, by the field solve,
+    whatever the schemes. The default `PFCNonUniform` runs on such a `v` as
     before;
   * `vlasov_poisson` on ranges: their widths are those of the collected nodes,
     where they were range arithmetic, and their spacing is `step(r)`, where it
     was the first difference: a run moves at round-off, 8.3e-16 of the peak with
-    the defaults and 1.4e-16 under `Upwind`, and with the defaults it is the run
-    on the collected nodes to the bit;
+    the defaults and 4.1e-16 under `Upwind`, and with the defaults it is the run
+    on the collected nodes to the bit where its step is their first difference;
   * a Rational `v` runs on its nodes in Float64, where its widths were Rational:
     5.5e-16 of the peak;
   * `vlasov_poisson` with a non-uniform `x` throws the field solve's

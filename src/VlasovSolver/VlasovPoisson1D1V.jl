@@ -50,12 +50,13 @@ uniform_poisson(g::NonUniformGrid) = _err_nonuniform_x(g)
 # The one refusal of a non-uniform x, whatever scheme_x: the field solve needs a
 # spacing. Names the first node off, where the grid has nodes.
 @noinline function _err_nonuniform_x(g::NonUniformGrid)
-    detail = if hasnodes(g)
+    h, j = hasnodes(g) ? _uniform_spacing(g.nodes) : (nothing, 0)
+    detail = if j > 0
         z = g.nodes
-        h, j = _uniform_spacing(z)
         "spacing $(z[j+1] - z[j]) at node $j, $h at node 1"
-    else
-        "a grid of $(length(g)) cells of widths $(extrema(g.widths))"
+    else    # a NonUniformGrid as given, its nodes uniform or none
+        "x is a NonUniformGrid of $(length(g)) cells of widths $(extrema(g.widths)); " *
+        "grid(x) or UniformGrid(x) makes a UniformGrid of uniform nodes"
     end
     throw(ArgumentError("the Poisson solve needs a uniform x grid: " * detail))
 end

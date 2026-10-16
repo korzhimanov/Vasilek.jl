@@ -16,6 +16,9 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Breaking
 
+- **A grid whose spacings differ by over 0.5% of a cell is not uniform, whatever its
+  rounding**: a scheme that takes a Courant number is refused on it, and an `x` of it under
+  any schemes, a Float32 `x` reaching 10⁵ cells from 0 among them. Driver notes, "Grids".
 - **`OnGrid` takes a grid, and a vector given to it is the nodes**: cell widths and `scale`
   are gone, `fill(h, n)` is `(h, n)`, and `og.h`, `og.n` are `og.grid`. Migration guide,
   "Grids".
@@ -233,7 +236,8 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 - **A run on ranges, or on a Rational `v`, moves at round-off**: their widths are their
   nodes' in Float64, and a range's spacing its `step`; 8.3e-16 and 5.5e-16 of the peak
-  with the defaults, where a range now runs as its collected nodes. Driver notes, "Grids".
+  with the defaults, a range now as its collected nodes if its step is their first
+  difference. Driver notes, "Grids".
 - **The API reference is a page per module, and a docs page over 100 KiB fails
   the build**: the one-page API had reached Documenter's warning limit. Old
   `api/#Name` anchors now land on the overview. `docs/make.jl`.
