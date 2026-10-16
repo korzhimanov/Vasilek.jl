@@ -16,6 +16,9 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Breaking
 
+- **`OnGrid` takes a grid, and a vector given to it is the nodes**: cell widths and `scale`
+  are gone, `fill(h, n)` is `(h, n)`, and `og.h`, `og.n` are `og.grid`. Migration guide,
+  "Grids".
 - **`advect!` and `collide!` refuse a workspace narrower than the data**, as a Float32
   grid's `PFCNonUniform` or `OnGrid` and `BGK(0.5f0)` build, and `collide!` arguments that
   share memory. Migration guide, "Workspaces" and "Collisions".
@@ -55,6 +58,9 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Added
 
+- **Grids are types, in `Vasilek.Grids`**: `UniformGrid`, `NonUniformGrid`, and `grid(z)`,
+  the one place a vector of nodes is classified; the driver, `OnGrid` and `make_poisson`
+  dispatch on them, and a range keeps its step. `test/test_grids.jl`; driver notes, "Grids".
 - **`CLAUDE.md` and a SessionStart hook for Claude Code cloud sessions**: the
   commands and the rules for changes; `.claude/hooks/session-start.sh` installs
   the latest Julia through `juliaup` and instantiates every environment.
@@ -225,6 +231,9 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Changed
 
+- **A run on ranges, or on a Rational `v`, moves at round-off**: their widths are their
+  nodes' in Float64, and a range's spacing its `step`; 8.3e-16 and 5.5e-16 of the peak
+  with the defaults, where a range now runs as its collected nodes. Driver notes, "Grids".
 - **The API reference is a page per module, and a docs page over 100 KiB fails
   the build**: the one-page API had reached Documenter's warning limit. Old
   `api/#Name` anchors now land on the overview. `docs/make.jl`.
@@ -354,6 +363,9 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Fixed
 
+- **A scheme that takes a Courant number is refused where spacings differ by over 0.5% of a
+  cell**: a Float16 `v` whose cells differ by 12% ran `Upwind` at one Courant number, its 8
+  ulps 16% of a cell. `test/test_grids.jl`, `test/test_driver.jl`; driver notes, "Grids".
 - **`OnGrid` takes a grid uniform to rounding, as `make_poisson` does**, with `scale`
   for widths taken from coordinates; positional `PFC` constructors round bounds outward.
   `test/test_driver.jl`; migration guide, "Advection" and "Note on the fourth argument".

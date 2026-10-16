@@ -9,26 +9,102 @@ docstrings so that those can say what the functions do. The numbers below are
 as they were measured when each choice was made; the test suite asserts the
 ones that matter.
 
+## Grids
+
+A grid is a type, a [`UniformGrid`](@ref Vasilek.Grids.UniformGrid) or a
+[`NonUniformGrid`](@ref Vasilek.Grids.NonUniformGrid), and whether it is uniform
+is decided where it is built. The driver takes `x` and `v` as grids, ranges or
+vectors of nodes and makes grids of them first, with
+[`grid`](@ref Vasilek.Grids.grid): a range is uniform as it stands, its `step`
+the spacing to the bit, and a vector is classified once, by the rule below.
+Everything after dispatches on the answer: the field solve takes a
+`UniformGrid` `x`, [`OnGrid`](@ref Vasilek.Advection.OnGrid) puts a scheme that
+takes a Courant number on a `UniformGrid` alone, and a sub-step is bounded by
+the grid's spacing or by a `PFCNonUniform`'s own narrowest width.
+
+Until then each place that needed a spacing derived it again, from a vector of
+its own. The field solve held the node spacings of `x` to rounding. `OnGrid`
+held cell widths to 1e-12 of the first, and refused Float32 coordinates, Float64
+ones near 1e6 and a uniform `x` of 17000 cells, all of which the field solve
+took, so that only `PFCNonUniform` ran on them; then it took the widths to the
+field solve's rounding with a `scale`, the largest coordinate, which the driver
+passed beside them, since widths widened to the data's type no longer show
+their coordinates' rounding. One spacing was the first node difference in the
+field solve, the first cell width in `OnGrid`, and `L/N` in an `OnGrid` a caller
+built, which differ in the last bit, and such an `OnGrid` was refused on the
+very grid it was given with until it was compared to rounding.
+
+**Uniform is to rounding**: every spacing the first to 1e-10 of it, or to 8
+ulps of the largest node in the nodes' own type, whichever is more, and never
+past 0.5% of a cell. The points are rounded on the scale of the largest of
+them, so the spacings of a uniform grid scatter by an ulp or two of it whatever
+built it -- at most 2 for a collected range, `LinRange`, `(1:N)*Δx` or `cumsum`,
+measured to N = 10⁶ in Float64 and in Float32. Against the spacing that is
+N·eps: far below 1e-10 for a Float64 grid of ordinary size, but a few parts in
+10⁶ for a 64-point Float32 one, and past 1e-10 for Float64 ones of N ≈ 5×10⁵ or
+far from the origin. The ulps admit those; a grid stretched by a millionth of a
+cell is refused either way.
+
+**The cap.** Without it the 8 ulps were 16% of a cell on a Float16 grid over
+[−4, 4], and a Float16 `v` whose cells differ by 12% was uniform: `Upwind` ran
+on it at the Courant number of its first spacing, quietly wrong by up to the
+ratio between its cells. Past 0.5% of a cell a grid is not uniform, whatever its
+rounding, since a Courant number taken from one spacing is off by as much at
+another. Measured on Julia 1.13, max|Δ| the largest departure of a spacing from
+the first, over collected `range(h; step, length)` and `range(a, b; length)`,
+`LinRange`, `(1:N)*h` and `cumsum` on L = 4π:
+
+| nodes | N | max\|Δ\|/h | 8 ulps / h | `grid` |
+|---|---|---|---|---|
+| Float64, every builder | 32 to 10⁶ | ≤ 1.8e-10 | ≤ 1.1e-9 | uniform |
+| Float32, every builder | 2000 | ≤ 2.1e-4 | ≤ 1.2e-3 | uniform |
+| Float32, every builder | 20000 | ≤ 1.3e-3 | ≤ 1.2e-2 | uniform |
+| Float32, `range(a, b; length)` | 10⁵ | 3.8e-3 | 3.0e-2 | uniform |
+| Float32, the other four | 10⁵ | 5.8e-3 to 9.4e-3 | 6.1e-2 | non-uniform |
+| Float32, every builder | 10⁶ | ≥ 3.9e-2 | ≥ 0.31 | non-uniform |
+| `Float16.(-4:0.25:4)`, exact | 33 | 0 | 0.13 | uniform |
+| `Float16.(-4:0.2:4)` | 41 | 9.8e-3 | 0.16 | non-uniform |
+| `Float16.(-6:0.1:6)` | 121 | 3.9e-2 | 0.31 | non-uniform |
+| Float16, cells 12% apart | 41 | 0.11 | 0.15 | non-uniform |
+| `1e6 .+ (0:63)*0.1` | 64 | 1.2e-9 | 9.3e-9 | uniform |
+| stretched by 1e-6 of a cell | 32 | 3.9e-7 | 3.6e-14 | non-uniform |
+
+`test/test_grids.jl` pins the rows 1.9 times or more inside or outside the
+bound. The non-uniform Float32 and Float16 rows were uniform without the cap:
+`PFCNonUniform`, the default, runs on them as it did, a scheme that takes a
+Courant number is refused on them, and so is an `x` of them by the field solve.
+
+**The same grid** ([`samecells`](@ref Vasilek.Grids.samecells)) is as many cells
+and the same spacing, or the same widths, to 4 ulps of the coarser type or to
+the rounding of the nodes either grid was built from, by the rule above. An
+`OnGrid` built on `L/N` is kept on cell centres `(j − 1/2)L/N`, whose first
+difference is an ulp off; one built on a Float32 spacing is kept on the Float64
+grid; one built on `0.1` is kept on nodes near 1e6, 9.3e-10 of a cell off.
+
+**A range keeps its step.** The driver takes a range's nodes collected and their
+widths as a vector's, where they were range arithmetic, so that a range run with
+the defaults is the collected one to the bit; before, it was 8.3e-16 of the peak
+from it. Its spacing is the range's `step`, the step written, where the
+collected nodes' first difference can differ in the last bit: 0.2 for
+`-4.0:0.2:4.0`, against 0.20000000000000018. Under a scheme that takes a Courant
+number a run on ranges moves by that bit, 1.4e-16 of the peak in `f` and 1.2e-15 in `ε_e` from
+the collected run with `Upwind` both ways on the Landau run of
+`test/test_driver.jl`. A Rational `v` runs on its nodes in Float64, to the bit
+of `Float64.(v)`; its widths were Rational, 5.5e-16 of the peak from that.
+
 ## `make_poisson`
 
 Spectral Poisson solve on a uniform periodic x grid, returning `e` with
 `∂e/∂x = ρ`: the package's `PoissonFFT1D` with its centred derivative and a
 workspace of its own.
 
-The grid must be uniform, and is checked: the solve takes its spacing from the
-first two points, so a stretched x grid gave a wrong field with no error (16% in
-the field energy for spacings within ±8% of the mean). The advection would take
-one; the field solve would need a different method.
-
-Uniform is to rounding: each spacing must match the first to 1e-10 of it, or
-to 8 ulps of the largest coordinate where that is more. The points are rounded
-on the scale of the largest of them, so the spacings of a uniform grid scatter
-by an ulp or two of it whatever built it -- at most 2 for a collected range,
-`LinRange`, `(1:N)*Δx` or `cumsum`, measured to N = 10⁶ in Float64 and in
-Float32. Against the spacing that is N·eps: far below 1e-10 for a Float64 grid
-of ordinary size, but a few parts in 10⁶ for a 64-point Float32 one, and past
-1e-10 for Float64 ones of N ≈ 5×10⁵ or far from the origin. The ulps admit
-those; a grid stretched by a millionth of a cell is refused either way.
+The grid must be uniform, a [`UniformGrid`](@ref Vasilek.Grids.UniformGrid) as
+[`grid`](@ref Vasilek.Grids.grid) makes one: the solve takes the grid's
+spacing, and a stretched x grid gave a wrong field with no error while it took
+the first two points' (16% in the field energy for spacings within ±8% of the
+mean). The advection would take one; the field solve would need a different
+method. A non-uniform `x` is the field solve's refusal whatever `scheme_x`
+is; under one that takes a Courant number it was `OnGrid`'s, which came first.
 
 This used to be a second implementation, which took its wavenumbers from a
 float range whose length rounds: on the 8π box 61 of the even `Nx` in 8:512
@@ -53,31 +129,30 @@ statement about the schemes rather than about floating point.
 
 ## `OnGrid`
 
-    OnGrid(scheme, Δz; scale)
+    OnGrid(scheme, grid)
 
-The driver puts each scheme on its grid, `OnGrid(scheme_x, Δx; scale)` and
-`OnGrid(scheme_v, Δv; scale)`, and hands it a **displacement** -- a length -- whatever
-the scheme's own fourth argument means. [`OnGrid`](@ref Vasilek.Advection.OnGrid)
-is a scheme in `Vasilek.Advection`; it replaces `line_advector`, a closure the
-driver built for itself, which took the same arguments and gave the same bits.
+The driver puts each scheme on its grid -- a default on its own widths,
+`OnGrid(PFCNonUniform(Δx; …))`, a given one on the grid, `OnGrid(scheme_x,
+grid(x))` -- and hands it a **displacement**, a length, whatever the scheme's own
+fourth argument means. [`OnGrid`](@ref Vasilek.Advection.OnGrid) is a scheme in
+`Vasilek.Advection`; it replaces `line_advector`, a closure the driver built for
+itself, which took the same arguments and gave the same bits.
 
 `PFCNonUniform` takes a displacement already. Every other scheme takes a Courant
 number, which only exists on a uniform grid, so `OnGrid` divides by the spacing
 for those -- divides, rather than multiplying by its inverse, which rounds
-differently -- and **refuses** a non-uniform grid rather than picking one of its
-spacings and being quietly wrong by the ratio between them. That asymmetry is a
-documented wart of the advection API (see [normalization.md](normalization.md));
-`OnGrid` is where it is absorbed.
+differently -- and **refuses** a `NonUniformGrid` rather than picking one of its
+spacings and being quietly wrong by the ratio between them. Which a scheme takes
+is a trait, [`takes`](@ref Vasilek.Advection.takes), and the refusal a method of
+the type. That asymmetry is a documented wart of the advection API (see
+[normalization.md](normalization.md)); `OnGrid` is where it is absorbed.
 
-**Uniform is to rounding, as the field solve takes `x`**: each width matches the
-first to 1e-10 of it, or to 8 ulps of the largest coordinate in the
-coordinates' own type. The driver passes that coordinate as `OnGrid`'s `scale`,
-since the widths it holds are widened to the data's type and no longer show
-it. At 1e-12 of the spacing, `OnGrid` refused Float32 coordinates and a Float64
-grid at 1e6, both of which `make_poisson` takes, so only `PFCNonUniform` could
-run on them. With `scheme_x = Upwind()` on the Landau run of
+A vector given to `OnGrid` is the grid's **nodes**: it was the cell widths,
+which the driver computed from the nodes and handed over with their scale, and
+which are refused now as nodes that do not increase. On grids of nodes that
+`OnGrid` refused at 1e-12, with `scheme_x = Upwind()` on the Landau run of
 `test/test_driver.jl`, against the Float64 run on `x`, as fractions of the peak
-on Julia 1.13:
+on Julia 1.13 -- the same bits with the grid types as with `scale`:
 
 | `x` | `f` | `ε_e` |
 |---|---|---|
@@ -86,12 +161,16 @@ on Julia 1.13:
 | `1e6 .+ x` | 1.1e-12 | 7.6e-11 |
 
 The first is the Float32 spacing's own rounding of the Courant number, the
-spacing being the first width as before; a grid `OnGrid` took before gives the
-same bits.
+spacing being the first difference as before; a grid `OnGrid` took before gives
+the same bits.
 
 **A displacement wider than a cell is split** into the fewest equal sub-steps
 that fit ([`substeps`](@ref Vasilek.Advection.substeps)), the narrowest cell
-bounding them for `PFCNonUniform`. `advect!` refuses it whole, and a translation
+bounding them for `PFCNonUniform` -- its own `Δxmin`
+([`substep_bound`](@ref Vasilek.Advection.substep_bound)), not the grid's: a
+`PFCNonUniform(cell_widths(x))` on a collected uniform `x` has its narrowest
+width an ulp under `x[2] − x[1]`, and a sub-step of the grid's spacing crossed
+it. `advect!` refuses it whole, and a translation
 by `α` is `m` translations by `α/m`. Every call the suite makes through here is
 within the bound, and so one call exactly as before, except in the two-stream
 runs, where the field drives the velocity sweep: they keep growing after their

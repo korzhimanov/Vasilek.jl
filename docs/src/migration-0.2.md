@@ -10,9 +10,10 @@ had to give way to the language. The others follow them so that 0.2 has one
 shape throughout, and since no release carries them, a shim would have
 preserved nothing.
 
-The public API is what `Vasilek` exports, plus the two named submodules
-`Vasilek.FDTD1D` and `Vasilek.PoissonFourier1D`, which are not re-exported:
-write `using Vasilek.FDTD1D` for their names, or qualify them.
+The public API is what `Vasilek` exports, plus the named submodules
+`Vasilek.Grids`, `Vasilek.FDTD1D` and `Vasilek.PoissonFourier1D`, whose names
+are not re-exported but for the grid types: write `using Vasilek.FDTD1D` for
+their names, or qualify them.
 
 ## Advection
 
@@ -146,22 +147,66 @@ For the uniform-grid schemes it is the Courant number `vΔt/Δx`. For
 `PFCNonUniform` it is the displacement `vΔt`, a length: a non-uniform grid has
 no single Courant number to quote.
 
-`OnGrid(scheme, Δz)` puts a scheme on the grid of cell widths `Δz` and takes
-the displacement for every scheme: it divides by the spacing for a uniform-grid
-one, refuses that on a non-uniform grid, and splits a step wider than a cell
-into equal sub-steps that fit. Uniform is to rounding, by the rule
-`make_poisson` applies to its nodes: by default the widths' own, and for widths
-taken from coordinates the coordinates', which `scale` gives:
-`OnGrid(scheme, cell_widths(x); scale = maximum(abs, x))`. Float32 coordinates
-and a grid far from the origin need it. It is a scheme like the others, with a
-workspace of its own. It replaces `VlasovPoisson1D1V.line_advector`, a closure added and
-removed during 0.2; `substeps` moved with it to `Vasilek.Advection`.
+`OnGrid(scheme, grid)` puts a scheme on a grid and takes the displacement for
+every scheme: it divides by the spacing for one that takes a Courant number,
+refuses that on a non-uniform grid, and splits a step wider than a cell into
+equal sub-steps that fit. The grid is a `UniformGrid` or a `NonUniformGrid`
+(see "Grids" below), a range, or a vector of nodes, which
+`Vasilek.Grids.grid` classifies; `(h, n)` is the uniform grid of `n` cells of
+`h`. It is a scheme like the others, with a workspace of its own. It replaces
+`VlasovPoisson1D1V.line_advector`, a closure added and removed during 0.2;
+`substeps` moved with it to `Vasilek.Advection`.
 
 ```julia
-og = OnGrid(Upwind(), fill(Δx, length(f₀)))     # PFCNonUniform carries its grid: OnGrid(p)
+og = OnGrid(Upwind(), Δx, length(f₀))           # PFCNonUniform carries its grid: OnGrid(p)
 ws = workspace(og, length(f₀))
 advect!(f, f₀, og, 0.3Δx, ws)                   # the displacement 0.3Δx, c = 0.3
 ```
+
+## Grids
+
+Grids are types, in `Vasilek.Grids`: a `UniformGrid`, whose cells share one
+spacing, and a `NonUniformGrid`, whose cells each have their own width. Whether
+a vector of nodes is uniform is decided where its grid is built, by
+`grid(z)`, to its rounding and never past 0.5% of a cell; a range is uniform as
+it stands, its `step` the spacing. `OnGrid`, `vlasov_poisson`, `setup` and
+`make_poisson` take any of them, and `PFCNonUniform` a grid's widths.
+
+The `OnGrid` added during 0.2 took cell widths, which it checked for
+uniformity itself, to rounding with a `scale` beside them. It takes the grid
+now, and a vector is its nodes:
+
+| during 0.2 | now |
+|---|---|
+| `OnGrid(s, fill(h, n))` | `OnGrid(s, h, n)` |
+| `OnGrid(s, cell_widths(x); scale = maximum(abs, x))` | `OnGrid(s, x)` |
+| `OnGrid(p::PFCNonUniform, Δz)` | `OnGrid(p)`, or `OnGrid(p, NonUniformGrid(; widths = Δz))` |
+| `og.h`, `og.n` | `og.grid`: `spacing(og.grid)`, `length(og.grid)`; `Vasilek.Advection.substep_bound(og)` |
+| `VlasovPoisson1D1V.cell_widths` | `Vasilek.Grids.cell_widths`, still exported where it was |
+
+A vector of widths given as before is refused, as nodes that do not increase,
+with a message that says so; it is never taken for some other grid.
+`OnGrid(og, grid)` keeps `og` on a grid with its cells, to the rounding either
+carries, and `OnGrid(og, h, n)` is now one of those rather than an error.
+
+Calls that ran and are refused now, or take other bits:
+
+  * a scheme that takes a Courant number on a grid whose spacings differ by
+    more than 0.5% of a cell, which its rounding admitted: a Float16 `v` (8
+    ulps of its largest node are 16% of a cell on [−4, 4]) and Float32 grids
+    of 10⁵ cells or more, as the driver notes' "Grids" tabulates; so is an `x`
+    of them, by the field solve. The default `PFCNonUniform` runs on them as
+    before;
+  * `vlasov_poisson` on ranges: their widths are those of the collected nodes,
+    where they were range arithmetic, and their spacing is `step(r)`, where it
+    was the first difference: a run moves at round-off, 8.3e-16 of the peak with
+    the defaults and 1.4e-16 under `Upwind`, and with the defaults it is the run
+    on the collected nodes to the bit;
+  * a Rational `v` runs on its nodes in Float64, where its widths were Rational:
+    5.5e-16 of the peak;
+  * `vlasov_poisson` with a non-uniform `x` throws the field solve's
+    `ArgumentError` whatever `scheme_x`, where `OnGrid`'s came first under a
+    scheme that takes a Courant number, and before `f₀`'s own `DomainError`.
 
 ## Strang splitting
 
@@ -175,7 +220,7 @@ using Vasilek.StrangSplitting: strang_step!, Collide
 using Vasilek.VlasovPoisson1D1V: cell_widths
 x   = collect(Δx .* (1:32))
 fxv = [f₀[j]*(1 + 0.1cos(2π*i/32)) for i in eachindex(x), j in eachindex(v)]   # f[x, v]
-sx  = OnGrid(Upwind(), fill(Δx, length(x)))
+sx  = OnGrid(Upwind(), x)                       # the nodes; or OnGrid(Upwind(), Δx, 32)
 sv  = OnGrid(PFCNonUniform(cell_widths(v); fmin = 0.0, fmax = Inf))
 ws  = workspace(sx, sv, fxv, BGK(τ))            # one per task; the operator's scratch too
 E   = 0.1 .* sin.(2π .* (1:32) ./ 32)

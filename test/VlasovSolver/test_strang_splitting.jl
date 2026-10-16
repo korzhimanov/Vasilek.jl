@@ -1,7 +1,8 @@
 using Vasilek
 using Vasilek: StrangSplitting
 using Vasilek.StrangSplitting: strang_step!, Collide
-using Vasilek.Advection: nsubsteps
+using Vasilek.Advection: nsubsteps, substep_bound
+using Vasilek.Grids: spacing
 using FFTW
 using LinearAlgebra: mul!
 
@@ -14,7 +15,7 @@ using LinearAlgebra: mul!
 # second order Strang promises.
 #
 # Every step goes through `strang_step!` with the schemes on their grids,
-# `OnGrid(scheme, Δz)`, as `vlasov_poisson` takes it: `f[x, v]`, `cx` the
+# `OnGrid(scheme, grid)`, as `vlasov_poisson` takes it: `f[x, v]`, `cx` the
 # displacements of the x lines, `cv` handed the state transposed.
 
 # Rigid-rotation geometry, shared by the two testsets at the foot of this file.
@@ -117,7 +118,7 @@ end
         Nx, Nv = 32, 24
         f₀ = [1.0 + 0.3*sin(2π*i/Nx)*cos(2π*j/Nv) for i = 1:Nx, j = 1:Nv]
         for scheme in (SemiLagrangian(CubicSpline()), SpectralShift())
-            sx, sv = OnGrid(scheme, fill(1.0, Nx)), OnGrid(scheme, fill(1.0, Nv))
+            sx, sv = OnGrid(scheme, 1.0, Nx), OnGrid(scheme, 1.0, Nv)
             f = copy(f₀)
             @test strang_step!(f, sx, sv, zeros(Nv), _ -> zeros(Nx), workspace(sx, sv, f)) === f
             println("  zero step, ", rpad(nameof(typeof(scheme)), 15),
@@ -136,7 +137,7 @@ end
         # Measured orders: 2.003, 2.001, 2.002 against the analytic rotation.
         N = 64; L = 12.0; h = L/N; σ = 0.8; T = 1.0
         z = [-L/2 + (i-1)*h for i = 1:N]        # x and v share this grid
-        s = OnGrid(SpectralShift(), fill(h, N))
+        s = OnGrid(SpectralShift(), h, N)
 
         blob(a, b) = [exp(-((z[i]-a)^2 + (z[j]-b)^2)/(2σ^2)) for i = 1:N, j = 1:N]
 
@@ -178,10 +179,10 @@ end
         cv(ft) = [0.4*sin(2π*i/Nx) + 1e-3*sum(view(ft, :, i)) for i in 1:Nx]
         wx = [0.5 + 0.2sin(2π*i/Nx) for i in 1:Nx]
         wv = [0.25 + 0.1cos(2π*j/Nv) for j in 1:Nv]
-        for (sx, sv) in ((OnGrid(SemiLagrangian(CubicSpline()), fill(0.5, Nx)),
-                          OnGrid(SemiLagrangian(CubicSpline()), fill(0.25, Nv))),
-                         (OnGrid(PFC(fmin = 0.0, fmax = 1.0), fill(0.5, Nx)),
-                          OnGrid(Godunov(PiecewiseLinear(), VanLeer()), fill(0.25, Nv))),
+        for (sx, sv) in ((OnGrid(SemiLagrangian(CubicSpline()), 0.5, Nx),
+                          OnGrid(SemiLagrangian(CubicSpline()), 0.25, Nv)),
+                         (OnGrid(PFC(fmin = 0.0, fmax = 1.0), 0.5, Nx),
+                          OnGrid(Godunov(PiecewiseLinear(), VanLeer()), 0.25, Nv)),
                          (OnGrid(PFCNonUniform(wx; fmin = 0.0, fmax = 1.0)),
                           OnGrid(PFCNonUniform(wv; fmin = 0.0, fmax = 1.0))))
             g = copy(g₀)
@@ -207,9 +208,11 @@ end
         src = [exp(-((i - 15)/4)^2) for i in 1:n]
         uniform = fill(0.5, n)
         stretched = [0.5 + 0.3sin(2π*i/n) for i in 1:n]
-        for (scheme, Δz) in ((Upwind(), uniform), (Godunov(PiecewiseLinear(), VanLeer()), uniform),
-                             (PFCNonUniform(stretched; fmin = 0.0, fmax = 1.0), stretched))
-            og = OnGrid(scheme, Δz)
+        for (scheme, g, Δz) in ((Upwind(), UniformGrid(0.5, n), uniform),
+                                (Godunov(PiecewiseLinear(), VanLeer()), UniformGrid(0.5, n), uniform),
+                                (PFCNonUniform(stretched; fmin = 0.0, fmax = 1.0),
+                                 NonUniformGrid(; widths = stretched), stretched))
+            og = OnGrid(scheme, g)
             ws, inner = workspace(og, n), workspace(scheme, n)
             h = minimum(Δz)
             argument(a) = scheme isa PFCNonUniform ? a : a/h
@@ -228,7 +231,7 @@ end
         end
         # SemiLagrangian has no Courant limit, and takes the step whole.
         s = SemiLagrangian(CubicSpline())
-        og = OnGrid(s, uniform)
+        og = OnGrid(s, 0.5, n)
         @test nsubsteps(og, 1.25) == 1
         @test advect!(similar(src), src, og, 1.25, workspace(og, n)) ==
               advect!(similar(src), src, s, 2.5, workspace(s, n))
@@ -247,7 +250,7 @@ end
         src = [0, 0.01268125, 0.01268125, 0, 0, 0.01268125]
         @test Vasilek.Advection.substeps(2h, h) == 2
         s = PFCNonUniform(fill(h, 6); fmin = 0, fmax = 1)
-        for og in (OnGrid(s), OnGrid(PFC(fmin = 0, fmax = 1), fill(h, 6)))
+        for og in (OnGrid(s), OnGrid(PFC(fmin = 0, fmax = 1), h, 6))
             @test nsubsteps(og, 2h) == 2 && nsubsteps(og, h) == 1
             for α in (2h, -2h, h, -h)
                 out = advect!(similar(src), src, og, α, workspace(og, 6))
@@ -274,7 +277,7 @@ end
         for scheme in (Upwind(), Godunov(PiecewiseConstant()), Godunov(PiecewiseLinear()),
                        Godunov(PiecewiseLinear(), VanLeer()), LaxWendroff(),
                        PFC(fmin = 0.0, fmax = 1.0)), sgn in (1, -1)
-            og = OnGrid(scheme, fill(h, n))
+            og = OnGrid(scheme, h, n)
             @test nsubsteps(og, sgn*h) == 1
             out = advect!(similar(g), g, og, sgn*h, workspace(og, n))
             @test out == advect!(similar(g), g, scheme, sgn*1.0)
@@ -283,89 +286,101 @@ end
     end
 
     @testset "OnGrid refuses a grid its scheme cannot take" begin
-        # A uniform scheme on a non-uniform grid would take one of its spacings
-        # and be wrong by the ratio between them.
-        @test_throws ArgumentError OnGrid(Upwind(), [1.0, 2.0, 1.0, 1.0])
+        # A scheme that takes a Courant number on a non-uniform grid would take
+        # one of its spacings and be wrong by the ratio between them. A vector
+        # is the grid's nodes.
+        @test_throws ArgumentError OnGrid(Upwind(), [0.0, 1.0, 3.0, 4.0])
         message = try
-            OnGrid(LaxWendroff(), [1.0, 2.0, 1.0, 1.0])
+            OnGrid(LaxWendroff(), [0.0, 1.0, 3.0, 4.0])
             ""
         catch err
             sprint(showerror, err)
         end
         @test occursin("LaxWendroff", message) && occursin("PFCNonUniform", message)
-        @test OnGrid(Upwind(), [1.0, 1.0 + 1e-14, 1.0]).h == 1.0     # uniform to rounding
-        # Rounding is 1e-10 of the spacing, as `make_poisson` takes it, or 8 ulps
-        # of `scale`, the largest coordinate the widths come from, in its own
-        # type: a width carries the coordinates' rounding, not its own. At
-        # `1e-12` of the spacing the Float32 widths below, 4.9e-6 of themselves
-        # apart for coordinates up to 25, were refused, and the Float64 ones
-        # near 1e6, 1.2e-9 apart; so was any scheme but PFCNonUniform on such
-        # grids in `vlasov_poisson`.
-        @test_throws ArgumentError OnGrid(Upwind(), [1.0, 1.0 + 1e-9, 1.0])
-        cw = Vasilek.VlasovPoisson1D1V.cell_widths
+        # Cell widths, which a vector was until 0.2, are not nodes: they do not
+        # increase, and are refused as such rather than taken for some grid.
+        message = try
+            OnGrid(Upwind(), fill(0.5, 8))
+            ""
+        catch err
+            sprint(showerror, err)
+        end
+        @test occursin("nodes", message) && occursin("widths", message)
+        @test_throws ArgumentError OnGrid(Upwind(), [1.0, 2.0, 1.0, 1.0])
+        @test spacing(OnGrid(Upwind(), [0.0, 1.0, 2.0 + 1e-14, 3.0]).grid) == 1.0  # uniform to rounding
+        @test_throws ArgumentError OnGrid(Upwind(), [0.0, 1.0, 2.0 + 1e-9, 3.0])
+        # Rounding is 1e-10 of the spacing or 8 ulps of the largest node in the
+        # nodes' own type, `grid`'s rule: a spacing carries the coordinates'
+        # rounding, not its own. At `1e-12` of the spacing the Float32 grid
+        # below, its spacings 4.9e-6 of themselves apart, was refused, and the
+        # Float64 one near 1e6, 1.2e-9 apart; so was any scheme but
+        # PFCNonUniform on such grids in `vlasov_poisson`. For a while their
+        # widths were taken with a `scale`, the largest coordinate, beside them.
+        cw = Vasilek.Grids.cell_widths
         x₃₂ = Float32.(collect(range(π/8; step = π/8, length = 64)))
-        w₃₂ = cw(x₃₂)
-        @test maximum(w₃₂) != minimum(w₃₂)
-        # By default `scale` is the widest width, the widths' own rounding: these,
-        # taken from coordinates, need the coordinates' scale. The grid's extent
-        # as the default took a cell 5e-4 wider than the rest of a Float32 grid
-        # of 4096 cells.
-        @test_throws ArgumentError OnGrid(Upwind(), w₃₂)
-        @test OnGrid(Upwind(), w₃₂; scale = maximum(abs, x₃₂)).h === first(w₃₂)
-        let w = fill(Float32(4π/4096), 4096)
-            @test OnGrid(Upwind(), w).h === first(w)
-            w[2048] *= 1.0005f0
-            @test_throws ArgumentError OnGrid(Upwind(), w)
-        end
-        # Widened to Float64, as the driver widens its widths to the data's
-        # type, they need the coordinates' own scale, in their own type
-        @test_throws ArgumentError OnGrid(Upwind(), Float64.(w₃₂))
-        @test OnGrid(Upwind(), Float64.(w₃₂); scale = maximum(abs, x₃₂)).h === Float64(first(w₃₂))
-        # and so does a grid far from the origin
+        @test maximum(cw(x₃₂)) != minimum(cw(x₃₂))
+        @test spacing(OnGrid(Upwind(), x₃₂).grid) === x₃₂[2] - x₃₂[1]
         far = collect(1e6 .+ (0:63)*0.1)
-        @test_throws ArgumentError OnGrid(LaxWendroff(), cw(far))
-        @test OnGrid(LaxWendroff(), cw(far); scale = maximum(abs, far)).h === first(cw(far))
-        let og = OnGrid(Upwind(), cw(far); scale = maximum(abs, far))
-            @test OnGrid(og, cw(far); scale = maximum(abs, far)) === og
-            @test_throws ArgumentError OnGrid(og, cw(far))
+        @test spacing(OnGrid(LaxWendroff(), far).grid) === far[2] - far[1]
+        let og = OnGrid(Upwind(), far)
+            @test OnGrid(og, far) === og
+            # the spacing written, to the nodes' rounding: 9.3e-10 of it apart
+            @test OnGrid(og, 0.1, 64) === og
+            @test_throws ArgumentError OnGrid(og, 0.1*(1 + 1e-6), 64)
         end
-        # An OnGrid built on Float32 widths is the same grid in Float64, to the
-        # rounding of its own spacing: it was refused at `scale`'s alone
+        # An OnGrid on a Float32 spacing is the same grid in Float64, to 4 ulps
+        # of Float32: it was refused at the coordinates' rounding alone.
         let xs = collect(range(π/8; step = π/8, length = 32))
-            og = OnGrid(Upwind(), Float32.(cw(xs)))
-            @test OnGrid(og, cw(xs); scale = maximum(abs, xs)) === og
-            @test_throws ArgumentError OnGrid(og, 1.001 .* cw(xs); scale = maximum(abs, xs))
+            og = OnGrid(Upwind(), Float32(xs[2] - xs[1]), 32)
+            @test OnGrid(og, xs) === og
+            @test_throws ArgumentError OnGrid(og, 1.001 .* xs)
         end
-        @test OnGrid(PFCNonUniform(cw(far); fmin = 0, fmax = 1), cw(far); scale = 1e6) isa OnGrid
-        # A Float32 PFCNonUniform built from a Float64 grid's widths holds them
+        # Past 0.5% of a cell a grid is not uniform, whatever its rounding: 8
+        # ulps of a Float16 grid's largest node are 16% of a cell, and one whose
+        # cells differ by 12% ran `Upwind` at one Courant number. Exactly
+        # representable, a Float16 grid is uniform.
+        σ = range(-1, 1; length = 41)
+        @test_throws ArgumentError OnGrid(Upwind(), Float16.(@. 4sinh(0.5σ)/sinh(0.5)))
+        @test_throws ArgumentError OnGrid(Upwind(), Float16.(collect(-4.0:0.2:4.0)))
+        @test spacing(OnGrid(Upwind(), Float16.(collect(-4.0:0.25:4.0))).grid) === Float16(0.25)
+        # A PFCNonUniform carries its widths, and goes on a grid whose cells are
+        # they. A Float32 one built from a Float64 grid's widths holds them
         # rounded, and takes that grid, to 4 ulps of Float32: at `1e-12` it was
         # refused on the very grid it was built from. A grid 2e-5 off is not it.
         p₃₂ = PFCNonUniform{Float32, true}(fill(0.05, 8), fill(2.0, 8), 0.05, 0.0, 1.0)
-        @test OnGrid(p₃₂, fill(0.05, 8)).h === 0.05f0
-        @test_throws ArgumentError OnGrid(p₃₂, fill(0.05 + 1e-6, 8))
-        # A PFCNonUniform carries its grid, and is refused on another.
+        @test substep_bound(OnGrid(p₃₂, 0.05, 8)) === 0.05f0
+        @test_throws ArgumentError OnGrid(p₃₂, 0.05 + 1e-6, 8)
+        @test OnGrid(PFCNonUniform(cw(far); fmin = 0, fmax = 1), far) isa OnGrid
         Δz = [0.5 + 0.3sin(2π*i/16) for i in 1:16]
         p = PFCNonUniform(Δz; fmin = 0.0, fmax = 1.0)
-        @test OnGrid(p).h == OnGrid(p, Δz).h == minimum(Δz)
-        @test_throws ArgumentError OnGrid(p, reverse(Δz))
-        @test_throws DimensionMismatch OnGrid(p, Δz[1:end-1])
-        @test_throws ArgumentError OnGrid(p, 0.5, 16)                # not its narrowest cell
+        @test OnGrid(p).grid.widths === p.Δx                         # its own, shared
+        @test substep_bound(OnGrid(p)) == minimum(Δz)
+        @test substep_bound(OnGrid(p, NonUniformGrid(; widths = Δz))) == minimum(Δz)
+        @test_throws ArgumentError OnGrid(p, NonUniformGrid(; widths = reverse(Δz)))
+        @test_throws DimensionMismatch OnGrid(p, NonUniformGrid(; widths = Δz[1:end-1]))
+        @test_throws ArgumentError OnGrid(p, 0.5, 16)                # a uniform grid is not its
+        z = cumsum(Δz)
+        @test OnGrid(PFCNonUniform(cw(z); fmin = 0.0, fmax = 1.0), z) isa OnGrid    # its nodes
         # Already on a grid: kept on that grid, refused on another.
-        og = OnGrid(Upwind(), fill(0.5, 8))
-        @test OnGrid(og, fill(0.5, 8)) === og
-        @test_throws ArgumentError OnGrid(og, fill(0.25, 8))
-        @test_throws ArgumentError OnGrid(og, 0.5, 8)
-        # To the same rounding the grid is taken to: `L/N` and the widths of the
+        og = OnGrid(Upwind(), 0.5, 8)
+        @test OnGrid(og, UniformGrid(0.5, 8)) === og
+        @test OnGrid(og, collect(0.5:0.5:4.0)) === og
+        @test OnGrid(og, 0.5, 8) === og
+        @test_throws ArgumentError OnGrid(og, 0.25, 8)
+        @test_throws ArgumentError OnGrid(og, NonUniformGrid(; widths = fill(0.5, 8)))
+        # To the rounding the grid is taken to: `L/N` and the spacing of the
         # cell centres `(j - 1/2)L/N` differ in the last bit (L = 4π, N = 6), and
         # an exact comparison refused an OnGrid on the very grid it was given.
         L, N = 4π, 6
-        widths = Vasilek.VlasovPoisson1D1V.cell_widths([(j - 0.5)*L/N for j in 1:N])
-        og₆ = OnGrid(Upwind(), fill(L/N, N))
-        @test first(widths) != L/N
-        @test OnGrid(og₆, widths) === og₆
-        # No cells, or cells of no positive width.
+        xc = [(j - 0.5)*L/N for j in 1:N]
+        og₆ = OnGrid(Upwind(), L/N, N)
+        @test xc[2] - xc[1] != L/N
+        @test OnGrid(og₆, xc) === og₆
+        # No nodes, nodes that do not increase, cells of no positive width.
         @test_throws ArgumentError OnGrid(Upwind(), Float64[])
         @test_throws ArgumentError OnGrid(Upwind(), fill(-0.5, 8))
+        @test_throws ArgumentError OnGrid(Upwind(), -0.5, 8)
+        @test_throws ArgumentError OnGrid(Upwind(), 0.0, 8)
         # The grid's length binds the workspace and the line.
         @test_throws DimensionMismatch workspace(og, 9)
         @test_throws DimensionMismatch advect!(zeros(9), ones(9), og, 0.25)
@@ -478,7 +493,7 @@ end
         h, z = rot_grid(N)
         Δt = T_ROT/nsteps
         f = g0 === nothing ? rot_blob(z, 2.0, 0.0) : copy(g0)
-        s = OnGrid(scheme, fill(h, N))
+        s = OnGrid(scheme, h, N)
         ws = workspace(s, s, f)
         for _ = 1:nsteps
             strang_step!(f, s, s, z .* Δt, _ -> -z .* Δt, ws)

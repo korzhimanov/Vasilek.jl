@@ -92,7 +92,7 @@ end
 # does not check private docstrings, which a module left without a page would
 # silently lose. The order is the navigation's. A generated page has no source
 # to edit, hence `EditURL`.
-const API_MODULES = [Vasilek, Vasilek.Advection, Vasilek.StrangSplitting,
+const API_MODULES = [Vasilek, Vasilek.Grids, Vasilek.Advection, Vasilek.StrangSplitting,
                      Vasilek.Collisions, Vasilek.VlasovPoisson1D1V,
                      Vasilek.PoissonFourier1D, Vasilek.FDTD1D]
 

@@ -28,16 +28,16 @@ using Vasilek.Advection: substeps
     # the scheme on its grid, which takes a displacement whatever the scheme takes
     col = [1.0 + 0.5sin(2π*i/32) for i in 1:32]
     ref = advect!(similar(col), col, Upwind(), 0.25)
-    og = OnGrid(Upwind(), fill(2.0, 32))
+    og = OnGrid(Upwind(), 2.0, 32)
     @test advect!(similar(col), col, og, 0.5, workspace(og, 32)) == ref
-    @test_throws ArgumentError OnGrid(Upwind(), [1.0, 2.0, 1.0, 1.0])
+    @test_throws ArgumentError OnGrid(Upwind(), [0.0, 1.0, 3.0, 4.0])    # nodes, not uniform
     @test substeps(2.5, 1.0) == 3
     # An OnGrid given to the driver is kept on its grid to rounding. On cell
-    # centres `L/N` and the widths differ in the last bit, which an exact
-    # comparison refused; it runs as the bare scheme does, but for that bit.
+    # centres `L/N` and the nodes' spacing differ in the last bit, which an
+    # exact comparison refused; it runs as the bare scheme does, but for that bit.
     xc = [(j - 0.5)*4π/6 for j in 1:6]
     fc = [exp(-u^2/2)/sqrt(2π)*(1 + 0.01cos(0.5y)) for u in v, y in xc]
-    @test vlasov_poisson(xc, v, fc, t[1:4]; scheme_x = OnGrid(Upwind(), fill(4π/6, 6))).f ≈
+    @test vlasov_poisson(xc, v, fc, t[1:4]; scheme_x = OnGrid(Upwind(), 4π/6, 6)).f ≈
           vlasov_poisson(xc, v, fc, t[1:4]; scheme_x = Upwind()).f rtol = 1e-13
     @test cell_widths([0.0, 1.0, 3.0]) == [1.0, 1.5, 2.0]
 
@@ -65,10 +65,11 @@ using Vasilek.Advection: substeps
     @test maximum(abs, r₃₂.ε_e .- r.ε_e) < 1e-4*maximum(r.ε_e)
     @test Vasilek.VlasovPoisson1D1V.make_poisson(collect(1e6 .+ (0:63)*0.1)) isa Function
     @test_throws ArgumentError Vasilek.VlasovPoisson1D1V.make_poisson(@. x + 1e-6*(2π/k/Nx)*sin(2π*s))
-    # A scheme that takes a Courant number takes those grids to the same
-    # rounding, at the scale of the coordinates in their own type, which the
-    # widths widened to the data's type no longer show. `OnGrid` took them to
-    # 1e-12 of the spacing and refused all three below. Measured against the
+    # A scheme that takes a Courant number takes those grids, the same
+    # `UniformGrid`s: `grid(x)` classifies the nodes once, at the scale of the
+    # coordinates in their own type. `OnGrid` took the widths to 1e-12 of the
+    # spacing and refused all three below, and for a while held them to a
+    # `scale` the driver passed beside them. Measured against the
     # Float64 run on Julia 1.13, as fractions of the peak: Float32 x under
     # Float64 f, 9.9e-10 in `f` and 2.1e-7 in `ε_e`, the Float32 spacing's own
     # rounding of the Courant number; all in Float32, 5.8e-7 and 5.3e-6; x at
@@ -90,10 +91,11 @@ using Vasilek.Advection: substeps
                                                                      fmin = 0, fmax = maximum(f)))
     @test maximum(abs, r₃₂ₓ.f .- r.f) < 1e-7*maximum(r.f)
     @test maximum(abs, r₃₂ₓ.ε_e .- r.ε_e) < 1e-6*maximum(r.ε_e)
-    # and an OnGrid built on Float32 widths, refused on the Float64 grid while
-    # the spacings were compared at the coordinates' rounding alone: 8.8e-10 of
-    # the peak in `f` and 1.7e-8 in `ε_e` from the Upwind run on Julia 1.13
-    og₃₂ = vlasov_poisson(x, v, f₀, t; scheme_x = OnGrid(Upwind(), Float32.(cell_widths(x))))
+    # and an OnGrid built on the Float32 spacing, refused on the Float64 grid
+    # while the spacings were compared at the coordinates' rounding alone: the
+    # same cells to 4 ulps of Float32, 8.8e-10 of the peak in `f` and 1.7e-8 in
+    # `ε_e` from the Upwind run on Julia 1.13
+    og₃₂ = vlasov_poisson(x, v, f₀, t; scheme_x = OnGrid(Upwind(), Float32(x[2] - x[1]), Nx))
     @test maximum(abs, og₃₂.f .- up.f) < 1e-8*maximum(up.f)
     @test maximum(abs, og₃₂.ε_e .- up.ε_e) < 2e-7*maximum(up.ε_e)
     # A single time has no step to record a history in: refused, rather than a
@@ -149,11 +151,12 @@ end
     @test eltype(r.f) === Float32
     @test all(isfinite, r.f)
 
-    # A Rational v grid gave Rational widths, which no PFCNonUniform takes; it
-    # runs as its nodes in Float64 do. A Float16 one built a Float16 default
-    # whose `fmax` cut into the peak.
+    # A Rational v grid gave Rational widths, which no PFCNonUniform takes; its
+    # grid holds its nodes in Float64, and it runs as they do, to the bit (to
+    # 1e-14 while the widths were taken from the Rational nodes). A Float16 one
+    # built a Float16 default whose `fmax` cut into the peak.
     vq = collect(-4//1:1//5:4//1)
-    @test vlasov_poisson(x, vq, landau(0.05), t).f ≈ vlasov_poisson(x, Float64.(vq), landau(0.05), t).f rtol = 1e-14
+    @test vlasov_poisson(x, vq, landau(0.05), t).f == vlasov_poisson(x, Float64.(vq), landau(0.05), t).f
     @test all(isfinite, vlasov_poisson(x, Float16.(v), landau(0.05), t).f)
 end
 
@@ -521,8 +524,8 @@ using Vasilek.VlasovPoisson1D1V: keeps_bounds
     @test !keeps_bounds(PFC(fmin = -0.1, fmax = 1.0), 0.0, 1.0)
     @test !keeps_bounds(UnvouchedScheme(), 0.0, 1.0)
     # On its grid, a scheme keeps the bounds it keeps alone.
-    @test keeps_bounds(OnGrid(Upwind(), fill(1.0, 8)), 0.0, 1.0)
-    @test !keeps_bounds(OnGrid(LaxWendroff(), fill(1.0, 8)), 0.0, 1.0)
+    @test keeps_bounds(OnGrid(Upwind(), 1.0, 8), 0.0, 1.0)
+    @test !keeps_bounds(OnGrid(LaxWendroff(), 1.0, 8), 0.0, 1.0)
 end
 
 @testset "collisions in the driver" begin
@@ -729,7 +732,7 @@ end
     @test prob.ov.scheme.fmax == Float32(M, RoundUp) && prob.ov.scheme.fmin == 0
     dips = [abs(u) ≤ 2 ? M*(1 - 1e-3*(1 + sin(7.3y + 3.1u))/2*isodd(round(Int, 5u))) : 0.0
             for u in v, y in x]
-    for given in (pfc32, f -> OnGrid(pfc32(f), Δx))    # and through an OnGrid
+    for given in (pfc32, f -> OnGrid(pfc32(f), x))    # and through an OnGrid
         r = vlasov_poisson(x, v, dips, collect(0.0:0.25:5.0); scheme_x = given,
                            nᵢ = vec(sum(dips .* Δv, dims = 1)), invariants = true)
         @test maximum(r.fmax) ≤ Float32(M, RoundUp) && minimum(r.fmin) ≥ 0
@@ -772,6 +775,77 @@ end
     @test_throws ArgumentError setup(x, v, waterbag, t; scheme_x = f -> nothing)
     # The schemes are on their grids, taking a displacement; a bare one, which
     # takes a Courant number, is no Problem's.
-    @test_throws MethodError Vasilek.VlasovPoisson1D1V.Problem(x, v, Δx, Δv, nᵢ, Upwind(),
-                                                               Upwind(), nothing, ())
+    @test_throws MethodError Vasilek.VlasovPoisson1D1V.Problem(x, v, Vasilek.Grids.grid(x),
+                                                               Vasilek.Grids.grid(v), Δx, Δv, nᵢ,
+                                                               Upwind(), Upwind(), nothing, ())
+end
+
+using Vasilek.Grids: grid
+
+# The grids the driver takes: a vector of nodes, which `grid` classifies once; a
+# range, uniform as it stands; or a grid of `Vasilek.Grids`. `x` has to be
+# uniform, for the field solve, and is refused by it alone, whatever `scheme_x`.
+@testset "the driver takes grids" begin
+    k, Nx = 0.5, 32
+    x = collect(range(2π/k/Nx; step = 2π/k/Nx, length = Nx))
+    v = collect(-4.0:0.2:4.0)
+    f(xx, vv) = [exp(-u^2/2)/sqrt(2π)*(1 + 0.01cos(k*y)) for u in vv, y in xx]
+    t = collect(0.0:0.1:2.0)
+    r = vlasov_poisson(x, v, f(x, v), t)
+    # Ranges. Their nodes are the collected ones and the defaults' widths are
+    # those nodes', as for a vector, where they were range arithmetic; the
+    # spacing is the range's own step, which for this x is its first
+    # difference. Under a scheme that takes a Courant number on `v` it is not:
+    # 0.2, where the collected nodes give 0.20000000000000018.
+    xr, vr = range(2π/k/Nx; step = 2π/k/Nx, length = Nx), -4.0:0.2:4.0
+    @test vlasov_poisson(xr, vr, f(x, v), t).f == r.f
+    up = vlasov_poisson(x, v, f(x, v), t; scheme_x = Upwind(), scheme_v = Upwind())
+    upr = vlasov_poisson(xr, vr, f(x, v), t; scheme_x = Upwind(), scheme_v = Upwind())
+    @test upr.f != up.f && maximum(abs, upr.f .- up.f) < 1e-14*maximum(up.f)
+    # Grids themselves. A uniform v given as a NonUniformGrid runs as it would,
+    # on the same widths, and refuses a scheme that takes a Courant number.
+    @test vlasov_poisson(UniformGrid(x[2] - x[1], x), grid(v), f(x, v), t).f == r.f
+    @test vlasov_poisson(x, NonUniformGrid(v), f(x, v), t).f == r.f
+    @test_throws ArgumentError vlasov_poisson(x, NonUniformGrid(v), f(x, v), t; scheme_v = Upwind())
+    prob, = setup(xr, NonUniformGrid(v), f(x, v), t)
+    @test prob.gx isa UniformGrid{Float64} && prob.gv isa NonUniformGrid{Float64}
+    @test prob.x == x && prob.v == v
+    # A grid without nodes is no driver's: it samples f₀, the ions and the
+    # modes at them.
+    @test_throws ArgumentError vlasov_poisson(x, UniformGrid(0.2, 41), f(x, v), t)
+    @test_throws ArgumentError vlasov_poisson(UniformGrid(x[2] - x[1], Nx), v, f(x, v), t)
+    # A stretched x is the field solve's refusal under any scheme_x; it was
+    # OnGrid's under one that takes a Courant number.
+    s = (0:Nx-1)/Nx
+    stretched = @. 2π/k*(s + 0.08sin(2π*s)/(2π)) + x[1]
+    for kw in ((;), (; scheme_x = Upwind()), (; scheme_x = SemiLagrangian(CubicSpline())))
+        message = try
+            vlasov_poisson(stretched, v, f(x, v), t; kw...)
+            ""
+        catch err
+            sprint(showerror, err)
+        end
+        @test occursin("Poisson", message)
+    end
+    # Float16 v. Its rounding is 8 ulps of 4, 16% of a cell, and a grid whose
+    # cells differ by 12% ran `Upwind` at one Courant number, as did
+    # `Float16.(v)`, whose spacings differ by 1%. Past 0.5% of a cell a grid is
+    # not uniform: the defaults run on both, as they did, and `Upwind` is refused.
+    σ = range(-1, 1; length = 41)
+    for v16 in (Float16.(v), Float16.(@. 4sinh(0.5σ)/sinh(0.5)))
+        @test grid(v16) isa NonUniformGrid{Float16}
+        @test_throws ArgumentError vlasov_poisson(x, v16, f(x, v16), t; scheme_v = Upwind())
+        @test all(isfinite, vlasov_poisson(x, v16, f(x, v16), t).f)
+    end
+    # A PFCNonUniform given on its own widths is kept on them, on a v that
+    # classifies uniform: the run sums on the same widths.
+    given = ff -> OnGrid(PFCNonUniform(cell_widths(v); fmin = 0.0, fmax = maximum(ff)))
+    prob, = setup(x, v, f(x, v), t; scheme_v = given)
+    @test prob.gv isa UniformGrid && prob.ov.grid isa NonUniformGrid{Float64, Nothing}
+    @test vlasov_poisson(x, v, f(x, v), t; scheme_v = given).f == r.f
+    # A uniform x of 20000 cells under a Courant scheme: OnGrid's 1e-12 refused
+    # one of 17000.
+    xb = collect(range(4π/20000; step = 4π/20000, length = 20000))
+    rb = vlasov_poisson(xb, v, f(xb, v), t[1:4]; scheme_x = Upwind(), invariants = true)
+    @test all(isfinite, rb.f) && maximum(abs, rb.mass .- rb.mass[1]) < 1e-12*rb.mass[1]
 end

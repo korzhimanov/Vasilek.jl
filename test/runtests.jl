@@ -8,7 +8,7 @@ using LinearAlgebra
 #     Pkg.test(test_args = ["golden", "contracts"])
 #
 # runs those two. An unknown name is an error rather than a run of nothing.
-const TEST_FILES = ["aqua", "readme", "docs", "dispersion", "golden", "amplification",
+const TEST_FILES = ["aqua", "readme", "docs", "grids", "dispersion", "golden", "amplification",
                     "convergence", "comparison", "invariants", "symmetry", "contracts",
                     "threading", "allocations", "driver", "harness", "verification",
                     "maxwell_solvers", "em_plasma", "vlasov_solvers", "boltzmann_solvers"]

@@ -10,7 +10,9 @@ that no user could run a Landau damping problem without copying it.
 """
 module VlasovPoisson1D1V
 
-using ..Advection: AbstractAdvection1D, PFCNonUniform, OnGrid, _outward, _roundoff, _within_rounding,
+using ..Grids: AbstractGrid1D, UniformGrid, NonUniformGrid, grid, hasnodes, cell_widths,
+              _uniform_spacing
+using ..Advection: AbstractAdvection1D, PFCNonUniform, OnGrid, _outward, _roundoff,
                    Upwind, Godunov, PiecewiseConstant, PiecewiseLinear, VanLeer, Superbee,
                    SemiLagrangian, LinearSpline, PFC
 using ..StrangSplitting: strang_step!, Collide
@@ -27,10 +29,11 @@ Spectral Poisson solve on a uniform periodic `x` grid, returning `(e, ρ) -> e`
 with `∂e/∂x = ρ`: [`PoissonFFT1D`](@ref) with its centred derivative and a
 workspace of its own.
 
-The grid is checked to be uniform to rounding: each spacing must match the
-first to 1e-10 of it or to 8 ulps of the largest coordinate, whichever is more,
-the rule [`OnGrid`](@ref) takes a uniform scheme's grid by. A stretched grid
-would otherwise get a field from its first spacing alone.
+`x` is a grid, a range or a vector of nodes, and has to be a
+[`UniformGrid`](@ref Vasilek.Grids.UniformGrid) as [`grid`](@ref
+Vasilek.Grids.grid) classifies it: a vector's spacings each the first to
+rounding. A stretched grid would otherwise get a field from its first spacing
+alone. The spacing is the grid's: a range's `step`, a vector's first difference.
 """
 function make_poisson(x)
     p = uniform_poisson(x)
@@ -38,28 +41,24 @@ function make_poisson(x)
     return (e, ρ) -> solve!(e, ρ, p, ws)
 end
 
-# `make_poisson`'s check and solver without the closure, for the driver, which
-# keeps the solver and its workspace in its `FieldSolve`.
-function uniform_poisson(x)
-    length(x) ≥ 2 || throw(ArgumentError("the x grid needs at least 2 points, got $(length(x))"))
-    Δx = x[2] - x[1]
-    scale = maximum(abs, x)
-    for j in 2:length(x)-1    # to rounding, by `OnGrid`'s rule; see above
-        _within_rounding(x[j+1] - x[j], Δx, scale) || throw(ArgumentError(
-            "the Poisson solve needs a uniform x grid: spacing $(x[j+1] - x[j]) at node $j, $Δx at node 1"))
+# `make_poisson`'s solver without the closure, for the driver, which keeps the
+# solver and its workspace in its `FieldSolve`.
+uniform_poisson(x) = uniform_poisson(grid(x))
+uniform_poisson(g::UniformGrid) = PoissonFFT1D(g.n, g.h)
+uniform_poisson(g::NonUniformGrid) = _err_nonuniform_x(g)
+
+# The one refusal of a non-uniform x, whatever scheme_x: the field solve needs a
+# spacing. Names the first node off, where the grid has nodes.
+@noinline function _err_nonuniform_x(g::NonUniformGrid)
+    detail = if hasnodes(g)
+        z = g.nodes
+        h, j = _uniform_spacing(z)
+        "spacing $(z[j+1] - z[j]) at node $j, $h at node 1"
+    else
+        "a grid of $(length(g)) cells of widths $(extrema(g.widths))"
     end
-    return PoissonFFT1D(length(x), Δx)
+    throw(ArgumentError("the Poisson solve needs a uniform x grid: " * detail))
 end
-
-"""
-    cell_widths(z)
-
-The width each node of the grid `z` stands for: the spacing at the two ends,
-and half the distance between its neighbours inside. These are the weights of
-the sums `Σ f ΔvΔx` that the flux-form schemes conserve. A floating-point grid
-gets widths of its own element type.
-"""
-cell_widths(z) = vcat([z[2]-z[1]], (z[3:end] - z[1:end-2])/2, [z[end]-z[end-1]])
 
 
 """
@@ -189,14 +188,20 @@ Strang-split electrostatic Vlasov–Poisson for electrons over fixed ions, from
 `collisions` is a collision operator. Units are those of
 `docs/src/normalization.md`.
 
-  * `x`: a periodic grid, uniform (checked). `v`: any grid, uniform or not.
+  * `x`, `v`: grids -- `UniformGrid`s or `NonUniformGrid`s of
+    [`Vasilek.Grids`](@ref Vasilek.Grids), ranges, or vectors of nodes, which
+    [`grid`](@ref Vasilek.Grids.grid) classifies. `x` is periodic and has to
+    be uniform, for the field solve; `v` may be either, and a scheme that takes
+    a Courant number is refused on a non-uniform one. Both need their nodes,
+    where `f₀`, the ions and the modes are sampled.
   * `t`: at least two times; steps may differ.
   * `scheme_x`, `scheme_v`: advection schemes, or functions of the starting `f`
     that return one. Both default to `PFCNonUniform` on their grid, in Float64
     at least, bounded by `[0, maximum(f)]` (below only with `collisions`), and
     beside a given `PFC` or `PFCNonUniform` by its own bounds too; each is put
     on its grid by [`OnGrid`](@ref), which takes the step as a
-    displacement and splits one wider than a cell.
+    displacement and splits one wider than a cell: a default on its own
+    widths, a given scheme on the grid, `OnGrid(scheme, grid(x))`.
   * `nᵢ`: the ion density over `x`; by default the Maxwellian's `Σ M Δv`,
     uniform. The ions are used as given, in the cell widths' type, and never
     rescaled.
@@ -277,8 +282,10 @@ end
 """
     Problem
 
-What a run of [`vlasov_poisson`](@ref) is, fixed for the whole run: the grids
-`x` and `v` as given, their cell widths `Δx` and `Δv`, the ion density `nᵢ`,
+What a run of [`vlasov_poisson`](@ref) is, fixed for the whole run: the nodes
+`x` and `v`, their grids `gx` and `gv` ([`UniformGrid`](@ref
+Vasilek.Grids.UniformGrid) for `x`), their cell widths `Δx` and `Δv`, the ion
+density `nᵢ`,
 the two schemes on their grids, `ox` and `ov` ([`OnGrid`](@ref)s), the collision
 operator or `nothing`, and the wavenumbers of the modes recorded. Built by
 [`setup`](@ref).
@@ -287,9 +294,11 @@ operator or `nothing`, and the wavenumbers of the modes recorded. Built by
 they are set against is.
 """
 struct Problem{W<:AbstractFloat, X<:AbstractVector, V<:AbstractVector,
-               SX<:OnGrid, SV<:OnGrid, C, M}
+               GX<:UniformGrid, GV<:AbstractGrid1D, SX<:OnGrid, SV<:OnGrid, C, M}
     x::X
     v::V
+    gx::GX
+    gv::GV
     Δx::Vector{W}
     Δv::Vector{W}
     nᵢ::Vector{W}
@@ -407,9 +416,18 @@ step: `(prob, state, hist)`, a [`Problem`](@ref), a [`State`](@ref) holding `f�
 as the run starts from it (rescaled if `renormalize`), and [`Histories`](@ref)
 for `length(t)` entries. Every argument is checked here, and every buffer the
 steps use is allocated here.
+
+`x` and `v` become grids first, `grid(x)` and `grid(v)`, and the run takes
+their nodes in the grids' type: a Rational or an integer grid runs in Float64.
 """
-function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants = false,
-               modes = (), nᵢ = nothing, renormalize = nᵢ === nothing, collisions = nothing)
+setup(x, v, f₀, t; kw...) = _setup(grid(x), grid(v), f₀, t; kw...)
+
+_setup(gx::NonUniformGrid, gv::AbstractGrid1D, f₀, t; kw...) = _err_nonuniform_x(gx)
+
+function _setup(gx::UniformGrid, gv::AbstractGrid1D, f₀, t; scheme_x = nothing,
+                scheme_v = nothing, invariants = false, modes = (), nᵢ = nothing,
+                renormalize = nᵢ === nothing, collisions = nothing)
+    x, v = _nodes(gx, :x), _nodes(gv, :v)
     # Every history entry k is taken during step k, and the last one is copied
     # from the one before: a single time has no step to take one in.
     length(t) ≥ 2 || throw(ArgumentError(
@@ -440,9 +458,9 @@ function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants
     # line's own, so the upper bound is not the run's to keep: the defaults then
     # bound `f` below only.
     bound = collisions === nothing ? maximum(f) : Inf
-    gx, gv = _given(scheme_x, f, :scheme_x), _given(scheme_v, f, :scheme_v)
-    alone = (gx === nothing) != (gv === nothing)    # a given scheme beside a default
-    g = gx === nothing ? gv : gx
+    givenx, givenv = _given(scheme_x, f, :scheme_x), _given(scheme_v, f, :scheme_v)
+    alone = (givenx === nothing) != (givenv === nothing)    # a given scheme beside a default
+    g = givenx === nothing ? givenv : givenx
     # A default stops the run at the first line it is handed outside its bounds
     # by more than round-off; a scheme given for the other direction that need
     # not keep them is refused here instead, before the first step, whatever
@@ -450,14 +468,14 @@ function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants
     # left a line an ulp past them, which the default refused: a waterbag with
     # its own ions under a `SemiLagrangian(LinearSpline())` x sweep stopped on
     # its first step. The default takes that ulp now.
-    alone && refuse_unbounded(g, gx === nothing ? :scheme_v : :scheme_x,
-                              gx === nothing ? :scheme_x : :scheme_v, bound)
+    alone && refuse_unbounded(g, givenx === nothing ? :scheme_v : :scheme_x,
+                              givenx === nothing ? :scheme_x : :scheme_v, bound)
     # A default takes round-off past its bounds from a step, and would take a
     # negative `f₀` within it for round-off too, clamped to 0 unreported: `f₀`
     # is checked exactly here, as the default's first call checked it, and
     # before the schemes given are held to it, so that a negative `f₀` beside a
     # default is the same `DomainError` whichever scheme is given.
-    if gx === nothing || gv === nothing
+    if givenx === nothing || givenv === nothing
         m = minimum(f)
         m < 0 && _err_negative(m)
     end
@@ -466,8 +484,8 @@ function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants
     # where it is too: a Float32 one at `maximum(f)` rounded up took a line 4e7
     # ulps of Float64 past it, which the default refused. One that does not hold
     # `f₀` is refused.
-    gx === nothing || refuse_narrow(gx, :scheme_x, f)
-    gv === nothing || refuse_narrow(gv, :scheme_v, f)
+    givenx === nothing || refuse_narrow(givenx, :scheme_x, f)
+    givenv === nothing || refuse_narrow(givenv, :scheme_v, f)
     lo, hi = 0.0, alone ? _beside(_inner(g), bound) : bound
     # The defaults are Float64 at least, as the step works the line (`work`
     # below), for precision and for the mass: a Float32 one rounds each flux
@@ -477,16 +495,12 @@ function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants
     # call took round-off; `docs/src/driver-notes.md`.
     default(widths) = PFCNonUniform(convert(Vector{promote_type(Float64, eltype(widths))}, widths);
                                     fmin = lo, fmax = hi)
-    sx = gx === nothing ? default(Δx) : gx
-    sv = gv === nothing ? default(Δv) : gv
 
     # Each scheme on its grid, taking a displacement and splitting a step wider
-    # than a cell; a uniform scheme on a non-uniform grid is refused here. To the
-    # rounding of the coordinates, in their own type, which the widths in `W` no
-    # longer show: Float32 coordinates under Float64 `f`, and a grid far from
-    # the origin, were refused for it.
-    ox = OnGrid(sx, Δx; scale = maximum(abs, x))
-    ov = OnGrid(sv, Δv; scale = maximum(abs, v))
+    # than a cell: a default on its own widths, a given scheme on the grid,
+    # where one that takes a Courant number is refused on a non-uniform `v`.
+    ox = givenx === nothing ? OnGrid(default(Δx)) : OnGrid(givenx, gx)
+    ov = givenv === nothing ? OnGrid(default(Δv)) : OnGrid(givenv, gv)
     # The step runs on `f[x, v]`, whose columns are the x lines, and sweeps v over
     # the transpose it keeps. The lines are worked in Float64 at least and
     # rounded into `f` once a step, whatever `f`'s own type; see the defaults.
@@ -495,7 +509,7 @@ function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants
     ws = workspace(ox, ov, fxv, collisions, work)
 
     Nx, Nv = length(x), length(v)
-    poisson = uniform_poisson(x)
+    poisson = uniform_poisson(gx)
     # One scratch matrix, reused: the density, the energy and the four
     # invariants are sums over arrays the shape of `f`, and allocating a
     # temporary per sum per step dominated the step itself.
@@ -514,8 +528,13 @@ function setup(x, v, f₀, t; scheme_x = nothing, scheme_v = nothing, invariants
     hist = Histories(history(), history(), invariant(), invariant(), invariant(),
                      invariant(), invariant(), invariant(),
                      isempty(modes) ? nothing : zeros(Complex{T}, Nt, length(modes)))
-    return Problem(x, v, Δx, Δv, ions, ox, ov, collisions, modes), state, hist
+    return Problem(x, v, gx, gv, Δx, Δv, ions, ox, ov, collisions, modes), state, hist
 end
+
+# The nodes the driver samples `f₀`, the ions and the modes at.
+_nodes(g::AbstractGrid1D, name) = hasnodes(g) ? g.nodes : throw(ArgumentError(
+    "vlasov_poisson samples f₀, the ions and the modes at the nodes of $name, and $g " *
+    "has none: build it from them, as a range, a vector or UniformGrid(h, nodes)"))
 
 """
     step!(state, prob, Δt)
