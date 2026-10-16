@@ -231,6 +231,9 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Changed
 
+- **A uniform grid's widths are its spacing, and a vector's spacing is its mean**: every
+  run moves at round-off, ≤ 8.3e-16 of the peak, and one at 1e6 from the origin comes to
+  1.2e-14 of the run at 0, from 1.1e-12. Driver notes, "Grids"; migration guide, "Grids".
 - **A run on ranges, or on a Rational `v`, moves at round-off**: their widths are their
   nodes' in Float64, and a range's spacing its `step`; 8.3e-16 and 5.5e-16 of the peak
   with the defaults, where a range now runs as its collected nodes. Driver notes, "Grids".

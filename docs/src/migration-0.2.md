@@ -197,13 +197,19 @@ Calls that ran and are refused now, or take other bits:
     of 10⁵ cells or more, as the driver notes' "Grids" tabulates; so is an `x`
     of them, by the field solve. The default `PFCNonUniform` runs on them as
     before;
-  * `vlasov_poisson` on ranges: their widths are those of the collected nodes,
-    where they were range arithmetic, and their spacing is `step(r)`, where it
-    was the first difference: a run moves at round-off, 8.3e-16 of the peak with
-    the defaults and 1.4e-16 under `Upwind`, and with the defaults it is the run
-    on the collected nodes to the bit;
-  * a Rational `v` runs on its nodes in Float64, where its widths were Rational:
-    5.5e-16 of the peak;
+  * every run on a uniform grid moves at round-off, at most 8.3e-16 of the
+    peak in Float64: its widths are the grid's spacing in every cell, where they
+    were the nodes' cell widths, and a vector's spacing is its mean, where it
+    was its first difference; `cell_widths` of a range is its step in every
+    cell;
+  * a `PFCNonUniform` built on the nodes' `cell_widths` beside a uniform grid is
+    taken, but advects on widths that differ from the run's by the nodes'
+    rounding, and the run's mass drifts by as much: 6.1e-10 on a Float32 `x`.
+    Build it on the grid, `PFCNonUniform(grid(x); …)`;
+  * `vlasov_poisson` on ranges takes their nodes collected and their `step` for
+    the spacing, where their widths were range arithmetic: on the suite's grids
+    a run on ranges is the run on the collected nodes to the bit;
+  * a Rational `v` runs on its nodes in Float64, where its widths were Rational;
   * `vlasov_poisson` with a non-uniform `x` throws the field solve's
     `ArgumentError` whatever `scheme_x`, where `OnGrid`'s came first under a
     scheme that takes a Courant number, and before `f₀`'s own `DomainError`.

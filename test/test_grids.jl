@@ -18,9 +18,16 @@ using Vasilek.Advection: substep_bound, nsubsteps, takes, Courant, Displacement
             @test nodes(g) == collect(T, r) && length(g) == length(r)
         end
         # The collected nodes' first difference is not the step the range was
-        # written with; the range carries it to the bit.
+        # written with; the range carries it to the bit, and a vector's spacing
+        # is its mean, `(z[end] - z[1])/(n - 1)`, which here is the step too.
         @test spacing(grid(-4.0:0.2:4.0)) === 0.2
-        @test spacing(grid(collect(-4.0:0.2:4.0))) === 0.20000000000000018
+        let v = collect(-4.0:0.2:4.0)
+            @test v[2] - v[1] === 0.20000000000000018 && spacing(grid(v)) === 0.2
+        end
+        # A range's cell widths are its step in every cell, as its grid's are,
+        # not the differences of its nodes, which round in the last bit.
+        @test cell_widths(-4.0:0.2:4.0) == fill(0.2, 41) == widths(grid(-4.0:0.2:4.0))
+        @test cell_widths(collect(-4.0:0.2:4.0)) != fill(0.2, 41)
         @test_throws ArgumentError grid(10.0:-1.0:1.0)     # nodes have to increase
         @test isbitstype(typeof(UniformGrid(0.1, 8)))
     end
@@ -59,7 +66,8 @@ using Vasilek.Advection: substep_bound, nsubsteps, takes, Courant, Displacement
         for z in uniform
             g = grid(z)
             @test g isa UniformGrid{float(eltype(z))}
-            @test spacing(g) === float(eltype(z))(z[2] - z[1]) && nodes(g) == collect(float(eltype(z)), z)
+            @test spacing(g) === float(eltype(z))((z[end] - z[1])/(length(z) - 1))
+            @test nodes(g) == collect(float(eltype(z)), z)
             @test UniformGrid(z) isa UniformGrid
         end
         for z in nonuniform
@@ -89,6 +97,17 @@ using Vasilek.Advection: substep_bound, nsubsteps, takes, Courant, Displacement
             sprint(showerror, err)
         end
         @test occursin("widths", message)
+    end
+
+    @testset "a vector's spacing is its mean, and its cells span its box" begin
+        # n cells of the first difference carry the rounding of the largest
+        # node: 2.3e-10 off the box of the grid near 1e6, the mean 7.4e-12, and
+        # the widths sum to n·h to rounding. Measured on Julia 1.13.
+        z = collect(1e6 .+ (0:63)*0.1)
+        box = 64*0.1
+        @test abs(64*(z[2] - z[1]) - box)/box > 1e-10
+        @test abs(64*spacing(grid(z)) - box)/box < 1e-11
+        @test sum(widths(grid(z))) ≈ 64*spacing(grid(z)) rtol = 1e-14
     end
 
     @testset "constructors and accessors" begin

@@ -319,9 +319,9 @@ end
         cw = Vasilek.Grids.cell_widths
         x₃₂ = Float32.(collect(range(π/8; step = π/8, length = 64)))
         @test maximum(cw(x₃₂)) != minimum(cw(x₃₂))
-        @test spacing(OnGrid(Upwind(), x₃₂).grid) === x₃₂[2] - x₃₂[1]
+        @test spacing(OnGrid(Upwind(), x₃₂).grid) === (x₃₂[end] - x₃₂[1])/63    # the mean spacing
         far = collect(1e6 .+ (0:63)*0.1)
-        @test spacing(OnGrid(LaxWendroff(), far).grid) === far[2] - far[1]
+        @test spacing(OnGrid(LaxWendroff(), far).grid) === (far[end] - far[1])/63
         let og = OnGrid(Upwind(), far)
             @test OnGrid(og, far) === og
             # the spacing written, to the nodes' rounding: 9.3e-10 of it apart

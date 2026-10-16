@@ -436,7 +436,8 @@ function _setup(gx::UniformGrid, gv::AbstractGrid1D, f₀, t; scheme_x = nothing
     # scratch does: a Float32 or a Rational grid under Float64 `f` takes neither
     # its sums nor its default schemes out of Float64.
     T = float(eltype(f₀))
-    Δx₀, Δv₀ = cell_widths(x), cell_widths(v)
+    # The grids' widths: a uniform grid's spacing in every cell.
+    Δx₀, Δv₀ = cell_widths(gx), cell_widths(gv)
     W = promote_type(T, eltype(Δx₀), eltype(Δv₀))
     Δx, Δv = convert(Vector{W}, Δx₀), convert(Vector{W}, Δv₀)
 

@@ -42,7 +42,10 @@ The nodes agree with it to their own rounding only.
     collected nodes' first difference is `0.20000000000000018`.
   * From a vector of nodes, the grid has to be uniform to rounding, as
     [`grid`](@ref) decides, or the call is an `ArgumentError` naming the first
-    node that is not; `h` is then the first difference, `z[2] - z[1]`.
+    node that is not; `h` is then the mean spacing, `(z[end] - z[1])/(n - 1)`,
+    so that `n` cells of it span the nodes' periodic box to rounding. The first
+    difference carries the rounding of the largest node: `n` cells of it were
+    2.3e-10 off the box of `1e6 .+ (0:63)*0.1`, the mean 7.4e-12.
   * `UniformGrid(h, nodes)` takes the spacing as given, beside nodes that
     increase: cell centres `(j - 1/2)L/N` with `h = L/N`, whose differences
     round otherwise.
@@ -88,8 +91,11 @@ function UniformGrid(z::AbstractVector)
     _check_nodes(z)
     h, j = _uniform_spacing(z)
     j == 0 || _err_nonuniform(z, h, j)
-    return UniformGrid(h, z)
+    return UniformGrid(_mean_spacing(z), z)
 end
+
+# In the nodes' own arithmetic: exact for Rational nodes.
+_mean_spacing(z) = (z[end] - z[1])/(length(z) - 1)
 
 """
     NonUniformGrid(z::AbstractVector)
@@ -184,9 +190,9 @@ end
 
 The grid `z` is: itself for an [`AbstractGrid1D`](@ref), a
 [`UniformGrid`](@ref) for a range, and for a vector of nodes a `UniformGrid`
-if every spacing is the first to rounding and a [`NonUniformGrid`](@ref)
-otherwise. This is where the package decides that a vector is uniform, and the
-only place.
+if every spacing is the first to rounding, its spacing the mean one, and a
+[`NonUniformGrid`](@ref) otherwise. This is where the package decides that a
+vector is uniform, and the only place.
 
 Rounding is `1e-10` of the first spacing, or 8 ulps of the largest node in the
 nodes' own type, whichever is more, and never more than 0.5% of a cell: the
@@ -204,7 +210,7 @@ grid(r::AbstractRange) = UniformGrid(r)
 function grid(z::AbstractVector)
     _check_nodes(z)
     h, j = _uniform_spacing(z)
-    return j == 0 ? UniformGrid(h, z) : NonUniformGrid(z)
+    return j == 0 ? UniformGrid(_mean_spacing(z), z) : NonUniformGrid(z)
 end
 
 function _check_nodes(z)
@@ -285,9 +291,12 @@ narrowest(g::NonUniformGrid) = g.hmin
 The width each node of the grid `z` stands for: the spacing at the two ends,
 and half the distance between its neighbours inside. These are the weights of
 the sums `Σ f ΔvΔx` that the flux-form schemes conserve. A floating-point grid
-gets widths of its own element type. Of a grid, its [`widths`](@ref).
+gets widths of its own element type. Of a grid, its [`widths`](@ref); of a
+range, its step in every cell, as of its `UniformGrid` -- not the differences of
+its nodes, which round in the last bit.
 """
 cell_widths(z::AbstractVector) = vcat([z[2]-z[1]], (z[3:end] - z[1:end-2])/2, [z[end]-z[end-1]])
+cell_widths(r::AbstractRange) = widths(UniformGrid(r))
 cell_widths(g::AbstractGrid1D) = widths(g)
 
 # ----------------------------------------------------------- the same grid

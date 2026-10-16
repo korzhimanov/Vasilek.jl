@@ -13,7 +13,7 @@ it is written. Boundaries are periodic.
 module Advection
 
 import ..workspace
-using ..Grids: AbstractGrid1D, UniformGrid, NonUniformGrid, grid, hasnodes, widths, narrowest,
+using ..Grids: AbstractGrid1D, UniformGrid, NonUniformGrid, grid, widths, narrowest,
                cell_widths, samecells, _rtol, _scale, _same_width
 
 export AbstractAdvection1D, advect!, workspace,
@@ -924,10 +924,10 @@ function _same_widths(p::PFCNonUniform, g::AbstractGrid1D)
     return nothing
 end
 
-# The widths a PFCNonUniform on `g` is held to: those of its nodes, as a
-# caller's `PFCNonUniform(cell_widths(nodes))` has them, where it has nodes.
-_reference_widths(g::UniformGrid) = hasnodes(g) ? cell_widths(g.nodes) : widths(g)
-_reference_widths(g::NonUniformGrid) = g.widths
+# The widths a PFCNonUniform on `g` is held to: the grid's own. A caller's
+# `PFCNonUniform(cell_widths(nodes))` beside a uniform grid differs from them in
+# the last bits, which `_same_width` allows as the nodes' rounding.
+_reference_widths(g::AbstractGrid1D) = widths(g)
 
 """
     OnGridWorkspace
