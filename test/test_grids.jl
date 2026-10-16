@@ -118,6 +118,13 @@ Vasilek.Advection.takes(::DisplacedShift) = Displacement()
         # [-100, 0, 100] to -56, and the mean spacing with it.
         @test spacing(grid(Int8[-100, 0, 100])) === 100.0
         @test spacing(UniformGrid(Int16[-20000, 0, 20000])) === 20000.0
+        message = try
+            UniformGrid(Int8[-100, -99, 100])
+            ""
+        catch err
+            sprint(showerror, err)
+        end
+        @test occursin("spacing 199.0 at node 2", message)
     end
 
     @testset "a vector's spacing is its mean, and its cells span its box" begin

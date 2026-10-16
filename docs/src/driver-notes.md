@@ -92,13 +92,15 @@ first difference in every cell ran with its mass drifting by 1e-8 rather than
 those widths, its limiter coefficient 2 to the bit, and `cell_widths` of a range
 is its step in every cell. They were the nodes' cell widths, which take up to 9
 distinct values in their last bits on the uniform grids the suite uses, and one
-on the two whose nodes are exact. Every number the driver returns moved at
-round-off for it. Against the nodes' widths, over Landau runs of 100 to 400
-steps with the defaults, `Upwind`, `BGK`, `Landau1P` or a Rational `v`: in
-Float64 near the origin at most 1.8e-15 of the peak in `f` and 6.1e-15 of the
-largest `ε_e`; 5.2e-12 at 1e6, by the bias the mean spacing lost, below; and by
-the Float32 nodes' rounding, 1.2e-8 on a Float32 `x` under Float64 data and
-4.3e-7 all in Float32.
+on those whose nodes are exact, as `range(-8, 8; length = 65)`. Every number the
+driver returns moved at round-off for it. Against the nodes' widths, on the
+32 × 41 Landau grid of `test/test_driver.jl` at 1% and 5% over 100 and 400
+steps, with the defaults, `Upwind`, `BGK` or `Landau1P`, and on the README's
+grid: in Float64 near the origin up to 1.9e-15 of the peak in `f` and 1.8e-14
+of the largest `ε_e`, the larger at 1%, whose `ε_e` is small; at 1e6, 6.7e-12
+and 7.5e-11, the bias the mean spacing lost, below; and by the Float32 nodes'
+rounding, 1.2e-8 and 2.5e-7 on a Float32 `x` under Float64 data, 9.6e-7 and
+5.1e-6 all in Float32.
 
 **The collision operators sum on them too.** The driver hands an operator the
 grid's nodes as [`GridNodes`](@ref Vasilek.Collisions.GridNodes), which carry
@@ -124,8 +126,8 @@ on ranges is the run on the collected nodes to the bit, with the defaults and
 under `Upwind`; before the grid types it was 8.3e-16 of the peak from it,
 through range arithmetic in its widths. A Rational `v` runs on its nodes in
 Float64, its spacing the exact mean rounded once: to the bit of `Float64.(v)`
-where the two means round alike, as on `-4:1/5:4`, and an ulp of the spacing
-apart where they do not, 1.1e-15 of the peak on `-3/2 .+ (0:20) .// 3`.
+where the two means round alike, as on `-4//1:1//5:4//1`, and an ulp of the
+spacing apart where they do not, 1.1e-15 of the peak on `-3//2 .+ (0:20) .// 3`.
 
 **A `PFCNonUniform` beside a uniform grid belongs on the grid**,
 `PFCNonUniform(grid(x); …)`, on the widths the run sums with. One built on the

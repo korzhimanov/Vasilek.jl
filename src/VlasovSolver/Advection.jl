@@ -949,9 +949,9 @@ end
 # The widths a PFCNonUniform on `g` is held to: the grid's own, which the run
 # sums with. A caller's `PFCNonUniform(cell_widths(nodes))` beside a uniform grid
 # differs from them by the nodes' rounding, about an ulp of the largest node:
-# taken within `_rtol` of the coarser type, 1e-12 in Float64, which a grid of a
-# few thousand cells near the origin keeps, and refused further, as on a Float32
-# grid, one far from the origin or one of 10⁴ cells.
+# taken within `_rtol` of the coarser type, 1e-12 in Float64, and refused
+# further: on the suite's Float32 grids, far from the origin, or on enough cells
+# that an ulp of the largest node passes 1e-12 of one, as 16384 on [0, 4π).
 _reference_widths(g::AbstractGrid1D) = widths(g)
 
 """
