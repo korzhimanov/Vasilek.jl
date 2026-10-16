@@ -88,7 +88,7 @@ first difference in every cell ran with its mass drifting by 1e-8 rather than
 1e-16. `PFCNonUniform(grid(x); …)` is built on the widths the run sums with.
 
 **A uniform grid's widths are its spacing.** On a `UniformGrid` every cell is
-`h`: the driver sums on `fill(h, n)`, the default `PFCNonUniform` is built on
+`h`: the driver sums on `fill(h, n)`, a `PFCNonUniform` built on the grid takes
 those widths, its limiter coefficient 2 to the bit, and `cell_widths` of a range
 is its step in every cell. They were the nodes' cell widths, which take 4 to 7
 distinct values in their last bits on every uniform grid the suite uses. Every
@@ -162,10 +162,11 @@ statement about the schemes rather than about floating point.
 
     OnGrid(scheme, grid)
 
-The driver puts each scheme on its grid -- a default on its own widths,
-`OnGrid(PFCNonUniform(Δx; …))`, a given one on the grid, `OnGrid(scheme_x,
-grid(x))` -- and hands it a **displacement**, a length, whatever the scheme's own
-fourth argument means. [`OnGrid`](@ref Vasilek.Advection.OnGrid) is a scheme in
+The driver puts each scheme on its grid -- a default `PFC` on the grid, a
+default `PFCNonUniform` on its own widths, `OnGrid(PFCNonUniform(Δv; …))`, a
+given one on the grid, `OnGrid(scheme_x, grid(x))` -- and hands it a
+**displacement**, a length, whatever the scheme's own fourth argument means.
+[`OnGrid`](@ref Vasilek.Advection.OnGrid) is a scheme in
 `Vasilek.Advection`; it replaces `line_advector`, a closure the driver built for
 itself, which took the same arguments and gave the same bits.
 
@@ -266,11 +267,12 @@ a Landau run where the Float64 one holds 4e-16.
 columns are the x lines; the kick runs over the transposed copy that the step's
 workspace keeps, so every line either sweep reads is contiguous. The driver used
 to step `g = f'`, an adjoint, through `make_time_step_2d!`, and the x sweep read
-strided views of `f`'s rows. On a line of 64 cells, measured on Julia 1.13, a
-strided line costs `Upwind` 57 ns against 15 contiguous, and `PFC` and the
-default `PFCNonUniform`, whose limiters take most of the step, 620 ns against
+strided views of `f`'s rows. On a line of 64 cells, measured on Julia 1.13 when
+that changed, a strided line cost `Upwind` 57 ns against 15 contiguous, and
+`PFC` and `PFCNonUniform`, whose limiters take most of the step, 620 ns against
 550 and 700 against 650. The arithmetic is the same, so the numbers are too, to
-the bit.
+the bit. (The two kernels' own costs are measured again under "The default
+schemes" below.)
 
 The field is solved from the transposed state, `f[v, x]` after the first half
 step, which is the layout the density was always summed over. The collisions
@@ -379,11 +381,39 @@ flux form has kept `Σ f ΔvΔx` and the sums find nothing to do. On the matched
 pair of the verification harness's `bgk_equilibrium` it was 1 − 1.9e-3 and
 doubled the equilibrium's drift; it is now 1 to 3.8e-15 there as well.
 
-`scheme_x` and `scheme_v` default to `PFCNonUniform` on the two grids, which is
-what the verification notebooks use and what every previous caller got. They are
-arguments so that the same driver can measure what the physics costs under a
-*different* scheme, which is what `verification/scheme-comparison.jl` does, and
-so that a refinement study can hold the scheme fixed while moving the grid.
+## The default schemes
+
+`scheme_x` and `scheme_v` default to `PFC` on a uniform grid and to
+`PFCNonUniform` on a non-uniform one. They are arguments so that the same driver
+can measure what the physics costs under a *different* scheme, which is what
+`verification/scheme-comparison.jl` does, and so that a refinement study can
+hold the scheme fixed while moving the grid.
+
+Before the grid types, both defaulted to `PFCNonUniform`, which the verification
+notebooks had used. On a uniform grid it is `PFC` -- its widths equal, its limiter
+coefficient 2 to the bit -- carrying the widths through every flux: the same
+step to one or two ulps, and slower. Measured on the cloud host of this change,
+Julia 1.13, the minimum over batches of the median time of one `advect!` of a
+contiguous line, and of a step of `vlasov_poisson` with the defaults on a
+Landau run over `[−6, 6]`:
+
+| | `PFC` | `PFCNonUniform` | |
+|---|---|---|---|
+| line of 64 cells | 241 ns | 737 ns | 3.1× |
+| line of 1000 | 2.2 μs | 10.3 μs | 4.6× |
+| line of 10⁴ | 22.7 μs | 102 μs | 4.5× |
+| step at 64 × 81 | 202 μs | 241 μs | 1.19× |
+| step at 128 × 161 | 805 μs | 1107 μs | 1.37× |
+| step at 512 × 161 | 4.26 ms | 8.65 ms | 2.03× |
+
+`benchmark/results.json`, taken on the development machine, has the kernels
+2.1 times apart at 100 to 10⁴ cells. Every run with a default on a uniform grid
+moved at round-off for it, in Float64 at most 8.3e-16 of the peak in `f` and
+1.1e-14 of the largest `ε_e` over the bit gate's runs. The difference grows with
+the run: over 400 steps of Landau runs at 5% and 50% on 64 × 81 and 64 × 129 it
+reached 3.2e-15 of the peak with the defaults and 1.6e-14 beside a given linear
+`SemiLagrangian`. A default given by hand as
+`f -> PFC(fmin = 0, fmax = maximum(f))` is the default to the bit.
 
 **Either may also be a function of the initial `f` that returns a scheme**, as
 in `f -> PFC(fmin = 0.0, fmax = maximum(f))`, and is called with the `f` the run
@@ -665,7 +695,7 @@ with a `DomainError`, and none does now. None of the first 200 stops to `t = 60`
 either.
 
 No driver run reached the excess a limiter builds, though. The runs that stopped
-on such data stopped on the default's own rounding: a `PFCNonUniform` bounded at
+on such data stopped on the default's own rounding, then a `PFCNonUniform`, bounded at
 the plateau left a cell an ulp above it, and its next call refused the line.
 Rows of 32 cells, half at 1/√(2π) and the rest up to 1e-12 or 1e-9 below it, the
 same at every |v| ≤ 3, with their own ions, to `t = 40` at steps of 0.1 and
@@ -675,4 +705,5 @@ other, the rest up to 1e-12 below, to `t = 30` at steps of 0.37: with no scheme
 given all 150 stopped, and with `Superbee` or `Upwind` given in v the default in
 x stopped 142 of them, the same for either. Now that a checked one clamps what
 it returns and takes the round-off it is handed, none of the 400 stops and none
-of the 150, with no scheme given or with any of these.
+of the 150, with no scheme given or with any of these, and none with `PFC` the
+default on these grids, taken again when it became one.

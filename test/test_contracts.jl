@@ -58,6 +58,10 @@ using Vasilek
         # then stop its first step with a TypeError from `if Checked`
         @test_throws ArgumentError PFC{Float64, 3}(0.0, 2.0)
         @test PFC{Float64, true}(0.0, 2.0) === PFC(fmin = 0.0, fmax = 2.0)
+        # `checked` is a value, and it has to reach the type, as for
+        # `PFCNonUniform` below: without `@constprop :aggressive` the call
+        # inferred as `PFC{Float64}` on Julia 1.10.
+        @test (@inferred PFC(fmin = 0.0, fmax = 2.0)) isa PFC{Float64, true}
     end
 
     @testset "a constant line at fmax stays constant, to the bit" begin
@@ -212,8 +216,8 @@ end
     @test maximum(out) ≤ M
 end
 
-# `Godunov` partners the driver's default `PFCNonUniform`, which refuses a line
-# an ulp above its bound, and `keeps_bounds` vouches for it with a constant
+# `Godunov` partners the driver's default, then a `PFCNonUniform`, which refused a
+# line an ulp above its bound, and `keeps_bounds` vouches for it with a constant
 # reconstruction or a limiter. It added a cell's inflow and subtracted its
 # outflow in turn, and on a constant line of 16 cells the two roundings left
 # the line an ulp above itself: at 492 of these 2001 Courant numbers from

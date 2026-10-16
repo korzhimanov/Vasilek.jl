@@ -90,9 +90,10 @@ mode_amplitude(e, x, k) = 2*sum(e[j]*cis(-k*x[j]) for j in eachindex(x))/length(
 
 Whether `scheme` keeps data that starts inside `[lo, hi]` inside it, to
 round-off: what [`vlasov_poisson`](@ref) asks of a scheme given for one
-direction while the other is left to its default, a `PFCNonUniform` built on
-`[0, maximum(f)]` that refuses a line outside them by more than round-off and
-takes one within it ([`_check_bounds`](@ref Vasilek.Advection._check_bounds)).
+direction while the other is left to its default, a `PFC` or `PFCNonUniform`
+built on `[0, maximum(f)]` that refuses a line outside them by more than
+round-off and takes one within it
+([`_check_bounds`](@ref Vasilek.Advection._check_bounds)).
 
 True for the schemes that keep their data between its own extrema -- `Upwind`,
 `Godunov` with a constant reconstruction or a limiter, the linear
@@ -118,8 +119,9 @@ function keeps_bounds(s::Union{PFC, PFCNonUniform}, lo, hi)
 end
 
 @noinline _err_negative(m) = throw(DomainError(m,
-    "f has a value below 0, the lower bound of the PFCNonUniform a direction left to its " *
-    "default gets. Pass both schemes for data that is not a distribution"))
+    "f has a value below 0, the lower bound of the default a direction left to it gets, " *
+    "PFC on a uniform grid and PFCNonUniform on a non-uniform one. Pass both schemes " *
+    "for data that is not a distribution"))
 
 # A scheme given, out of the `OnGrid` it may come in.
 _inner(s) = s
@@ -174,10 +176,10 @@ function refuse_unbounded(given, name, other, bound)
     keeps_bounds(given, 0.0, bound) && return nothing
     throw(ArgumentError(
         "$name = $(sprint(show, given)) may take f outside [0, $bound], " *
-        "the bounds of the PFCNonUniform that $other defaults to, which stops the run at " *
+        "the bounds of the PFC or PFCNonUniform that $other defaults to, which stops the run at " *
         "the first line handed to it outside them by more than round-off. Pass $other as " *
         "well: the same scheme, " *
-        "or a PFCNonUniform with bounds both sweeps keep (fmin = -Inf, fmax = Inf for none)"))
+        "or a PFC or PFCNonUniform with bounds both sweeps keep (fmin = -Inf, fmax = Inf for none)"))
 end
 
 """
@@ -197,12 +199,14 @@ Strang-split electrostatic Vlasov–Poisson for electrons over fixed ions, from
     where `f₀`, the ions and the modes are sampled.
   * `t`: at least two times; steps may differ.
   * `scheme_x`, `scheme_v`: advection schemes, or functions of the starting `f`
-    that return one. Both default to `PFCNonUniform` on their grid, in Float64
-    at least, bounded by `[0, maximum(f)]` (below only with `collisions`), and
-    beside a given `PFC` or `PFCNonUniform` by its own bounds too; each is put
-    on its grid by [`OnGrid`](@ref), which takes the step as a
-    displacement and splits one wider than a cell: a default on its own
-    widths, a given scheme on the grid, `OnGrid(scheme, grid(x))`.
+    that return one. Both default to `PFC` on a uniform grid and to
+    `PFCNonUniform` on a non-uniform one, in Float64 at least, bounded by
+    `[0, maximum(f)]` (below only with `collisions`), and beside a given `PFC`
+    or `PFCNonUniform` by its own bounds too. Each is put on its grid by
+    [`OnGrid`](@ref), which takes the step as a displacement and splits one
+    wider than a cell: a default `PFCNonUniform` on its own widths, the grid's,
+    any other scheme, the default `PFC` among them, on the grid,
+    `OnGrid(scheme, grid(x))`.
   * `nᵢ`: the ion density over `x`; by default the Maxwellian's `Σ M Δv`,
     uniform. The ions are used as given, in the cell widths' type, and never
     rescaled.
@@ -257,7 +261,7 @@ a negative one is a `DomainError` before the first step, whichever scheme is
 given beside the default, once that scheme is not refused for itself as above. A
 given checked `PFC` or `PFCNonUniform` has to hold `f₀` inside its own bounds
 too, to round-off at the scale of each bound, which holds a bound at 0 exactly,
-or the call throws an `ArgumentError` then. Pass both schemes, or a
+or the call throws an `ArgumentError` then. Pass both schemes, or a `PFC` or
 `PFCNonUniform` with bounds both sweeps keep (`fmin = -Inf, fmax = Inf` for
 none), for the other direction. With `collisions` the defaults have no upper
 bound, since a collision step can raise a line's peak above `maximum(f)`.
@@ -495,14 +499,22 @@ function _setup(gx::UniformGrid, gv::AbstractGrid1D, f₀, t; scheme_x = nothing
     # Float32 ulp its clamp cuts from the mass. Worked in Float32, one subnormal
     # below 0 at the edge of a plateau stopped 13 of 24 runs before a checked
     # call took round-off; `docs/src/driver-notes.md`.
-    default(widths) = PFCNonUniform(convert(Vector{promote_type(Float64, eltype(widths))}, widths);
-                                    fmin = lo, fmax = hi)
+    # On a uniform grid the default is PFC, the scheme PFCNonUniform is on equal
+    # widths with its limiter coefficient 2, and without the widths: the same
+    # step to 1-2 ulps, in a third to a half of the time; on a non-uniform grid,
+    # PFCNonUniform on the grid's widths. `docs/src/driver-notes.md`. The type
+    # comes from the widths' and not from a variable the closure would capture,
+    # which Julia 1.10 holds as a `DataType`, and the defaults would not infer.
+    default(z::UniformGrid, Δ::AbstractVector{U}) where {U} =
+        OnGrid(PFC{promote_type(Float64, U), true}(lo, hi), z)
+    default(z::NonUniformGrid, Δ::AbstractVector{U}) where {U} =
+        OnGrid(PFCNonUniform(convert(Vector{promote_type(Float64, U)}, Δ); fmin = lo, fmax = hi))
 
     # Each scheme on its grid, taking a displacement and splitting a step wider
-    # than a cell: a default on its own widths, a given scheme on the grid,
-    # where one that takes a Courant number is refused on a non-uniform `v`.
-    ox = givenx === nothing ? OnGrid(default(Δx)) : OnGrid(givenx, gx)
-    ov = givenv === nothing ? OnGrid(default(Δv)) : OnGrid(givenv, gv)
+    # than a cell: a default as above, a given scheme on the grid, where one
+    # that takes a Courant number is refused on a non-uniform `v`.
+    ox = givenx === nothing ? default(gx, Δx) : OnGrid(givenx, gx)
+    ov = givenv === nothing ? default(gv, Δv) : OnGrid(givenv, gv)
     # The step runs on `f[x, v]`, whose columns are the x lines, and sweeps v over
     # the transpose it keeps. The lines are worked in Float64 at least and
     # rounded into `f` once a step, whatever `f`'s own type; see the defaults.

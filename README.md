@@ -84,8 +84,9 @@ r = vlasov_poisson(x, v, f₀, t; modes = (k,))
 r.ε_e        # electric energy per step; r.E_modes[:, 1] the k = 0.5 field
 ```
 
-The schemes default to `PFCNonUniform` bounded by `f₀`; `scheme_x`, `scheme_v`,
-`collisions = BGK(τ)` and the diagnostics are in its docstring.
+The schemes default to `PFC` on a uniform grid and `PFCNonUniform` on a
+non-uniform one, bounded by `f₀`; `scheme_x`, `scheme_v`, `collisions = BGK(τ)`
+and the diagnostics are in its docstring.
 
 The public API is the top-level `export` list plus three named submodules,
 `Vasilek.Grids` (`grid`, `nodes`, `spacing`, `widths`, `cell_widths`, …),
