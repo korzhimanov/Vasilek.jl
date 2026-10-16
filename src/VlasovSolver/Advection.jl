@@ -14,7 +14,7 @@ module Advection
 
 import ..workspace
 using ..Grids: AbstractGrid1D, UniformGrid, NonUniformGrid, grid, widths, narrowest,
-               cell_widths, samecells, _rtol, _scale, _same_width
+               cell_widths, samecells, _rtol
 
 export AbstractAdvection1D, advect!, workspace,
        Upwind, LaxWendroff, Godunov, SemiLagrangian, PFC, PFCNonUniform, OnGrid,
@@ -269,8 +269,8 @@ end
     PFCNonUniform(grid::AbstractGrid1D; fmin, fmax, checked = true)
 
 Positive Flux Conservative scheme on a static non-uniform grid, `Δx` being the
-cell widths, or a grid's [`widths`](@ref Vasilek.Grids.widths). Needs a
-[`workspace`](@ref).
+cell widths, or a grid's [`widths`](@ref Vasilek.Grids.widths), which a run on
+it sums with. Needs a [`workspace`](@ref).
 
 The limiter coefficient is computed per cell triple, so a refined region does
 not tighten the limiter elsewhere. `fmin`, `fmax` and `checked` are
@@ -345,10 +345,11 @@ Base.@constprop :aggressive function PFCNonUniform(Δx_::AbstractVector{T}; fmin
     return PFCNonUniform{T, checked}(Δx, ξ, minimum(Δx), fmn, fmx)
 end
 
-# On a grid, the grid's widths: `h` in every cell of a `UniformGrid`, where the
-# limiter coefficient is 2 to the bit.
+# On a grid, the widths a run on it sums with (`_reference_widths`), the
+# grid's own: `h` in every cell of a `UniformGrid`, where the limiter
+# coefficient is 2 to the bit.
 Base.@constprop :aggressive PFCNonUniform(g::AbstractGrid1D; fmin, fmax, checked::Bool = true) =
-    PFCNonUniform(widths(g); fmin, fmax, checked)
+    PFCNonUniform(_reference_widths(g); fmin, fmax, checked)
 
 function _check_widths(Δx)
     n = length(Δx)
@@ -817,8 +818,9 @@ struct Courant end
 Whether `scheme` takes a Courant number, `Courant()`, or a displacement,
 `Displacement()`, as its fourth `advect!` argument. A Courant number exists on
 a uniform grid only, so [`OnGrid`](@ref) puts such a scheme on a
-`UniformGrid` alone. Every scheme takes a Courant number but `PFCNonUniform`;
-a scheme of one's own that takes a displacement adds a method.
+`UniformGrid` alone. Every scheme takes a Courant number but `PFCNonUniform`
+and an `OnGrid`, whatever its scheme takes; a scheme of one's own that takes a
+displacement adds a method.
 """
 takes(::AbstractAdvection1D) = Courant()
 takes(::PFCNonUniform) = Displacement()
@@ -843,13 +845,16 @@ argument is always a **displacement**, a length, whatever `scheme` takes
 
 The grid is an `AbstractGrid1D`, or anything [`grid`](@ref
 Vasilek.Grids.grid) makes one of: a range, uniform as it stands, or a vector of
-**nodes**, classified there -- not of cell widths, which it was until 0.2 and
-which are refused as nodes that do not increase. `(h, n)` is the uniform grid
-of `n` cells of `h`.
+**nodes**, classified there -- not of cell widths, which it was until 0.2.
+Widths that do not increase, as a uniform grid's, are refused as nodes; widths
+that do, as a graded grid's, are nodes like any others, and a grid of them is
+not the grid they are widths of. `(h, n)` is the uniform grid of `n` cells of
+`h`.
 
 An `OnGrid` given again with a grid, `OnGrid(og, g)`, is `og` if `g` has its
 cells -- [`samecells`](@ref Vasilek.Grids.samecells), or for `PFCNonUniform`
-its widths -- and an `ArgumentError` otherwise.
+its widths -- and an `ArgumentError` otherwise, a `DimensionMismatch` for a
+`PFCNonUniform` given a grid of another length.
 
 A step wider than a cell -- the narrowest one, for `PFCNonUniform` -- is split
 into the fewest equal sub-steps that fit, [`substeps`](@ref), since `advect!`
@@ -879,6 +884,7 @@ struct OnGrid{S<:AbstractAdvection1D, G<:AbstractGrid1D} <: AbstractAdvection1D
 end
 
 OnGrid(s::AbstractAdvection1D, g::AbstractGrid1D) = OnGrid{typeof(s), typeof(g)}(s, g)
+takes(::OnGrid) = Displacement()
 OnGrid(s::AbstractAdvection1D, h::Real, n::Integer) = OnGrid(s, UniformGrid(h, n))
 OnGrid(s::AbstractAdvection1D, z::AbstractVector) = OnGrid(s, grid(z))
 # On the widths it carries, shared rather than copied, and not compared with
@@ -901,7 +907,11 @@ _check_on(::Courant, s, g::NonUniformGrid) = throw(ArgumentError(
 _check_on(::Displacement, s, g) = _same_widths(s, g)
 
 _same_grid(::Courant, og, g) = samecells(og.grid, g)
-_same_grid(::Displacement, og, g) = (_same_widths(og.scheme, g); true)
+_same_grid(::Displacement, og, g) = _same_displaced(og.scheme, og.grid, g)
+# A PFCNonUniform carries its widths, and is held to them; another scheme that
+# takes a displacement carries nothing, and its OnGrid is held to its grid.
+_same_displaced(p::PFCNonUniform, _, g) = (_same_widths(p, g); true)
+_same_displaced(::AbstractAdvection1D, own, g) = samecells(own, g)
 
 @noinline _err_regrid(og, g) = throw(ArgumentError(
     "an OnGrid on $(og.grid) given for the grid $g, which has other cells"))
@@ -909,24 +919,26 @@ _same_grid(::Displacement, og, g) = (_same_widths(og.scheme, g); true)
 # A scheme that takes a displacement and carries no widths fits any grid. A
 # PFCNonUniform fits a grid whose cells are its widths: compared in the coarser
 # of the two types, as `Yee1D` compares its steps, so that a Float32 scheme
-# built from a Float64 grid's widths takes that grid, or to the rounding of the
-# grid's nodes.
+# built from a Float64 grid's widths takes that grid -- and no further. The
+# nodes' rounding, which a spacing is held to, is no allowance here: a scheme
+# on widths that far from the run's advects on its own grid while the run
+# sums on another, and a mass drifted 1e-8 where it held to 1e-16.
 _same_widths(::AbstractAdvection1D, g) = nothing
 function _same_widths(p::PFCNonUniform, g::AbstractGrid1D)
     g isa NonUniformGrid && g.widths === p.Δx && return nothing
     length(p.Δx) == length(g) || throw(DimensionMismatch(
         "PFCNonUniform has $(length(p.Δx)) cells, the grid $(length(g))"))
     rtol = max(_rtol(eltype(p.Δx)), _rtol(eltype(typeof(g))))
-    scale = _scale(g)
-    all(_same_width(d, w, rtol, scale) for (d, w) in zip(p.Δx, _reference_widths(g))) ||
+    all(isapprox(d, w; rtol) for (d, w) in zip(p.Δx, _reference_widths(g))) ||
         throw(ArgumentError("PFCNonUniform carries cell widths other than the grid's: " *
                             "it would advect on its own grid while the run sums on this one"))
     return nothing
 end
 
-# The widths a PFCNonUniform on `g` is held to: the grid's own. A caller's
-# `PFCNonUniform(cell_widths(nodes))` beside a uniform grid differs from them in
-# the last bits, which `_same_width` allows as the nodes' rounding.
+# The widths a PFCNonUniform on `g` is held to: the grid's own, which the run
+# sums with. A caller's `PFCNonUniform(cell_widths(nodes))` beside a uniform grid
+# differs from them by the nodes' rounding: taken within 4 ulps of the coarser
+# type, refused further, as on a Float32 grid or one far from the origin.
 _reference_widths(g::AbstractGrid1D) = widths(g)
 
 """

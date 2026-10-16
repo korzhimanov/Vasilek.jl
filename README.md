@@ -91,7 +91,8 @@ The public API is the top-level `export` list plus three named submodules,
 `Vasilek.Grids` (`grid`, `nodes`, `spacing`, `widths`, `cell_widths`, …),
 `Vasilek.FDTD1D` (`YeeMesh1D`, `PML`, `Yee1D`, `advance!`) and
 `Vasilek.PoissonFourier1D` (`PoissonFFT1D`, `solve!`), which are not
-re-exported but for the grid types, `UniformGrid` and `NonUniformGrid`.
+re-exported but for the grid types, `AbstractGrid1D`, `UniformGrid` and
+`NonUniformGrid`.
 
 These blocks are executed by the test suite, so they cannot drift from the API.
 

@@ -137,17 +137,19 @@ end
 
     # A partner built as the defaults are, on the Float32 grid: refused as
     # outside [0, maximum(f)] when its Float32 `fmax` rounded up, a DomainError
-    # on its first step when it rounded down.
+    # on its first step when it rounded down. Built on the grid, it is on the
+    # widths the run sums with.
     partner = f -> PFCNonUniform(grid(x32); fmin = 0.0, fmax = maximum(f))
     for a in (0.01, 0.05)
         r = vlasov_poisson(x32, v, landau(a), t; scheme_x = partner, invariants = true)
         @test drift(r) < 1e-12
     end
-    # One built on the nodes' cell widths is taken, to their rounding, and
-    # advects on widths an ulp of the coordinates off the grid's, which the run
-    # sums on: its mass drifts by that rounding, 6.1e-10 here on Julia 1.13.
-    nodal = f -> PFCNonUniform(cell_widths(x32); fmin = 0.0, fmax = maximum(f))
-    @test drift(vlasov_poisson(x32, v, landau(0.05), t; scheme_x = nodal, invariants = true)) < 1e-8
+    # One on the nodes' cell widths is refused: they are 8.3e-7 of a cell from
+    # the grid's spacing, the Float32 coordinates' rounding, past 4 Float32
+    # ulps, and it would advect on other widths than the run sums with. Taken to
+    # the nodes' rounding, its mass drifted by 6.1e-10.
+    @test_throws ArgumentError vlasov_poisson(x32, v, landau(0.05), t;
+        scheme_x = f -> PFCNonUniform(cell_widths(x32); fmin = 0.0, fmax = maximum(f)))
 
     # All Float32, a two-stream whose peaks move: a Float32 default rounded each
     # flux sum, and at a peak the sum landed an ulp above its `fmax` in 8 of 30
@@ -832,9 +834,12 @@ end
     # OnGrid's under one that takes a Courant number.
     s = (0:Nx-1)/Nx
     stretched = @. 2π/k*(s + 0.08sin(2π*s)/(2π)) + x[1]
-    for kw in ((;), (; scheme_x = Upwind()), (; scheme_x = SemiLagrangian(CubicSpline())))
+    # So is an x given as a NonUniformGrid, uniform nodes or not: the refusal
+    # read past the nodes for a grid whose nodes are uniform.
+    for z in (stretched, NonUniformGrid(x)), kw in ((;), (; scheme_x = Upwind()),
+                                                   (; scheme_x = SemiLagrangian(CubicSpline())))
         message = try
-            vlasov_poisson(stretched, v, f(x, v), t; kw...)
+            vlasov_poisson(z, v, f(x, v), t; kw...)
             ""
         catch err
             sprint(showerror, err)

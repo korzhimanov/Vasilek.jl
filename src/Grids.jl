@@ -37,18 +37,22 @@ built from. `h` is *the* spacing: what a displacement is divided by for a
 Courant number, the field solve's sampling interval, and every cell's width.
 The nodes agree with it to their own rounding only.
 
-  * From a range, `h` is `step(r)`, exactly the step it was written with, and
-    nothing is checked: `UniformGrid(-4.0:0.2:4.0)` has `h = 0.2`, where the
-    collected nodes' first difference is `0.20000000000000018`.
+  * From a range, `h` is `step(r)`, exactly the step it was written with:
+    `UniformGrid(-4.0:0.2:4.0)` has `h = 0.2`, where the collected nodes' first
+    difference is `0.20000000000000018`. Its nodes, collected in `T`, are where
+    `f₀` is sampled, and are checked as a vector's are: a Float16 range over
+    [−4, 4] whose nodes round by 1% of a cell is not uniform.
   * From a vector of nodes, the grid has to be uniform to rounding, as
     [`grid`](@ref) decides, or the call is an `ArgumentError` naming the first
     node that is not; `h` is then the mean spacing, `(z[end] - z[1])/(n - 1)`,
     so that `n` cells of it span the nodes' periodic box to rounding. The first
     difference carries the rounding of the largest node: `n` cells of it were
     2.3e-10 off the box of `1e6 .+ (0:63)*0.1`, the mean 7.4e-12.
-  * `UniformGrid(h, nodes)` takes the spacing as given, beside nodes that
-    increase: cell centres `(j - 1/2)L/N` with `h = L/N`, whose differences
-    round otherwise.
+  * `UniformGrid(h, nodes)` takes the spacing as given, for nodes uniform to
+    rounding that it is the spacing of, to their rounding: cell centres
+    `(j - 1/2)L/N` with `h = L/N`, whose differences round otherwise. An `h`
+    the nodes do not have is an `ArgumentError`, since the field solve and the
+    Courant numbers would take it while the sums take the nodes' cells.
   * `UniformGrid(h, n)` has no nodes: enough for a scheme on a grid, not for
     the driver, which samples `f₀` and the ions at the nodes.
 
@@ -59,13 +63,20 @@ struct UniformGrid{T<:AbstractFloat, X<:Union{Nothing, Vector{T}}} <: AbstractGr
     h::T
     n::Int
     nodes::X
-    # Every UniformGrid is built through here.
+    # Every UniformGrid is built through here, and checked in `T`, as it holds
+    # its spacing and nodes: a spacing can round to zero in `T`, nodes to equal
+    # ones.
     function UniformGrid{T,X}(h, n, nodes) where {T<:AbstractFloat, X<:Union{Nothing, Vector{T}}}
+        h = T(h)
         isfinite(h) && h > 0 || throw(ArgumentError(
             "a UniformGrid needs a finite, positive spacing, got h = $h"))
         n ≥ 1 || throw(ArgumentError("a UniformGrid needs at least one cell, got n = $n"))
-        nodes === nothing || length(nodes) == n || throw(DimensionMismatch(
-            "a UniformGrid of $n cells given $(length(nodes)) nodes"))
+        if nodes !== nothing
+            nodes = convert(Vector{T}, nodes)
+            length(nodes) == n || throw(DimensionMismatch(
+                "a UniformGrid of $n cells given $(length(nodes)) nodes"))
+            _check_nodes(nodes)
+        end
         return new{T,X}(h, n, nodes)
     end
 end
@@ -76,22 +87,41 @@ function UniformGrid(h::Real, n::Integer)
 end
 
 function UniformGrid(r::AbstractRange)
-    _check_nodes(r)
-    T = float(eltype(r))
-    return UniformGrid{T, Vector{T}}(T(step(r)), length(r), collect(T, r))
+    x = _range_nodes(r)
+    h, j = _uniform_spacing(x)
+    j == 0 || _err_nonuniform(x, h, j)
+    return _uniform_range(r, x)
 end
+
+# A range's nodes, collected in its float type, which is where they are used.
+function _range_nodes(r::AbstractRange)
+    _check_nodes(r)
+    return collect(float(eltype(r)), r)
+end
+_uniform_range(r, x::Vector{T}) where {T} = UniformGrid{T, Vector{T}}(T(step(r)), length(r), x)
 
 function UniformGrid(h::Real, z::AbstractVector)
     _check_nodes(z)
+    hz, j = _uniform_spacing(z)
+    j == 0 || _err_nonuniform(z, hz, j)
     T = float(promote_type(typeof(h), eltype(z)))
-    return UniformGrid{T, Vector{T}}(T(h), length(z), collect(T, z))
+    m = _mean_spacing(z)
+    _same_width(T(h), T(m), _rtol(T), maximum(abs, z)) || throw(ArgumentError(
+        "h = $h is not the spacing of the nodes, $m on average, to their rounding"))
+    return _uniform(h, z)
 end
 
 function UniformGrid(z::AbstractVector)
     _check_nodes(z)
     h, j = _uniform_spacing(z)
     j == 0 || _err_nonuniform(z, h, j)
-    return UniformGrid(_mean_spacing(z), z)
+    return _uniform(_mean_spacing(z), z)
+end
+
+# Nodes already checked uniform, and their spacing.
+function _uniform(h, z)
+    T = float(promote_type(typeof(h), eltype(z)))
+    return UniformGrid{T, Vector{T}}(T(h), length(z), collect(T, z))
 end
 
 # In the nodes' own arithmetic: exact for Rational nodes.
@@ -114,14 +144,21 @@ struct NonUniformGrid{T<:AbstractFloat, X<:Union{Nothing, Vector{T}}} <: Abstrac
     widths::Vector{T}
     hmin::T
     nodes::X
+    # Checked in `T`, as `UniformGrid` is. `convert` keeps a `Vector{T}` as it
+    # is: `OnGrid(p::PFCNonUniform)` shares the scheme's widths.
     function NonUniformGrid{T,X}(widths, hmin, nodes) where {T<:AbstractFloat, X<:Union{Nothing, Vector{T}}}
+        widths, hmin = convert(Vector{T}, widths), T(hmin)
         isempty(widths) && throw(ArgumentError("a NonUniformGrid needs at least one cell"))
         all(w -> isfinite(w) && w > 0, widths) || throw(ArgumentError(
             "a NonUniformGrid needs finite, positive cell widths; got extrema $(extrema(widths))"))
         hmin == minimum(widths) || throw(ArgumentError(
             "NonUniformGrid: hmin = $hmin is not the narrowest width, $(minimum(widths))"))
-        nodes === nothing || length(nodes) == length(widths) || throw(DimensionMismatch(
-            "a NonUniformGrid of $(length(widths)) cells given $(length(nodes)) nodes"))
+        if nodes !== nothing
+            nodes = convert(Vector{T}, nodes)
+            length(nodes) == length(widths) || throw(DimensionMismatch(
+                "a NonUniformGrid of $(length(widths)) cells given $(length(nodes)) nodes"))
+            _check_nodes(nodes)
+        end
         return new{T,X}(widths, hmin, nodes)
     end
 end
@@ -188,29 +225,35 @@ end
 """
     grid(z)
 
-The grid `z` is: itself for an [`AbstractGrid1D`](@ref), a
-[`UniformGrid`](@ref) for a range, and for a vector of nodes a `UniformGrid`
-if every spacing is the first to rounding, its spacing the mean one, and a
-[`NonUniformGrid`](@ref) otherwise. This is where the package decides that a
-vector is uniform, and the only place.
+The grid `z` is: itself for an [`AbstractGrid1D`](@ref), and for a vector of
+nodes or a range a [`UniformGrid`](@ref) if every spacing is the first to
+rounding and a [`NonUniformGrid`](@ref) otherwise. A vector's spacing is its
+mean; a range's is its `step`, and its nodes are checked, collected in its
+float type, since they are where the run samples its data. This is where the
+package decides that a vector is uniform, and the only place.
 
 Rounding is `1e-10` of the first spacing, or 8 ulps of the largest node in the
 nodes' own type, whichever is more, and never more than 0.5% of a cell: the
 spacings of a collected range scatter by a few ulps of its largest node, which
-for Float32 nodes up to 25 is 4.9e-6 of a π/8 spacing and for Float64 ones near
+for Float32 nodes up to 25 is 2.8e-6 of a π/8 spacing and for Float64 ones near
 1e6 is 1.2e-9 of 0.1, and both are uniform; a grid stretched by a millionth of a
-cell, a Float16 grid whose spacings differ by 1%, and a Float32 grid of 10⁵
-cells are not. The measurements are in `docs/src/driver-notes.md`, "Grids".
+cell, a Float16 grid whose spacings differ by 1%, and a Float32 grid that
+reaches 10⁵ cells from the origin are not. The measurements are in `docs/src/driver-notes.md`, "Grids".
 
-Nodes have to be finite and increase strictly, at least two of them; a vector
-of cell widths is not nodes, and is refused as such.
+Nodes have to be finite and increase strictly, at least two of them. A vector
+of cell widths is not nodes: widths that do not increase are refused as such,
+but widths that do, as a graded grid's, are taken for nodes like any others.
 """
 grid(g::AbstractGrid1D) = g
-grid(r::AbstractRange) = UniformGrid(r)
+function grid(r::AbstractRange)
+    x = _range_nodes(r)
+    h, j = _uniform_spacing(x)
+    return j == 0 ? _uniform_range(r, x) : NonUniformGrid(x)
+end
 function grid(z::AbstractVector)
     _check_nodes(z)
     h, j = _uniform_spacing(z)
-    return j == 0 ? UniformGrid(_mean_spacing(z), z) : NonUniformGrid(z)
+    return j == 0 ? _uniform(_mean_spacing(z), z) : NonUniformGrid(z)
 end
 
 function _check_nodes(z)
@@ -226,6 +269,8 @@ function _check_nodes(z)
     return nothing
 end
 
+@noinline _err_increasing(z::AbstractRange, j) = throw(ArgumentError(
+    "a range given for a grid has to increase; this one steps by $(step(z))"))
 @noinline _err_increasing(z, j) = throw(ArgumentError(
     "a grid's nodes must increase, node $(j+1) is $(z[j+1]) after $(z[j]). " *
     "A vector given for a grid is its nodes, not its cell widths: give widths " *
@@ -307,14 +352,16 @@ cell_widths(g::AbstractGrid1D) = widths(g)
 _rtol(::Type{T}) where {T<:AbstractFloat} = max(1e-12, 4eps(T))
 _rtol(a::AbstractGrid1D, b::AbstractGrid1D) = max(_rtol(eltype(typeof(a))), _rtol(eltype(typeof(b))))
 
-# The rounding a grid's spacing carries: that of its largest node, for a grid
-# built from nodes; none for one built from its spacing or widths.
+# The rounding a grid's spacing carries: that of its largest node, in the
+# nodes' own type, for a grid built from nodes; none but `1e-10` of the spacing
+# for one built from its spacing or widths.
 _scale(g::AbstractGrid1D) = hasnodes(g) ? maximum(abs, g.nodes) : zero(eltype(typeof(g)))
-_scale(a::AbstractGrid1D, b::AbstractGrid1D) = max(float(_scale(a)), float(_scale(b)))
 
 # Two widths or spacings of the same grid: to the coarser type's 4 ulps, or to
-# the rounding of the nodes they come from.
-_same_width(d, w, rtol, scale) = isapprox(d, w; rtol) || _within_rounding(d, w, scale)
+# the rounding of the nodes of either, each in its own type -- a Float32 grid's
+# taken in Float64 lost its rounding.
+_same_width(d, w, rtol, scales...) =
+    isapprox(d, w; rtol) || any(s -> _within_rounding(d, w, s), scales)
 
 """
     samecells(a, b)
@@ -326,11 +373,11 @@ by the rule [`grid`](@ref) applies. A uniform grid and a non-uniform one never
 have.
 """
 samecells(a::UniformGrid, b::UniformGrid) =
-    a.n == b.n && _same_width(a.h, b.h, _rtol(a, b), _scale(a, b))
+    a.n == b.n && _same_width(a.h, b.h, _rtol(a, b), _scale(a), _scale(b))
 function samecells(a::NonUniformGrid, b::NonUniformGrid)
     length(a) == length(b) || return false
-    rtol, scale = _rtol(a, b), _scale(a, b)
-    return all(_same_width(p, q, rtol, scale) for (p, q) in zip(a.widths, b.widths))
+    rtol, sa, sb = _rtol(a, b), _scale(a), _scale(b)
+    return all(_same_width(p, q, rtol, sa, sb) for (p, q) in zip(a.widths, b.widths))
 end
 samecells(::AbstractGrid1D, ::AbstractGrid1D) = false
 

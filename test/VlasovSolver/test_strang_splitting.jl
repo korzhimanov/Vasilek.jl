@@ -297,8 +297,9 @@ end
             sprint(showerror, err)
         end
         @test occursin("LaxWendroff", message) && occursin("PFCNonUniform", message)
-        # Cell widths, which a vector was until 0.2, are not nodes: they do not
-        # increase, and are refused as such rather than taken for some grid.
+        # Cell widths, which a vector was until 0.2, are not nodes: a uniform
+        # grid's do not increase, and are refused as such. A graded grid's do,
+        # and no check tells them from nodes.
         message = try
             OnGrid(Upwind(), fill(0.5, 8))
             ""
@@ -324,7 +325,8 @@ end
         @test spacing(OnGrid(LaxWendroff(), far).grid) === (far[end] - far[1])/63
         let og = OnGrid(Upwind(), far)
             @test OnGrid(og, far) === og
-            # the spacing written, to the nodes' rounding: 9.3e-10 of it apart
+            # the spacing written, to the nodes' rounding: the first difference is
+            # 2.3e-10 of it apart
             @test OnGrid(og, 0.1, 64) === og
             @test_throws ArgumentError OnGrid(og, 0.1*(1 + 1e-6), 64)
         end
@@ -350,7 +352,8 @@ end
         p₃₂ = PFCNonUniform{Float32, true}(fill(0.05, 8), fill(2.0, 8), 0.05, 0.0, 1.0)
         @test substep_bound(OnGrid(p₃₂, 0.05, 8)) === 0.05f0
         @test_throws ArgumentError OnGrid(p₃₂, 0.05 + 1e-6, 8)
-        @test OnGrid(PFCNonUniform(cw(far); fmin = 0, fmax = 1), far) isa OnGrid
+        @test OnGrid(PFCNonUniform(Vasilek.Grids.grid(far); fmin = 0, fmax = 1), far) isa OnGrid
+        @test_throws ArgumentError OnGrid(PFCNonUniform(cw(far); fmin = 0, fmax = 1), far)
         Δz = [0.5 + 0.3sin(2π*i/16) for i in 1:16]
         p = PFCNonUniform(Δz; fmin = 0.0, fmax = 1.0)
         @test OnGrid(p).grid.widths === p.Δx                         # its own, shared
