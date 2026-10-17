@@ -235,8 +235,8 @@ guide `docs/src/migration-0.2.md`, or a test.
 ### Changed
 
 - **The default scheme on a uniform grid is `PFC`**, where it was `PFCNonUniform` on equal
-  widths: a step of the defaults is 1.19 to 2.03 times faster here, and a run moves at
-  round-off, 3.2e-15 of the peak at most over 400 steps. Driver notes, "The default schemes".
+  widths: a step of the defaults is 1.19 to 2.03 times faster here, and runs moved at
+  round-off, ≤ 3.2e-15 of the peak over 400 steps. Driver notes, "The default schemes".
 - **A uniform grid's widths are its spacing, in the sums and the collision operators', and a
   vector's spacing is its mean**: Float64 runs near the origin moved ≤ 1.9e-15 of the peak, one
   at 1e6 comes to 1.2e-14 of the run at 0, from 1.1e-12. Driver notes and migration, "Grids".

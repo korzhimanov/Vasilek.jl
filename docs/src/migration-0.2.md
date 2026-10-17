@@ -229,7 +229,8 @@ Calls that ran and are refused now, or take other bits:
   * the default scheme on a uniform grid is `PFC`, where it was `PFCNonUniform`
     on the grid's widths: `prob.ox.scheme` and `prob.ov.scheme` are `PFC`s, and
     a run with them moves at round-off, in Float64 3.2e-15 of the peak at most
-    over 400 steps of a Landau run. Given for both directions on Float64 grids,
+    over 400 steps on the Landau runs of the driver notes' "The default
+    schemes". Given for both directions on Float64 grids,
     `f -> PFCNonUniform(grid(x); fmin = 0, fmax = maximum(f))` and the same on
     `grid(v)` run as the old defaults to the bit, with `fmax = Inf` in place of
     `maximum(f)` under `collisions`, where the defaults have no upper bound;
