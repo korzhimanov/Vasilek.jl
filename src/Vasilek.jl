@@ -9,6 +9,8 @@ adds its methods.
 """
 function workspace end
 
+# First: the schemes and the driver dispatch on its grid types.
+include("Grids.jl")
 include(joinpath("MaxwellSolver", "FDTD1D.jl"))
 include(joinpath("MaxwellSolver", "PoissonFourier1D.jl"))
 
@@ -19,6 +21,7 @@ include(joinpath("VlasovSolver", "StrangSplitting.jl"))
 
 include(joinpath("VlasovSolver", "VlasovPoisson1D1V.jl"))
 
+using .Grids: AbstractGrid1D, UniformGrid, NonUniformGrid
 using .Advection
 using .Collisions
 using .VlasovPoisson1D1V: vlasov_poisson
@@ -27,6 +30,7 @@ export AbstractAdvection1D, advect!, workspace,
        Upwind, LaxWendroff, Godunov, SemiLagrangian, PFC, PFCNonUniform, OnGrid,
        PiecewiseConstant, PiecewiseLinear, NoLimiter, VanLeer, Superbee,
        LinearSpline, QuadraticSpline, CubicSpline,
+       AbstractGrid1D, UniformGrid, NonUniformGrid,
        AbstractCollisionOperator, collide!, BGK,
        vlasov_poisson
 

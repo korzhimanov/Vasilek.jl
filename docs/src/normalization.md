@@ -87,16 +87,19 @@ which has no Courant limit, and `|vΔt| ≤ minimum(Δx)` for `PFCNonUniform` --
 narrowest cell, because every cell gives up its outgoing flux alone.
 
 [`OnGrid`](@ref Vasilek.Advection.OnGrid) removes the wart for a caller who has a
-grid: `OnGrid(scheme, Δz)` is the scheme on the grid of cell widths `Δz`, and
-its fourth argument is the displacement `vΔt` whatever the scheme takes. It
-divides by the spacing for a uniform-grid scheme, refuses one on a non-uniform
-grid, and splits a step past the bound into the fewest equal sub-steps that
-fit. `vlasov_poisson` puts both its schemes on their grids this way, and the
-verification harness its echo kick. A bare scheme keeps its own argument.
+grid: `OnGrid(scheme, grid)` is the scheme on a grid -- a `UniformGrid` or a
+`NonUniformGrid` of [`Vasilek.Grids`](@ref Vasilek.Grids), a range, or a vector
+of nodes -- and its fourth argument is the displacement `vΔt` whatever the
+scheme takes. It divides by the spacing for a scheme that takes a Courant
+number, refuses one on a non-uniform grid, and splits a step past the bound
+into the fewest equal sub-steps that fit; `OnGrid(scheme, h, n)` is the uniform
+grid of `n` cells of `h`. `vlasov_poisson` puts both its schemes on their grids
+this way, and the verification harness its echo kick. A bare scheme keeps its
+own argument.
 
 ```julia
 x  = collect(Δx .* (1:64))
-og = OnGrid(Upwind(), fill(Δx, 64))
+og = OnGrid(Upwind(), x)                                    # or OnGrid(Upwind(), Δx, 64)
 line = exp.(-(x .- 3.2).^2)
 advect!(similar(line), line, og, 0.25Δx, workspace(og, 64)) ==
     advect!(similar(line), line, Upwind(), 0.25)            # true

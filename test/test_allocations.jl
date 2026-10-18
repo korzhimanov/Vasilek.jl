@@ -79,6 +79,34 @@ end
                         n -> step_bytes(SemiLagrangian(CubicSpline()), n, n + 0.4))
     end
 
+    @testset "schemes on grids are O(1)" begin
+        # `OnGrid` on each kind of grid, within a cell and in sub-steps: the
+        # grid is a type the step dispatches on, and nothing is checked per call
+        # but the lengths.
+        function ongrid_bytes(og, n, α)
+            src = alloc_data(n)
+            dst = similar(src)
+            ws = workspace(og, n, Float64)
+            advect!(dst, src, og, α, ws); advect!(dst, src, og, α, ws)
+            return @allocated advect!(dst, src, og, α, ws)
+        end
+        h = 0.01
+        cases = [
+            ("Upwind, UniformGrid",         n -> OnGrid(Upwind(), UniformGrid(h, n))),
+            ("Upwind, Float32 UniformGrid", n -> OnGrid(Upwind(), UniformGrid(Float32(h), n))),
+            ("Upwind, nodes",               n -> OnGrid(Upwind(), collect(range(h; step = h, length = n)))),
+            ("PFC, UniformGrid",            n -> OnGrid(PFC(fmin = 0.0, fmax = 2.0), UniformGrid(h, n))),
+            ("SemiLagrangian, UniformGrid", n -> OnGrid(SemiLagrangian(CubicSpline()), UniformGrid(h, n))),
+            ("PFCNonUniform, its widths",   n -> OnGrid(PFCNonUniform([h*(1 + 0.3sin(2π*i/n)) for i in 1:n];
+                                                                      fmin = 0.0, fmax = 2.0))),
+            ("PFCNonUniform, UniformGrid",  n -> OnGrid(PFCNonUniform(UniformGrid(h, n); fmin = 0.0, fmax = 2.0),
+                                                        UniformGrid(h, n))),
+        ]
+        for (name, build) in cases, α in (0.4h, 2.5h)
+            assert_constant("$name, α = $(α/h)h", n -> ongrid_bytes(build(n), n, α))
+        end
+    end
+
     @testset "non-uniform advection, fields and collisions are O(1)" begin
         function nonuniform_bytes(n)
             scheme = PFCNonUniform(fill(0.01, n); fmin = 0.0, fmax = 2.0)

@@ -130,7 +130,7 @@ end
     M = 1/sqrt(2π)
     u = [uniform() for _ in 1:33]
     line = [u[2i-1] < 0.5 ? M : M*(1 - 1e-12*u[2i]) for i in 1:16]
-    og = OnGrid(Godunov(PiecewiseLinear(), Superbee()), fill(0.5, 16))
+    og = OnGrid(Godunov(PiecewiseLinear(), Superbee()), 0.5, 16)
     above = advect!(similar(line), line, og, 32*(2u[end] - 1))
     @test maximum(above) == M + 42eps(M)
     for p in (PFC(fmin = 0.0, fmax = M), PFCNonUniform(fill(0.5, 16); fmin = 0.0, fmax = M))
@@ -631,7 +631,7 @@ end
     @test wide == advect!(similar(src), src, p32, 0.02)
     # `OnGrid`'s sub-steps read the line back from its buffer, refused on every
     # call alike, three sub-steps or one.
-    og32, og64 = OnGrid(Upwind(), fill(0.05f0, N)), OnGrid(Upwind(), Float64.(fill(0.05f0, N)))
+    og32, og64 = OnGrid(Upwind(), 0.05f0, N), OnGrid(Upwind(), Float64(0.05f0), N)
     @test workspace(og32, N).buffer isa Vector{Float32}     # the grid's type, by default
     for α in (0.12, 0.02)
         @test_throws ArgumentError advect!(similar(src), src, og32, α, workspace(og32, N))
