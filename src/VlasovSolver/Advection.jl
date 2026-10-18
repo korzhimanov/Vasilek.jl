@@ -259,7 +259,9 @@ struct PFC{T<:AbstractFloat, Checked} <: AbstractAdvection1D
     end
 end
 
-function PFC(; fmin, fmax, checked::Bool = true)
+# `@constprop :aggressive` so that `checked`, a value, reaches the type, as for
+# `PFCNonUniform`: without it `PFC(; fmin, fmax)` was not inferred on 1.10.
+Base.@constprop :aggressive function PFC(; fmin, fmax, checked::Bool = true)
     lo, hi = promote(float(fmin), float(fmax))
     return PFC{typeof(lo), checked}(lo, hi)
 end

@@ -69,11 +69,11 @@ function nonlinear_grid()
 end
 
 # `PFC` is bounded by the distribution it carries, `[0, maximum(f)]`, as the
-# harness bounds its own `PFCNonUniform` default. It is given as a function of `f`
-# because the driver rescales the initial condition before running, and a bound
-# taken from `f₀` beforehand would sit under the rescaled maximum -- by one to
-# four ulps, the rescaling being 1 to round-off here, which is enough to trip
-# `PFC`'s check.
+# driver bounds its defaults, of which it is the one on a uniform grid. It is
+# given as a function of `f` because the driver rescales the initial condition
+# before running, and a bound taken from `f₀` beforehand would sit under the
+# rescaled maximum -- by one to four ulps, the rescaling being 1 to round-off
+# here, which is enough to trip `PFC`'s check.
 #
 # `Godunov(PiecewiseLinear())` without a limiter is missing on purpose: it is
 # `LaxWendroff`, whose row is already here, as `test_amplification.jl` asserts
@@ -86,8 +86,8 @@ schemes() = [
     ("Godunov Superbee",       Godunov(PiecewiseLinear(), Superbee())),
     ("SemiLagrangian linear",  SemiLagrangian(LinearSpline())),
     ("SemiLagrangian cubic",   SemiLagrangian(CubicSpline())),
-    ("PFC",                    f -> PFC(fmin = 0.0, fmax = maximum(f))),
-    ("PFCNonUniform",          nothing),          # the harness default
+    ("PFC",                    f -> PFC(fmin = 0.0, fmax = maximum(f))),     # the default
+    ("PFCNonUniform",          :pfcnonuniform),   # on each grid's widths; see `run_one`
 ]
 
 """
@@ -115,8 +115,14 @@ fast.
 """
 function run_one(scheme, grid = landau_grid; fit = true, timed = false)
     x, v, f₀, t = grid()
-    solve() = vlasov_poisson(x, v, f₀, t;
-                             scheme_x = scheme, scheme_v = scheme, invariants = true)
+    ## `PFCNonUniform` carries its grid's widths, so x and v each get their own,
+    ## the widths the run sums with; the driver's default on these uniform grids
+    ## is `PFC`, the row above.
+    sx, sv = scheme === :pfcnonuniform ?
+        (f -> PFCNonUniform(Vasilek.Grids.grid(x); fmin = 0.0, fmax = maximum(f)),
+         f -> PFCNonUniform(Vasilek.Grids.grid(v); fmin = 0.0, fmax = maximum(f))) :
+        (scheme, scheme)
+    solve() = vlasov_poisson(x, v, f₀, t; scheme_x = sx, scheme_v = sv, invariants = true)
     timed && solve()                     # compile this scheme, off the clock
     local r
     elapsed = @elapsed r = solve()
@@ -198,7 +204,7 @@ function main()
     println("a run that matters it is fatal rather than untidy -- a negative f has")
     println("no entropy, and the diagnostic here threw DomainError on both until")
     println("the integrand was guarded. It is what PFC's limiter exists to prevent,")
-    println("and why the harness defaults to it despite not leading the first table.")
+    println("and why the driver defaults to it despite not leading the first table.")
     println("\n`Godunov Superbee` does not dissipate, and it heads the first table")
     println("from below. Its compression is anti-diffusion: its L² is the only one")
     println("that grows, and its rate sits under the analytic value where every")

@@ -55,9 +55,10 @@ using Vasilek.Grids: grid, spacing
     # parts in 10⁶, which 1e-10 of the spacing alone refuses although the
     # harness's driver ran it; it runs, and matches the Float64 run to Float32
     # precision. Measured with the density, the field and the histories in
-    # Float32 and the lines worked in Float64: 7.0e-7 of the peak in `f` and
-    # 1.1e-5 in `ε_e` on Julia 1.13, 9.1e-7 and 4.2e-6 on 1.10. (7.7e-7 and
-    # 6.9e-6, and 1.2e-6 and 3.3e-6, while the widths were the nodes' cell
+    # Float32 and the lines worked in Float64: 7.7e-7 of the peak in `f` and
+    # 1.1e-5 in `ε_e` on Julia 1.13, 9.1e-7 and 4.2e-6 on 1.10. (7.0e-7 in `f`
+    # on 1.13 while the default was PFCNonUniform on the grid's widths; 7.7e-7
+    # and 6.9e-6, and 1.2e-6 and 3.3e-6, while the widths were the nodes' cell
     # widths rather than the grid's mean spacing; 6.9e-7 and 8.3e-6 while the
     # default ions, and the charge with them, were Float64; 5.6e-7 and 1.8e-6
     # while a `0.5` made the widths Float64 too.) A grid far
@@ -204,7 +205,7 @@ using Vasilek.VlasovPoisson1D1V: setup
     # Float32, stopped with a DomainError in 13 of 24 runs of 40 steps, each on
     # a cell rounded to -1.0e-45, one subnormal below the defaults' `fmin = 0`;
     # worked in Float64, in none. This one stopped on its 9th step.
-    @test prob.ox.scheme isa PFCNonUniform{Float64} && prob.ov.scheme isa PFCNonUniform{Float64}
+    @test prob.ox.scheme isa PFC{Float64} && prob.ov.scheme isa PFC{Float64}    # uniform grids
     @test state.ws.bx isa Vector{Float64} && state.ws.bv isa Vector{Float64}
     xp = collect(range(4π/32; step = 4π/32, length = 32))
     vp = collect(range(-8.0, 8.0; length = 65))
@@ -265,11 +266,12 @@ end
     names = (:ε_e, :ε, :mass, :momentum, :l2, :entropy, :fmin, :fmax, :E_modes)
 
     # To the bit, with the ions given, so that neither call rescales `f`, and
-    # schemes that do not depend on it: the defaults' own bounds, taken from f₀,
-    # or with collisions the defaults, which are not bounded above.
+    # schemes that do not depend on it: the defaults, PFC on these uniform
+    # grids, on their own bounds taken from f₀, or with collisions the defaults,
+    # which are not bounded above.
     nᵢ = fill(sum(@. exp(-v^2/2)/sqrt(2π)*Δv), Nx)
-    bounded = (scheme_x = PFCNonUniform(Δx; fmin = 0.0, fmax = maximum(f₀)),
-               scheme_v = PFCNonUniform(Δv; fmin = 0.0, fmax = maximum(f₀)))
+    bounded = (scheme_x = PFC(fmin = 0.0, fmax = maximum(f₀)),
+               scheme_v = PFC(fmin = 0.0, fmax = maximum(f₀)))
     for (collisions, schemes) in ((nothing, bounded), (BGK(0.5), (;)))
         kw = (; nᵢ, modes = (k, 2k), invariants = true, collisions)
         whole = vlasov_poisson(x, v, f₀, t; kw...)
@@ -333,11 +335,12 @@ end
         f = copy(f₀)
         f .*= sum(nᵢ .* Δx)/sum(f .* (Δv .* Δx'))
         bound = collisions === nothing ? maximum(f) : Inf
-        # a scheme given as a function is built from the rescaled f
-        sx = scheme_x isa Function ? scheme_x(f) :
-             something(scheme_x, PFCNonUniform(Δx; fmin = 0.0, fmax = bound))
-        sv = scheme_v isa Function ? scheme_v(f) :
-             something(scheme_v, PFCNonUniform(Δv; fmin = 0.0, fmax = bound))
+        # a scheme given as a function is built from the rescaled f; the
+        # defaults are PFC on a uniform grid, PFCNonUniform on its widths else
+        default(z, Δ) = grid(z) isa UniformGrid ? PFC(fmin = 0.0, fmax = bound) :
+                                                  PFCNonUniform(Δ; fmin = 0.0, fmax = bound)
+        sx = scheme_x isa Function ? scheme_x(f) : something(scheme_x, default(x, Δx))
+        sv = scheme_v isa Function ? scheme_v(f) : something(scheme_v, default(v, Δv))
         wsx, wsv = workspace(sx, Nx), workspace(sv, Nv)
         bx, bv, cbuf = similar(x), similar(v), similar(v)
         cws = collisions === nothing ? nothing : workspace(collisions, Nv, eltype(f))
@@ -384,9 +387,10 @@ end
     # uniform grid, and a bound taken before the rescaling was a DomainError.
     f₀(v) = [1.3exp(-u^2/2)/sqrt(2π)*(1 + 0.5cos(k*y)) for u in v, y in x]
 
-    # The defaults, a PFCNonUniform on each grid. Uneven steps, up to 0.25: wide
-    # enough for the x sweep to split its steps above |v| = π, and on the
-    # stretched grid for the kick to split where the field peaks.
+    # The defaults, PFC on the uniform grids and PFCNonUniform on the stretched
+    # one. Uneven steps, up to 0.25: wide enough for the x sweep to split its
+    # steps above |v| = π, and on the stretched grid for the kick to split where
+    # the field peaks.
     t = [0.0, 0.25, 0.4, 0.65, 0.8, 1.05]
     for v in (uniform, stretched), collisions in (nothing, BGK(0.5))
         ref, ref_ε_e, most_x, most_v = written_out(v, f₀(v), t; collisions)
@@ -400,9 +404,10 @@ end
     # The defaults given as functions of the starting f, which the driver calls
     # with f rescaled: called with f₀ instead, their bound is 1.3 times too high.
     for v in (uniform, stretched)
-        Δx, Δv = cell_widths(grid(x)), cell_widths(grid(v))
-        schemes = (scheme_x = f -> PFCNonUniform(Δx; fmin = 0.0, fmax = maximum(f)),
-                   scheme_v = f -> PFCNonUniform(Δv; fmin = 0.0, fmax = maximum(f)))
+        Δv = cell_widths(grid(v))
+        schemes = (scheme_x = f -> PFC(fmin = 0.0, fmax = maximum(f)),
+                   scheme_v = v === uniform ? f -> PFC(fmin = 0.0, fmax = maximum(f)) :
+                                              f -> PFCNonUniform(Δv; fmin = 0.0, fmax = maximum(f)))
         ref, ref_ε_e = written_out(v, f₀(v), t; schemes...)
         r = vlasov_poisson(x, v, f₀(v), t; schemes...)
         @test r.f == ref
@@ -454,8 +459,9 @@ using Vasilek.VlasovPoisson1D1V: keeps_bounds
 
 @testset "a scheme given alone has to keep the default's bounds" begin
     # One wavelength of k = 0.5 at 50% amplitude, 64 × 121 over ±6. With the
-    # other direction left to its default, a PFCNonUniform on [0, maximum(f)],
-    # a non-positive scheme used to stop the run from inside the default with a
+    # other direction left to its default on [0, maximum(f)], a PFCNonUniform
+    # then and a PFC on this grid now, a non-positive scheme used to stop the
+    # run from inside the default with a
     # DomainError: LaxWendroff in v handed it f = -1.9e-9 on the 16th step, the
     # cubic SemiLagrangian -7.0e-10 on the 21st. Both calls are now an
     # ArgumentError before the first step -- in a one-step run too, which the old
@@ -651,11 +657,12 @@ end
 
 @testset "a plateau at the bound meeting rough data runs" begin
     # Rows of f with half their cells at maximum(f) and the rest up to 1e-12
-    # below it, different in every row over |v| ≤ 3: the default PFCNonUniform,
+    # below it, different in every row over |v| ≤ 3: the default, PFCNonUniform then,
     # bounded at maximum(f), left a cell an ulp above it, and its next call
     # stopped the run with a DomainError on the 2nd step, with no scheme given;
     # of 150 such runs to t = 30 at steps of 0.37, all stopped. A checked
-    # PFCNonUniform clamps what it returns into its bounds, and none does.
+    # PFCNonUniform clamps what it returns into its bounds, and none does; nor
+    # with PFC the default, which clamps as well.
     function lcg_uniforms(seed, n)    # Knuth's MMIX generator, not Julia's RNG
         s, u = UInt64(seed), Vector{Float64}(undef, n)
         for i in 1:n
@@ -752,8 +759,8 @@ end
                (; scheme_x = f -> PFCNonUniform(Δx; fmin = 0.0, fmax = maximum(f))),
                (; scheme_v = PFCNonUniform(Δv; fmin = 0.0, fmax = M)))
         prob, = setup(x, v, waterbag, t; nᵢ, kw...)
-        haskey(kw, :scheme_x) || @test prob.ox.scheme isa PFCNonUniform && prob.ox.scheme.fmax == M
-        haskey(kw, :scheme_v) || @test prob.ov.scheme isa PFCNonUniform && prob.ov.scheme.fmax == M
+        haskey(kw, :scheme_x) || @test prob.ox.scheme isa PFC && prob.ox.scheme.fmax == M
+        haskey(kw, :scheme_v) || @test prob.ov.scheme isa PFC && prob.ov.scheme.fmax == M
     end
     r = vlasov_poisson(x, big.(v), waterbag, t; scheme_x = SemiLagrangian(LinearSpline()), nᵢ,
                        invariants = true)
@@ -879,11 +886,17 @@ end
         @test all(isfinite, vlasov_poisson(x, v16, f(x, v16), t).f)
     end
     # A PFCNonUniform given on its own widths is kept on them, on a v that
-    # classifies uniform; built on the grid, they are the widths the run sums on.
+    # classifies uniform; built on the grid, they are the widths the run sums on,
+    # and it runs as the one the driver puts on the grid, to the bit, and as the
+    # default PFC, to the ulps between the two kernels: 5.5e-16 of the peak.
     given = ff -> OnGrid(PFCNonUniform(grid(v); fmin = 0.0, fmax = maximum(ff)))
     prob, = setup(x, v, f(x, v), t; scheme_v = given)
     @test prob.gv isa UniformGrid && prob.ov.grid isa NonUniformGrid{Float64, Nothing}
-    @test vlasov_poisson(x, v, f(x, v), t; scheme_v = given).f == r.f
+    rg = vlasov_poisson(x, v, f(x, v), t; scheme_v = given)
+    @test rg.f == vlasov_poisson(x, v, f(x, v), t;
+                                 scheme_v = ff -> PFCNonUniform(grid(v); fmin = 0.0,
+                                                                fmax = maximum(ff))).f
+    @test maximum(abs, rg.f .- r.f) ≤ 2e-15*maximum(r.f)
     # A uniform x of 20000 cells under a Courant scheme: OnGrid's 1e-12 refused
     # one of 17000.
     xb = collect(range(4π/20000; step = 4π/20000, length = 20000))

@@ -76,9 +76,9 @@ which is where the other two sit and where numerical dissipation puts them.
 **The grid is not free.** The velocity window has to contain the resonance at
 `v = ω_r/k` -- 2.83, 3.21 and 3.87 for the three cases below -- because that is
 where the damping comes from; and the window then fixes the time step, since the
-fastest row runs at `max|v|·Δt/Δx` and `PFCNonUniform` is a finite-volume scheme
-with a Courant limit of 1. Widening the window to reach a resonance therefore
-costs a smaller `Δt`, not just more velocity points.
+fastest row runs at `max|v|·Δt/Δx` and the default, `PFC`, is a finite-volume
+scheme with a Courant limit of 1. Widening the window to reach a resonance
+therefore costs a smaller `Δt`, not just more velocity points.
 
 The number returned and printed as the Courant figure is `max|v|·Δt/Δx`, which
 runs between 0.64 and 0.82 here. The *sweeps* run at half of it: Strang takes

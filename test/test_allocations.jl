@@ -163,10 +163,11 @@ end
         # itself allocates. Measured 80 on Julia 1.10 and 1.13 at both sizes:
         # the step allocates nothing. It allocated 84 KiB a step at 64 × 161,
         # more than `f`'s 80.5 KiB, for the density summed from a temporary.
-        function driver_bytes(Nx, Nv, steps; kw...)
+        function driver_bytes(Nx, Nv, steps; stretched = false, kw...)
             k = 0.5
             x = collect(range(2π/k/Nx; step = 2π/k/Nx, length = Nx))
-            v = collect(range(-6.0, 6.0; length = Nv))
+            σ = range(-1.0, 1.0; length = Nv)
+            v = stretched ? collect(@. 6sinh(σ)/sinh(1)) : collect(range(-6.0, 6.0; length = Nv))
             f₀ = [exp(-u^2/2)/sqrt(2π)*(1 + 0.01cos(k*y)) for u in v, y in x]
             t = collect(0.0:0.05:0.05*steps)
             vlasov_poisson(x, v, f₀, t; modes = (k,), invariants = true, kw...)
@@ -182,11 +183,13 @@ end
         @test abs(large - small) ≤ 64
         @test small ≤ 192
         # A scheme given for one direction, in x or in v, beside a default that
-        # takes the round-off it leaves, allocates nothing either.
+        # takes the round-off it leaves, allocates nothing either; nor does the
+        # default on a stretched v, a PFCNonUniform where the others are PFCs.
         gx = Godunov(PiecewiseLinear(), VanLeer())
-        for (name, kw) in (("x", (; scheme_x = gx)), ("v", (; scheme_v = gx)))
+        for (name, kw) in (("given in x", (; scheme_x = gx)), ("given in v", (; scheme_v = gx)),
+                           ("stretched v", (; stretched = true)))
             p81, p161 = per_step(64, 81; kw...), per_step(128, 161; kw...)
-            println("  ", rpad("vlasov_poisson step, given in $name", 32), "64 × 81: ", p81,
+            println("  ", rpad("vlasov_poisson step, $name", 32), "64 × 81: ", p81,
                     "   128 × 161: ", p161)
             @test abs(p161 - p81) ≤ 64
             @test p81 ≤ 192
