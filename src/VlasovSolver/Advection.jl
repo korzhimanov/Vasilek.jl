@@ -13,7 +13,7 @@ it is written. Boundaries are periodic.
 module Advection
 
 import ..workspace
-using ..Grids: AbstractGrid1D, UniformGrid, NonUniformGrid, grid, hasnodes, widths, narrowest,
+using ..Grids: AbstractGrid1D, UniformGrid, NonUniformGrid, grid, widths, narrowest,
                cell_widths, samecells, _rtol
 
 export AbstractAdvection1D, advect!, workspace,
@@ -269,9 +269,8 @@ end
     PFCNonUniform(grid::AbstractGrid1D; fmin, fmax, checked = true)
 
 Positive Flux Conservative scheme on a static non-uniform grid, `Δx` being the
-cell widths, or those a run on the grid sums with: its nodes' cell widths, or
-for a grid without nodes its [`widths`](@ref Vasilek.Grids.widths). Needs a
-[`workspace`](@ref).
+cell widths, or a grid's [`widths`](@ref Vasilek.Grids.widths), which a run on
+it sums with. Needs a [`workspace`](@ref).
 
 The limiter coefficient is computed per cell triple, so a refined region does
 not tighten the limiter elsewhere. `fmin`, `fmax` and `checked` are
@@ -346,10 +345,9 @@ Base.@constprop :aggressive function PFCNonUniform(Δx_::AbstractVector{T}; fmin
     return PFCNonUniform{T, checked}(Δx, ξ, minimum(Δx), fmn, fmx)
 end
 
-# On a grid, the widths a run on it sums with (`_reference_widths`): its nodes'
-# cell widths where it has nodes, else its own -- `h` in every cell of a
-# `UniformGrid` built from its spacing, where the limiter coefficient is 2 to
-# the bit.
+# On a grid, the widths a run on it sums with (`_reference_widths`), the
+# grid's own: `h` in every cell of a `UniformGrid`, where the limiter
+# coefficient is 2 to the bit.
 Base.@constprop :aggressive PFCNonUniform(g::AbstractGrid1D; fmin, fmax, checked::Bool = true) =
     PFCNonUniform(_reference_widths(g); fmin, fmax, checked)
 
@@ -932,15 +930,27 @@ function _same_widths(p::PFCNonUniform, g::AbstractGrid1D)
         "PFCNonUniform has $(length(p.Δx)) cells, the grid $(length(g))"))
     rtol = max(_rtol(eltype(p.Δx)), _rtol(eltype(typeof(g))))
     all(isapprox(d, w; rtol) for (d, w) in zip(p.Δx, _reference_widths(g))) ||
-        throw(ArgumentError("PFCNonUniform carries cell widths other than the grid's: " *
-                            "it would advect on its own grid while the run sums on this one"))
+        _err_other_widths(p, g, rtol)
     return nothing
 end
 
-# The widths a PFCNonUniform on `g` is held to: those of its nodes, as a
-# caller's `PFCNonUniform(cell_widths(nodes))` has them, where it has nodes.
-_reference_widths(g::UniformGrid) = hasnodes(g) ? cell_widths(g.nodes) : widths(g)
-_reference_widths(g::NonUniformGrid) = g.widths
+@noinline function _err_other_widths(p, g, rtol)
+    off = maximum(abs(d - w)/abs(w) for (d, w) in zip(p.Δx, _reference_widths(g)))
+    throw(ArgumentError(
+        "PFCNonUniform carries cell widths other than the grid's, " *
+        "$(round(off; sigdigits = 2)) of a cell off where $(round(rtol; sigdigits = 2)) " *
+        "is taken: it would advect on its own grid while the run sums on this one. " *
+        "Build it on the grid, PFCNonUniform(grid; fmin, fmax), as " *
+        "PFCNonUniform(Vasilek.Grids.grid(x); fmin, fmax) for the nodes x"))
+end
+
+# The widths a PFCNonUniform on `g` is held to: the grid's own, which the run
+# sums with. A caller's `PFCNonUniform(cell_widths(nodes))` beside a uniform grid
+# differs from them by the nodes' rounding, about an ulp of the largest node:
+# taken within `_rtol` of the coarser type, 1e-12 in Float64, and refused
+# further: on the suite's Float32 grids, far from the origin, or on enough cells
+# that an ulp of the largest node passes 1e-12 of one, as 16384 on [0, 4π).
+_reference_widths(g::AbstractGrid1D) = widths(g)
 
 """
     OnGridWorkspace

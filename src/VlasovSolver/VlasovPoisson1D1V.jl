@@ -33,7 +33,7 @@ workspace of its own.
 [`UniformGrid`](@ref Vasilek.Grids.UniformGrid) as [`grid`](@ref
 Vasilek.Grids.grid) classifies it: a vector's spacings each the first to
 rounding. A stretched grid would otherwise get a field from its first spacing
-alone. The spacing is the grid's: a range's `step`, a vector's first difference.
+alone. The spacing is the grid's: a range's `step`, a vector's mean spacing.
 """
 function make_poisson(x)
     p = uniform_poisson(x)
@@ -437,7 +437,8 @@ function _setup(gx::UniformGrid, gv::AbstractGrid1D, f₀, t; scheme_x = nothing
     # scratch does: a Float32 or a Rational grid under Float64 `f` takes neither
     # its sums nor its default schemes out of Float64.
     T = float(eltype(f₀))
-    Δx₀, Δv₀ = cell_widths(x), cell_widths(v)
+    # The grids' widths: a uniform grid's spacing in every cell.
+    Δx₀, Δv₀ = cell_widths(gx), cell_widths(gv)
     W = promote_type(T, eltype(Δx₀), eltype(Δv₀))
     Δx, Δv = convert(Vector{W}, Δx₀), convert(Vector{W}, Δv₀)
 
@@ -548,7 +549,8 @@ the result. Allocates nothing that grows with the grid.
 function step!(s::State, p::Problem, Δt)
     s.field.Δt = Δt
     @. s.αx = p.v*Δt
-    hook = p.collisions === nothing ? nothing : Collide(p.collisions, p.v, Δt)
+    # on the grid, so that a line is collided on the widths the run sums with
+    hook = p.collisions === nothing ? nothing : Collide(p.collisions, p.gv, Δt)
     strang_step!(s.fxv, p.ox, p.ov, s.αx, s.field, s.ws, hook)
     # Back to `f[v, x]`, so that every sum below runs in the order it always
     # has: summed over `[x, v]` the same terms round differently.

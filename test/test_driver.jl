@@ -3,6 +3,7 @@
 
 using Vasilek.VlasovPoisson1D1V: cell_widths
 using Vasilek.Advection: substeps
+using Vasilek.Grids: grid, spacing
 
 @testset "vlasov_poisson is the package's" begin
     @test isdefined(Vasilek, :vlasov_poisson)
@@ -54,10 +55,12 @@ using Vasilek.Advection: substeps
     # parts in 10⁶, which 1e-10 of the spacing alone refuses although the
     # harness's driver ran it; it runs, and matches the Float64 run to Float32
     # precision. Measured with the density, the field and the histories in
-    # Float32 and the lines worked in Float64: 7.7e-7 of the peak in `f` and
-    # 6.9e-6 in `ε_e` on Julia 1.13, 1.2e-6 and 3.3e-6 on 1.10. (6.9e-7 and
-    # 8.3e-6 while the default ions, and the charge with them, were Float64;
-    # 5.6e-7 and 1.8e-6 while a `0.5` made the widths Float64 too.) A grid far
+    # Float32 and the lines worked in Float64: 7.0e-7 of the peak in `f` and
+    # 1.1e-5 in `ε_e` on Julia 1.13, 9.1e-7 and 4.2e-6 on 1.10. (7.7e-7 and
+    # 6.9e-6, and 1.2e-6 and 3.3e-6, while the widths were the nodes' cell
+    # widths rather than the grid's mean spacing; 6.9e-7 and 8.3e-6 while the
+    # default ions, and the charge with them, were Float64; 5.6e-7 and 1.8e-6
+    # while a `0.5` made the widths Float64 too.) A grid far
     # from the origin is taken too, and a stretch of a millionth of a cell is
     # still refused.
     r₃₂ = vlasov_poisson(Float32.(x), Float32.(v), Float32.(f₀), Float32.(t))
@@ -71,14 +74,16 @@ using Vasilek.Advection: substeps
     # spacing and refused all three below, and for a while held them to a
     # `scale` the driver passed beside them. Measured against the
     # Float64 run on Julia 1.13, as fractions of the peak: Float32 x under
-    # Float64 f, 9.9e-10 in `f` and 2.1e-7 in `ε_e`, the Float32 spacing's own
-    # rounding of the Courant number; all in Float32, 5.8e-7 and 5.3e-6; x at
-    # 1e6, 1.1e-12 and 7.6e-11.
+    # Float64 f, 8.4e-10 in `f` and 2.3e-7 in `ε_e`, the Float32 spacing's own
+    # rounding of the Courant number; all in Float32, 6.5e-7 and 5.4e-6; x at
+    # 1e6, 1.2e-14 and 1.3e-12 -- 1.1e-12 and 7.6e-11 while the spacing was the
+    # first difference, which on these nodes carries 3.9e-11 of a cell of their
+    # rounding where the mean carries 4.4e-13.
     up = vlasov_poisson(x, v, f₀, t; scheme_x = Upwind())
     for (run, ftol, εtol) in ((vlasov_poisson(Float32.(x), v, f₀, t; scheme_x = Upwind()), 1e-8, 2e-6),
                              (vlasov_poisson(Float32.(x), Float32.(v), Float32.(f₀), Float32.(t);
                                              scheme_x = Upwind()), 1e-5, 1e-4),
-                             (vlasov_poisson(1e6 .+ x, v, f₀, t; scheme_x = Upwind()), 1e-10, 1e-8))
+                             (vlasov_poisson(1e6 .+ x, v, f₀, t; scheme_x = Upwind()), 1e-13, 1e-11))
         @test maximum(abs, run.f .- up.f) < ftol*maximum(up.f)
         @test maximum(abs, run.ε_e .- up.ε_e) < εtol*maximum(up.ε_e)
     end
@@ -132,19 +137,19 @@ end
 
     # A partner built as the defaults are, on the Float32 grid: refused as
     # outside [0, maximum(f)] when its Float32 `fmax` rounded up, a DomainError
-    # on its first step when it rounded down. Built on the grid it is the same
-    # scheme, on the widths the run sums with.
-    for partner in (f -> PFCNonUniform(cell_widths(x32); fmin = 0.0, fmax = maximum(f)),
-                    f -> PFCNonUniform(grid(x32); fmin = 0.0, fmax = maximum(f))), a in (0.01, 0.05)
+    # on its first step when it rounded down. Built on the grid, it is on the
+    # widths the run sums with.
+    partner = f -> PFCNonUniform(grid(x32); fmin = 0.0, fmax = maximum(f))
+    for a in (0.01, 0.05)
         r = vlasov_poisson(x32, v, landau(a), t; scheme_x = partner, invariants = true)
         @test drift(r) < 1e-12
     end
-    # One on widths an ulp of the coordinates from those, the first difference
-    # in every cell, is refused: it would advect on other widths than the run
-    # sums with, and its mass drifted by 1e-8 while it was taken to the nodes'
-    # rounding.
+    # One on the nodes' cell widths is refused: they are 8.3e-7 of a cell from
+    # the grid's spacing, the Float32 coordinates' rounding, past 4 Float32
+    # ulps, and it would advect on other widths than the run sums with. Taken to
+    # the nodes' rounding, its mass drifted by 6.1e-10.
     @test_throws ArgumentError vlasov_poisson(x32, v, landau(0.05), t;
-        scheme_x = f -> PFCNonUniform(fill(x32[2] - x32[1], Nx); fmin = 0.0, fmax = maximum(f)))
+        scheme_x = f -> PFCNonUniform(cell_widths(x32); fmin = 0.0, fmax = maximum(f)))
 
     # All Float32, a two-stream whose peaks move: a Float32 default rounded each
     # flux sum, and at a peak the sum landed an ulp above its `fmax` in 8 of 30
@@ -252,7 +257,7 @@ end
     Nx = 32
     x = collect(range(2π/k/Nx; step = 2π/k/Nx, length = Nx))
     v = collect(-6.0:0.15:6.0)
-    Δx, Δv = cell_widths(x), cell_widths(v)
+    Δx, Δv = cell_widths(grid(x)), cell_widths(grid(v))    # the driver's widths
     f₀ = [exp(-u^2/2)/sqrt(2π)*(1 + 0.5cos(k*y)) for u in v, y in x]
     t = collect(0.0:0.1:4.0)
     m = 21
@@ -322,7 +327,8 @@ end
     # the charge of the default ions, `Σ M Δv`; `ε_e` sampled as the driver
     # samples it. Also returns the most sub-steps a line took in x and in v.
     function written_out(v, f₀, t; scheme_x = nothing, scheme_v = nothing, collisions = nothing)
-        Δx, Δv = cell_widths(x), cell_widths(v)
+        # the grids' widths: a uniform grid's mean spacing in every cell
+        Δx, Δv = cell_widths(grid(x)), cell_widths(grid(v))
         nᵢ = fill(sum(@. exp(-0.5*v^2)/sqrt(2π)*Δv), Nx)
         f = copy(f₀)
         f .*= sum(nᵢ .* Δx)/sum(f .* (Δv .* Δx'))
@@ -335,7 +341,9 @@ end
         wsx, wsv = workspace(sx, Nx), workspace(sv, Nv)
         bx, bv, cbuf = similar(x), similar(v), similar(v)
         cws = collisions === nothing ? nothing : workspace(collisions, Nv, eltype(f))
-        p = P.PoissonFFT1D(Nx, x[2] - x[1])
+        # collided at the grid's nodes, on its widths
+        vw = Vasilek.Collisions.GridNodes(grid(v))
+        p = P.PoissonFFT1D(Nx, spacing(grid(x)))
         pws = workspace(p)
         e = similar(x)
         ε_e = similar(t)
@@ -349,12 +357,12 @@ end
             for i in 1:Nx
                 col = view(f, :, i)
                 if collisions !== nothing
-                    collide!(cbuf, col, collisions, v, Δt/2, cws)
+                    collide!(cbuf, col, collisions, vw, Δt/2, cws)
                     copyto!(col, cbuf)
                 end
                 most_v = max(most_v, line!(col, e[i]*Δt, sv, Δv, bv, wsv))
                 if collisions !== nothing
-                    collide!(cbuf, col, collisions, v, Δt/2, cws)
+                    collide!(cbuf, col, collisions, vw, Δt/2, cws)
                     copyto!(col, cbuf)
                 end
             end
@@ -392,7 +400,7 @@ end
     # The defaults given as functions of the starting f, which the driver calls
     # with f rescaled: called with f₀ instead, their bound is 1.3 times too high.
     for v in (uniform, stretched)
-        Δx, Δv = cell_widths(x), cell_widths(v)
+        Δx, Δv = cell_widths(grid(x)), cell_widths(grid(v))
         schemes = (scheme_x = f -> PFCNonUniform(Δx; fmin = 0.0, fmax = maximum(f)),
                    scheme_v = f -> PFCNonUniform(Δv; fmin = 0.0, fmax = maximum(f)))
         ref, ref_ε_e = written_out(v, f₀(v), t; schemes...)
@@ -546,6 +554,26 @@ end
     f₀ = [exp(-u^2/2)/sqrt(2π)*(1 + 0.1cos(0.5y)) for u in v, y in x]
     r = vlasov_poisson(x, v, f₀, t; collisions = BGK(0.5f0), invariants = true)
     @test maximum(abs, r.mass .- r.mass[1])/r.mass[1] < 1e-12
+
+    # The operators sum on the grid's widths, as the run does, a uniform v's
+    # spacing in every cell: on the nodes' own cell widths, which this Float32 v
+    # scatters by 9.9e-7 of a cell, a two-stream run to t = 5 lost 1.2e-9 of its
+    # mass under BGK and 2.6e-10 under Landau1P, and holds it to 3e-16 now.
+    v32 = Float32.(collect(range(-6, 6; length = 81)))
+    xs = collect((0:31) .* (4π/32))
+    twostream = [0.5/sqrt(2π)*(exp(-(u - 2)^2/2) + exp(-(u + 2)^2/2))*(1 + 0.05cos(0.5y))
+                 for u in Float64.(v32), y in xs]
+    for op in (BGK(0.5), Vasilek.Collisions.Landau1P(0.01))
+        r = vlasov_poisson(xs, v32, twostream, collect(0.0:0.1:5.0); collisions = op,
+                           invariants = true)
+        @test maximum(abs, r.mass .- r.mass[1])/r.mass[1] < 1e-14
+    end
+    # The hook hands them the grid's nodes with its widths, and a `dest` over
+    # the nodes is refused as over a vector of them.
+    g = grid(v32)
+    hook = Vasilek.StrangSplitting.Collide(BGK(0.5), g, 0.1)
+    @test hook.v isa Vasilek.Collisions.GridNodes && hook.v == Vasilek.Grids.nodes(g)
+    @test_throws ArgumentError collide!(Vasilek.Grids.nodes(g), ones(Float32, 81), BGK(0.5), hook.v, 0.1)
 
     # A conservative BGK step can raise a line's peak above maximum(f): a flat
     # line over |v| < 2 relaxes towards a taller Maxwellian. The defaults used
@@ -787,8 +815,6 @@ end
                                                                Upwind(), Upwind(), nothing, ())
 end
 
-using Vasilek.Grids: grid
-
 # The grids the driver takes: a vector of nodes, which `grid` classifies once; a
 # range, uniform as it stands; or a grid of `Vasilek.Grids`. `x` has to be
 # uniform, for the field solve, and is refused by it alone, whatever `scheme_x`.
@@ -806,13 +832,18 @@ using Vasilek.Grids: grid
     # 0.2, where the collected nodes give 0.20000000000000018.
     xr, vr = range(2π/k/Nx; step = 2π/k/Nx, length = Nx), -4.0:0.2:4.0
     @test vlasov_poisson(xr, vr, f(x, v), t).f == r.f
+    # A vector's spacing is its mean, which for these nodes is the step
+    # written: under a scheme that takes a Courant number, where the first
+    # difference of the collected v, 0.20000000000000018, moved a run on them
+    # 1.4e-16 of the peak from the run on ranges, the two are one.
     up = vlasov_poisson(x, v, f(x, v), t; scheme_x = Upwind(), scheme_v = Upwind())
     upr = vlasov_poisson(xr, vr, f(x, v), t; scheme_x = Upwind(), scheme_v = Upwind())
-    @test upr.f != up.f && maximum(abs, upr.f .- up.f) < 1e-14*maximum(up.f)
-    # Grids themselves. A uniform v given as a NonUniformGrid runs as it would,
-    # on the same widths, and refuses a scheme that takes a Courant number.
-    @test vlasov_poisson(UniformGrid(x[2] - x[1], x), grid(v), f(x, v), t).f == r.f
-    @test vlasov_poisson(x, NonUniformGrid(v), f(x, v), t).f == r.f
+    @test upr.f == up.f
+    # Grids themselves. A uniform v given as a NonUniformGrid runs on its nodes'
+    # cell widths, as every v did before the grids, at round-off from the
+    # UniformGrid's, and refuses a scheme that takes a Courant number.
+    @test vlasov_poisson(UniformGrid(spacing(grid(x)), x), grid(v), f(x, v), t).f == r.f
+    @test vlasov_poisson(x, NonUniformGrid(v), f(x, v), t).f ≈ r.f rtol = 1e-13
     @test_throws ArgumentError vlasov_poisson(x, NonUniformGrid(v), f(x, v), t; scheme_v = Upwind())
     prob, = setup(xr, NonUniformGrid(v), f(x, v), t)
     @test prob.gx isa UniformGrid{Float64} && prob.gv isa NonUniformGrid{Float64}
@@ -848,8 +879,8 @@ using Vasilek.Grids: grid
         @test all(isfinite, vlasov_poisson(x, v16, f(x, v16), t).f)
     end
     # A PFCNonUniform given on its own widths is kept on them, on a v that
-    # classifies uniform: the run sums on the same widths.
-    given = ff -> OnGrid(PFCNonUniform(cell_widths(v); fmin = 0.0, fmax = maximum(ff)))
+    # classifies uniform; built on the grid, they are the widths the run sums on.
+    given = ff -> OnGrid(PFCNonUniform(grid(v); fmin = 0.0, fmax = maximum(ff)))
     prob, = setup(x, v, f(x, v), t; scheme_v = given)
     @test prob.gv isa UniformGrid && prob.ov.grid isa NonUniformGrid{Float64, Nothing}
     @test vlasov_poisson(x, v, f(x, v), t; scheme_v = given).f == r.f

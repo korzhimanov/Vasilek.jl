@@ -22,9 +22,16 @@ Vasilek.Advection.takes(::DisplacedShift) = Displacement()
             @test nodes(g) == collect(T, r) && length(g) == length(r)
         end
         # The collected nodes' first difference is not the step the range was
-        # written with; the range carries it to the bit.
+        # written with; the range carries it to the bit, and a vector's spacing
+        # is its mean, `(z[end] - z[1])/(n - 1)`, which here is the step too.
         @test spacing(grid(-4.0:0.2:4.0)) === 0.2
-        @test spacing(grid(collect(-4.0:0.2:4.0))) === 0.20000000000000018
+        let v = collect(-4.0:0.2:4.0)
+            @test v[2] - v[1] === 0.20000000000000018 && spacing(grid(v)) === 0.2
+        end
+        # A range's cell widths are its step in every cell, as its grid's are,
+        # not the differences of its nodes, which round in the last bit.
+        @test cell_widths(-4.0:0.2:4.0) == fill(0.2, 41) == widths(grid(-4.0:0.2:4.0))
+        @test cell_widths(collect(-4.0:0.2:4.0)) != fill(0.2, 41)
         @test_throws ArgumentError grid(10.0:-1.0:1.0)     # nodes have to increase
         # A range's nodes are where the run samples its data, and are held to
         # the cap as a vector's are: a Float16 range over [−4, 4] rounds its
@@ -33,6 +40,10 @@ Vasilek.Advection.takes(::DisplacedShift) = Displacement()
         @test grid(r16) isa NonUniformGrid{Float16}
         @test_throws ArgumentError UniformGrid(r16)
         @test grid(Float16(-4):Float16(0.25):Float16(4)) isa UniformGrid{Float16}
+        # A range's cell widths are its grid's: its step in every cell, or its
+        # nodes' own where it is not uniform, which threw.
+        @test cell_widths(-4.0:0.2:4.0) == fill(0.2, 41)
+        @test cell_widths(r16) == cell_widths(collect(r16))
         @test isbitstype(typeof(UniformGrid(0.1, 8)))
     end
 
@@ -72,7 +83,8 @@ Vasilek.Advection.takes(::DisplacedShift) = Displacement()
         for z in uniform
             g = grid(z)
             @test g isa UniformGrid{float(eltype(z))}
-            @test spacing(g) === float(eltype(z))(z[2] - z[1]) && nodes(g) == collect(float(eltype(z)), z)
+            @test spacing(g) === float(eltype(z))((z[end] - z[1])/(length(z) - 1))
+            @test nodes(g) == collect(float(eltype(z)), z)
             @test UniformGrid(z) isa UniformGrid
         end
         for z in nonuniform
@@ -102,6 +114,28 @@ Vasilek.Advection.takes(::DisplacedShift) = Displacement()
             sprint(showerror, err)
         end
         @test occursin("widths", message)
+        # Integers are differenced in Float64: Int8 wrapped the span of
+        # [-100, 0, 100] to -56, and the mean spacing with it.
+        @test spacing(grid(Int8[-100, 0, 100])) === 100.0
+        @test spacing(UniformGrid(Int16[-20000, 0, 20000])) === 20000.0
+        message = try
+            UniformGrid(Int8[-100, -99, 100])
+            ""
+        catch err
+            sprint(showerror, err)
+        end
+        @test occursin("spacing 199.0 at node 2", message)
+    end
+
+    @testset "a vector's spacing is its mean, and its cells span its box" begin
+        # n cells of the first difference carry the rounding of the largest
+        # node: 2.3e-10 off the box of the grid near 1e6, the mean 7.4e-12, and
+        # the widths sum to n·h to rounding. Measured on Julia 1.13.
+        z = collect(1e6 .+ (0:63)*0.1)
+        box = 64*0.1
+        @test abs(64*(z[2] - z[1]) - box)/box > 1e-10
+        @test abs(64*spacing(grid(z)) - box)/box < 1e-11
+        @test sum(widths(grid(z))) ≈ 64*spacing(grid(z)) rtol = 1e-14
     end
 
     @testset "constructors and accessors" begin
@@ -193,7 +227,10 @@ Vasilek.Advection.takes(::DisplacedShift) = Displacement()
         far = collect(1e6 .+ (0:63)*0.1)
         p = PFCNonUniform(cell_widths(far) .* (1 + 1e-10); fmin = 0.0, fmax = 1.0)
         @test_throws ArgumentError OnGrid(p, far)
-        @test OnGrid(PFCNonUniform(cell_widths(far); fmin = 0.0, fmax = 1.0), far) isa OnGrid
+        # Its nodes' cell widths are 9.2e-10 of a cell from the grid's spacing,
+        # which the run sums with: refused too. Built on the grid, it is taken.
+        @test_throws ArgumentError OnGrid(PFCNonUniform(cell_widths(far); fmin = 0.0, fmax = 1.0), far)
+        @test OnGrid(PFCNonUniform(grid(far); fmin = 0.0, fmax = 1.0), far) isa OnGrid
         n = 64
         src = [1.0 + 0.5sin(2π*i/n) for i in 1:n]
         x = collect(range(0.1; step = 0.1, length = n))
@@ -255,5 +292,25 @@ Vasilek.Advection.takes(::DisplacedShift) = Displacement()
         w = [0.5 + 0.3sin(2π*i/16) for i in 1:16]
         @test PFCNonUniform(NonUniformGrid(; widths = w); fmin = 0, fmax = 1).Δx == w
         @test PFCNonUniform(UniformGrid(0.1f0, 8); fmin = 0, fmax = 1) isa PFCNonUniform{Float32}
+        # One on the nodes' own widths is held to the grid's to 1e-12 in
+        # Float64. They are an ulp of the largest node off: on [0, 4π) 1.8e-13 of
+        # a cell at 4096 nodes, taken, and 1.6e-12 at 16384, refused with how far
+        # and what to build instead.
+        for (N, taken) in ((4096, true), (16384, false))
+            x = collect((0:N-1) .* (4π/N))
+            p = PFCNonUniform(cell_widths(x); fmin = 0, fmax = 1)
+            if taken
+                @test OnGrid(p, x).grid isa UniformGrid
+            else
+                message = try
+                    OnGrid(p, x)
+                    ""
+                catch err
+                    sprint(showerror, err)
+                end
+                @test occursin("of a cell off", message) &&
+                      occursin("PFCNonUniform(Vasilek.Grids.grid(x)", message)
+            end
+        end
     end
 end

@@ -1,7 +1,8 @@
 module StrangSplitting
 
 using ..Advection: AbstractAdvection1D, advect!
-using ..Collisions: AbstractCollisionOperator, collide!
+using ..Collisions: AbstractCollisionOperator, collide!, GridNodes
+using ..Grids: AbstractGrid1D
 using LinearAlgebra: transpose!
 import ..workspace
 
@@ -67,12 +68,18 @@ direction, sampled at the nodes `v`, is collided under `op` for `Δt/2` on eithe
 side of its advection, `C(Δt/2) V(Δt) C(Δt/2)`, so the split step stays
 symmetric and second order. A value, built for each step; the operator's
 scratch is the workspace's, from `workspace(scheme_x, scheme_v, f, op)`.
+
+`v` may be a grid of [`Vasilek.Grids`](@ref Vasilek.Grids), whose nodes the
+operator is handed as [`GridNodes`](@ref Vasilek.Collisions.GridNodes): its sums
+then weigh each cell by the grid's width, a uniform grid's spacing, as the
+driver's sums do, where on a vector they take the nodes' own cell widths.
 """
 struct Collide{O<:AbstractCollisionOperator, V<:AbstractVector, T}
     op::O
     v::V
     Δt::T
 end
+Collide(op::AbstractCollisionOperator, g::AbstractGrid1D, Δt) = Collide(op, GridNodes(g), Δt)
 
 """
     strang_step!(f, scheme_x, scheme_v, cx, cv, ws[, hook])

@@ -616,8 +616,9 @@ end
                 # from the driver's convention rather than read off `back`: a
                 # ratio taken from the result would hide any mass the round trip
                 # lost or the renormalisation got wrong.
-                wt = cell_widths(v) .* cell_widths(x)'
-                Nᵢ = sum(exp.(-0.5 .* v.^2)./sqrt(2π) .* cell_widths(v))*sum(cell_widths(x))
+                Δv, Δx = cell_widths(Vasilek.Grids.grid(v)), cell_widths(Vasilek.Grids.grid(x))
+                wt = Δv .* Δx'
+                Nᵢ = sum(exp.(-0.5 .* v.^2)./sqrt(2π) .* Δv)*sum(Δx)
                 ref = f₀ .* (Nᵢ/sum(f₀ .* wt))
                 return (; err = maximum(abs, back .- ref)/maximum(f₀),
                           fmin = minimum(fwd.fmin[1:end-1]),

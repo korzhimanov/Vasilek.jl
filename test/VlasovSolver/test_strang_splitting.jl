@@ -320,9 +320,9 @@ end
         cw = Vasilek.Grids.cell_widths
         x₃₂ = Float32.(collect(range(π/8; step = π/8, length = 64)))
         @test maximum(cw(x₃₂)) != minimum(cw(x₃₂))
-        @test spacing(OnGrid(Upwind(), x₃₂).grid) === x₃₂[2] - x₃₂[1]
+        @test spacing(OnGrid(Upwind(), x₃₂).grid) === (x₃₂[end] - x₃₂[1])/63    # the mean spacing
         far = collect(1e6 .+ (0:63)*0.1)
-        @test spacing(OnGrid(LaxWendroff(), far).grid) === far[2] - far[1]
+        @test spacing(OnGrid(LaxWendroff(), far).grid) === (far[end] - far[1])/63
         let og = OnGrid(Upwind(), far)
             @test OnGrid(og, far) === og
             # the spacing written, to the nodes' rounding: the first difference is
@@ -352,7 +352,8 @@ end
         p₃₂ = PFCNonUniform{Float32, true}(fill(0.05, 8), fill(2.0, 8), 0.05, 0.0, 1.0)
         @test substep_bound(OnGrid(p₃₂, 0.05, 8)) === 0.05f0
         @test_throws ArgumentError OnGrid(p₃₂, 0.05 + 1e-6, 8)
-        @test OnGrid(PFCNonUniform(cw(far); fmin = 0, fmax = 1), far) isa OnGrid
+        @test OnGrid(PFCNonUniform(Vasilek.Grids.grid(far); fmin = 0, fmax = 1), far) isa OnGrid
+        @test_throws ArgumentError OnGrid(PFCNonUniform(cw(far); fmin = 0, fmax = 1), far)
         Δz = [0.5 + 0.3sin(2π*i/16) for i in 1:16]
         p = PFCNonUniform(Δz; fmin = 0.0, fmax = 1.0)
         @test OnGrid(p).grid.widths === p.Δx                         # its own, shared
