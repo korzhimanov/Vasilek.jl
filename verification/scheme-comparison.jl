@@ -115,9 +115,9 @@ fast.
 """
 function run_one(scheme, grid = landau_grid; fit = true, timed = false)
     x, v, f₀, t = grid()
-    # `PFCNonUniform` carries its grid's widths, so x and v each get their own,
-    # the widths the run sums with; the driver's default on these uniform grids
-    # is `PFC`, the row above.
+    ## `PFCNonUniform` carries its grid's widths, so x and v each get their own,
+    ## the widths the run sums with; the driver's default on these uniform grids
+    ## is `PFC`, the row above.
     sx, sv = scheme === :pfcnonuniform ?
         (f -> PFCNonUniform(Vasilek.Grids.grid(x); fmin = 0.0, fmax = maximum(f)),
          f -> PFCNonUniform(Vasilek.Grids.grid(v); fmin = 0.0, fmax = maximum(f))) :
