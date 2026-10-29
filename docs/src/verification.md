@@ -735,9 +735,11 @@ back to it. With the ions fixed and the electrons at 10 eV the profile should
 hold, and does not at 2 nm: the electrons at the foil's surfaces heat (below),
 and the 10 nm foil reflects 0.773. At 1 nm it reflects 0.741, T of the 30 and
 90 nm foils is 3.8% and 1.8% under the layer's, and the profile stack is met to
-0.13% in R and 0.4% in T. Those runs and a 0.5 nm set are in
-`D:\compton\followup\step10\vasilek\_look\fresnel*.txt` of the study that
-measured them; the test runs the free-ion set.
+0.13% in R and 0.4% in T. At 0.5 nm the foil stays the layer: R is 0.7305,
+0.97774 and 0.99995 against the layer's 0.7277, 0.97756 and 0.99994, T is 1.0%,
+0.8% and 0.3% under its 0.2723, 0.02244 and 5.73e-5, and R + T is 1 to 2e-5.
+Those runs are the transparency study's, not the test suite's; the test runs
+the free-ion set at 2 nm.
 
 **The unresolved sheath heats.** A foil at rest on fixed ions keeps its bulk
 temperature on any grid tried, but its surfaces heat where the grid does not
@@ -753,9 +755,10 @@ foil of 10 nm, all surface, heats to 7 keV by 60 fs at 2 nm.
 **The budget.** Between the two probes, two cells inside the absorbing layers,
 the transverse field, `Eₓ`, the particles' kinetic energy, what they carried out
 of the grid of `f` and what the field carried out of the box add up to what came
-in through the left probe to 0.13% at 2 nm (0.31% at 4 nm), and to the incident
-energy of the vacuum run to 0.2%. Across the step-10 series, ξ from 0.3 to 1.5,
-the balance is 0.9985 to 0.9995. The splitting of a relativistic Vlasov–Maxwell
+in through the left probe to 0.13% at 2 nm (0.06% at 1 nm, 0.31% at 4 nm), and
+what came in is the vacuum run's incident energy to 5e-6. Across the 24 runs of
+the step-10 series at 2 nm with PFC the balance is 0.9983 to 1.0002; the
+cubic-spline variant closes it to 0.47%. The splitting of a relativistic Vlasov–Maxwell
 system was found unstable by Huot et al. (J. Comput. Phys. 185, 512, 2003); the
 conservative form here, whose two sub-flows' compressions cancel on the grid,
 shows no sign of it in these runs.
@@ -766,6 +769,18 @@ repository, on a case its uniform momentum grid can afford: `a₀ = 2`, 4 n_c,
 module gives 0.644 and 0.335, with first-order splitting, a Courant number of 1
 and the electron density profiles at 67 fs on top of each other over four
 decades.
+
+**Convergence.** At `a₀ = 20` and ξ = 0.972 the transmittance is 0.749, 0.693
+and 0.700 at 4, 2 and 1 nm; 0.719, 0.693 and 0.689 with the momentum cells
+doubled, as set and halved (order 2.5, so 0.006 of Richardson error in the
+reference); 0.695 at half the time step; and 0.705 with the cubic-spline scheme
+for PFC. The 4 nm run is off because its foil arrives at the pulse twice as hot
+and 8 nm wider, the unresolved sheath's heating above; 2 and 1 nm, whose foils
+arrive within 10% of each other, differ by 0.007. The sequence in Δx is not
+monotonic, so it is not extrapolated: the transparency study quotes the 1 nm
+value with the four differences in quadrature, T = 0.700 ± 0.015. These runs
+take hours and are the study's (`D:mptonollowupstep10vasilek`), not the
+test suite's, which pins the budget at 4 nm.
 
 ### The scheme comparison
 
