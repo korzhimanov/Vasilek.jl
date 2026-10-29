@@ -33,7 +33,7 @@ using Vasilek
 # `# # Title` line.
 const STUDIES = ["landau-damping-1d1v", "plasma-oscillations-1d1v", "two-stream",
                  "bump-on-tail", "plasma-echo", "bgk-equilibrium",
-                 "collisional-damping", "wakefield", "scheme-comparison"]
+                 "collisional-damping", "wakefield", "laser-foil", "scheme-comparison"]
 
 # A study missing from the list would never be rendered, and nothing else would
 # notice.
@@ -93,7 +93,7 @@ end
 # silently lose. The order is the navigation's. A generated page has no source
 # to edit, hence `EditURL`.
 const API_MODULES = [Vasilek, Vasilek.Advection, Vasilek.StrangSplitting,
-                     Vasilek.Collisions, Vasilek.VlasovPoisson1D1V,
+                     Vasilek.Collisions, Vasilek.VlasovPoisson1D1V, Vasilek.VlasovMaxwell1D1P,
                      Vasilek.PoissonFourier1D, Vasilek.FDTD1D]
 
 # A submodule missing from the list would lose every docstring, and the build

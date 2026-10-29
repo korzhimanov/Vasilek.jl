@@ -161,6 +161,32 @@ asserted-about: `test/test_verification.jl` holds it to the Bohm–Gross
 correction is resolved rather than merely tolerated (see
 [Plasma oscillation frequency and energy](@ref) on the verification page).
 
+## The relativistic Vlasov–Maxwell solver
+
+[`VlasovMaxwell`](@ref Vasilek.VlasovMaxwell1D1P.VlasovMaxwell) keeps the
+laser's units: time `1/ω₀`, length `c/ω₀`, every field `mₑcω₀/e` (so that the
+vector potential `a = eA_y/(mₑc)` is the laser's dimensionless amplitude),
+densities `n_c = mₑω₀²/(4πe²)`. A species of charge `q` (in `e`, −1 for
+electrons) and mass `m` (in `mₑ`) has its momentum in its own `mc`, its
+distribution in `n_c` per that unit, and its transverse momentum fixed by the
+canonical one, zero ahead of the pulse:
+
+```
+p⊥ = −(q/m) a,     γ = √(1 + p² + (q/m)²a²),     dp/dt = (q/m) Eₓ − ∂γ/∂x
+```
+
+Unlike the electrostatic driver's, `Eₓ` here is the physical field, with
+`∂Eₓ/∂x = Σ q n` and `∂Eₓ/∂t = −Σ q ∫ f v dp`, and the energy is not doubled:
+the field's is `(E² + B²)/2` per unit length, a species' kinetic `m Σ f (γ − 1)`,
+both in `n_c mₑc² (c/ω₀)`, so that the energy a plane wave carries is `∫F²dx`
+with `F = (E_y + B_z)/2`.
+
+`Yee1D`'s one-way source launches **minus** the function it is given: a source
+`s(t)` puts `E_y = −s(t − (x − x_s))` on the grid, to 1.2 cells of timing and
+1.1e-4 of amplitude at 400 cells per wavelength. A run that wants the pulse
+`E(t)` at the entry plane hands it `−E`, as `laser_foil` in `test/vm_harness.jl`
+does.
+
 ## Boundaries in the FDTD solver
 
 Both ends of the grid are **perfect electric conductors**. The solver imposes

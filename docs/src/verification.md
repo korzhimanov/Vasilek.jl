@@ -24,6 +24,7 @@ julia --project=verification verification/plasma-echo.jl
 julia --project=verification verification/bgk-equilibrium.jl
 julia --project=verification verification/collisional-damping.jl
 julia --project=verification verification/wakefield.jl
+julia --project=verification verification/laser-foil.jl
 julia --project=verification verification/scheme-comparison.jl
 ```
 
@@ -41,6 +42,8 @@ julia --project=verification verification/scheme-comparison.jl
 * `collisional-damping.jl`: `BGK` in the loop, against its own dispersion
   relation.
 * `wakefield.jl`: a laser driving a plasma wave, against linear theory.
+* `laser-foil.jl`: the relativistic Vlasov–Maxwell solver on a laser and a thin
+  foil: the pulse in vacuum, Fresnel in the linear regime, the energy budget.
 * `scheme-comparison.jl`: the advection schemes ranked on the Landau rate and on
   positivity. It is advisory and exits 0.
 
@@ -686,6 +689,83 @@ order `p⊥²`, 3.2% at `a₀ = 0.3`. `test/test_em_plasma.jl` holds the transve
 half alone to the plasma's discrete dispersion relation, to 3.2e-4 over two
 densities, three Courant numbers and four wavenumbers, with its cutoff and the
 sign of its current. See the docstring on `wakefield`.
+
+### The relativistic laser and foil
+
+`VlasovMaxwell1D1P` is held to what can be known about it without itself, on
+the problem it was written for: a plane pulse of `a₀ = 20`, 11 fs FWHM at
+0.8 µm, entering at x = −20 µm, on a foil of 40 n_c and 1 keV with C⁶⁺ ions,
+`f` kept on [−5, 10] µm, the field on [−20, 15] µm between absorbing layers
+(`laser_foil` in `test/vm_harness.jl`; study `verification/laser-foil.jl`). The
+transmittance and reflectance are the energies of `F = (E_y + B_z)/2` over
+[1, 15] µm and of `G = (E_y − B_z)/2` over [−20, −1] µm at t = 110.4 fs, over
+the incident energy of a vacuum run at 60 fs. The rows are asserted in
+`test/test_vlasov_maxwell.jl`, the vacuum, Fresnel and budget ones in its
+extended block.
+
+| claim | asserted | measured |
+|---|---|---|
+| the pulse arrives as the formula sends it | energy within 5e-4 of `∫F²dt`, FWHM within 0.01 fs of 11 fs, peak at x = 0 within 0.02 fs of 85.4 fs | −1.3e-4; 10.9991 fs; −0.007 fs |
+| and travels without loss | ∫F² over [1, 15] µm at 110.4 fs within 1e-4 of the incident energy (step 10 asks 5e-3) | −2.1e-6 |
+| the one-way source and the layers | ∫G² at 110.4 fs under 1e-8 of it; the right layer returns under 1e-10 | 8.5e-10; 2.3e-13 |
+| a linear foil reflects and transmits as its own profile does | R within 0.4% and T within 2% of Fresnel's layer stack of the electrons' profile, averaged over the pulse, for 10, 30, 90 nm | R +0.16%, +0.24%, +0.25%; T +0.36%, +0.49%, +1.0% |
+| and a surface coming at the pulse returns more than it got | 0 ≤ R + T − 1 ≤ 2v of the n_c front | 2.0e-3, 2.4e-3, 2.5e-3 against 4.2e-3, 4.3e-3, 4.4e-3 |
+| the nonlinear budget closes | at a₀ = 20, ξ = 0.972 and 4 nm the field, kinetic, lost and outgoing energy are what came in to 0.5% | balance 0.99693, residual −3.1e-3 |
+| charge | particles conserved to 1e-12 of themselves, counting what left; Gauss's law to round-off | 1.1e-14; 3e-12 of max Eₓ |
+| a Coulomb explosion | energy within 1e-3 while the field falls to 0.41 of the start | −1.4e-4 |
+| the step | allocates nothing; Float32 data run in Float32; chunks leave the answer to the bit | 0 bytes; 2e-6 mass drift in Float32 |
+
+**The pulse in vacuum.** `Yee1D`'s one-way source launches minus the function it
+is given, 1.2 cells ahead of it and 1.1e-4 low in amplitude, at 400 cells per
+wavelength and a Courant number of 0.937 (`Δt = 6.25` as, 16 steps per 0.1 fs,
+so that every output time of the study is a step). The phase the pulse
+accumulates over 20 µm against the formula delayed by the flight is 0.0185 rad,
+the source's 1.2 cells; Yee's dispersion relation, `sin(kΔx/2)/Δx =
+sin(ωΔt/2)/Δt`, predicts −2.0e-4 rad of it at this resolution.
+
+**Fresnel.** At `a₀ = 10⁻³` the foil is a cold dielectric with `ε = 1 − n/n_c`,
+but it does not stay the layer it was set up as. With the ions free, it expands
+for the 85 fs before the pulse's peak: the 10 nm foil to several times its
+thickness, so that it reflects 0.823 where the layer would 0.728. Fresnel's
+layer stack of the electrons' own profile, every 2 fs across the pulse and
+weighted by its intensity, accounts for that: the run is within 0.25% of it in R
+and 1% in T at all three thicknesses, and R + T exceeds 1 by 2.0e-3 to 2.5e-3,
+which a front at n_c coming at the pulse at 2.1e-3 c, measured, Doppler-shifts
+back to it. With the ions fixed and the electrons at 10 eV the profile should
+hold, and does not at 2 nm: the electrons at the foil's surfaces heat (below),
+and the 10 nm foil reflects 0.773. At 1 nm it reflects 0.741, T of the 30 and
+90 nm foils is 3.8% and 1.8% under the layer's, and the profile stack is met to
+0.13% in R and 0.4% in T. Those runs and a 0.5 nm set are in
+`D:\compton\followup\step10\vasilek\_look\fresnel*.txt` of the study that
+measured them; the test runs the free-ion set.
+
+**The unresolved sheath heats.** A foil at rest on fixed ions keeps its bulk
+temperature on any grid tried, but its surfaces heat where the grid does not
+resolve the Debye length, as a particle code's do: at 10 eV and 40 n_c
+(`λ_D = 0.09` nm) the first 50 nm reach 180 eV in 20 fs at 2 nm and 17 eV at
+0.5 nm; at 1 keV (`λ_D = 0.9` nm) and 2 nm they reach 1.11 keV and stay there.
+The flux-form `x` sweep carries the charge across a face at the upwind cell's
+rate while the momentum sweep pushes each cell with the mean of its two faces'
+fields, so the work the field does and the energy it loses differ by the
+sheath's unresolved structure; a resolved sheath closes the gap. The 10 eV
+foil of 10 nm, all surface, heats to 7 keV by 60 fs at 2 nm.
+
+**The budget.** Between the two probes, two cells inside the absorbing layers,
+the transverse field, `Eₓ`, the particles' kinetic energy, what they carried out
+of the grid of `f` and what the field carried out of the box add up to what came
+in through the left probe to 0.13% at 2 nm (0.31% at 4 nm), and to the incident
+energy of the vacuum run to 0.2%. Across the step-10 series, ξ from 0.3 to 1.5,
+the balance is 0.9985 to 0.9995. The splitting of a relativistic Vlasov–Maxwell
+system was found unstable by Huot et al. (J. Comput. Phys. 185, 512, 2003); the
+conservative form here, whose two sub-flows' compressions cancel on the grid,
+shows no sign of it in these runs.
+
+**Against the C++ code it ports.** `korzhimanov/vlasov-solver`, built from its
+repository, on a case its uniform momentum grid can afford: `a₀ = 2`, 4 n_c,
+100 nm, 6.25 nm cells, fixed ions. It gives T = 0.657, R = 0.326 where this
+module gives 0.644 and 0.335, with first-order splitting, a Courant number of 1
+and the electron density profiles at 67 fs on top of each other over four
+decades.
 
 ### The scheme comparison
 

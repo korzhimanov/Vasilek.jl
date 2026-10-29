@@ -55,6 +55,9 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Added
 
+- **`VlasovMaxwell`, relativistic 1D1P Vlasov–Maxwell** for any number of species with the
+  transverse canonical momentum conserved, the laser through `Yee1D`, `Eₓ` by Ampère from
+  the face fluxes (Gauss exact). Verification page, "The relativistic laser and foil".
 - **`CLAUDE.md` and a SessionStart hook for Claude Code cloud sessions**: the
   commands and the rules for changes; `.claude/hooks/session-start.sh` installs
   the latest Julia through `juliaup` and instantiates every environment.
