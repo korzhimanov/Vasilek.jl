@@ -66,14 +66,17 @@ below `cut` times a species' initial maximum are set to zero after each
 momentum sweep, and their mass counted; with `cut = 1e-13` it was 3e-7 of the
 electrons in the transparency study's reference run.
 
-`step!` allocates nothing on one thread. With more, it spreads each sweep over
-the threads in contiguous chunks, `4 Threads.nthreads()` by default and taken
-dynamically; the result does not depend on their number.
+`step!` allocates nothing on one thread, where the chunks below run one after
+another. With more, it spreads each sweep over the threads in contiguous
+chunks, `4 Threads.nthreads()` by default and taken dynamically. The result
+does not depend on their number: every sum across chunks -- the charge
+through a face, what left the grid, what was flushed -- is added in an order
+fixed by the grid, not by the chunks.
 """
 module VlasovMaxwell1D1P
 
 using ..FDTD1D: YeeMesh1D, Yee1D, PML, advance!
-using ..Advection: slope_limit
+using ..Advection: slope_limit, _nu_ϵ⁺, _nu_ϵ⁻
 
 export Species, momentum_edges, maxwellian, VlasovMaxwell, PFCScheme, SplineScheme,
        step!, density, density!, distribution, support, kinetic_energy, field_energy,
@@ -208,7 +211,9 @@ whose support may be non-empty, `glo:ghi` those of `g`.
 momentum is one square root; `w` holds each cell's two sums `Σ f Δp/γ`
 towards its faces, the current's raw material, for the cells `wlo:whi`. The
 accumulators count, in `n_c·(c/ω₀)` and `n_c mₑc²·(c/ω₀)`, what left through
-the ends of `x` and of `p`, and what was flushed below `cut`.
+the ends of `x` and of `p`, and what was flushed below `cut`; `pacc` holds the
+last momentum sweep's share of the last three for each cell, summed in the
+cells' order so that the sum does not depend on how the threads split them.
 """
 mutable struct SpeciesState{T<:AbstractFloat}
     const name::Symbol
@@ -236,6 +241,7 @@ mutable struct SpeciesState{T<:AbstractFloat}
     gjhi::Vector{Int}
     const A2::Vector{T}
     const w::Matrix{T}
+    const pacc::Matrix{T}    # [lost_p, lost_p_energy, flushed] of each cell's last p sweep
     lo::Int
     hi::Int
     glo::Int
@@ -258,17 +264,21 @@ struct ChunkBuffers{T<:AbstractFloat}
     tmp::Vector{T}
     tmp2::Vector{T}
     xpiv::Vector{T}
-    jx::Vector{T}
-    acc::Vector{T}
+    acc::Vector{T}       # what left through the left end of x, its energy; the right end
     rng::Vector{Int}     # the rows Φa and Φb hold: (alo, ahi, blo, bhi)
 end
 
 function ChunkBuffers{T}(np, nf) where {T}
     L = max(np, nf) + 5
     return ChunkBuffers{T}(zeros(T, np + 1), zeros(T, np + 1), zeros(T, L), zeros(T, L),
-                           zeros(T, L), zeros(T, L), zeros(T, L), zeros(T, L), zeros(T, nf),
-                           zeros(T, 6), [1, 0, 1, 0])
+                           zeros(T, L), zeros(T, L), zeros(T, L), zeros(T, L),
+                           zeros(T, 4), [1, 0, 1, 0])
 end
+
+# The rows of the spline sweep in `x` go in blocks of this many, whose sums
+# through each face are added in the blocks' order: the same however the
+# blocks are shared among the threads.
+const XBLOCK = 16
 
 """
     VlasovMaxwell(; Δx, Δt, N, x_min, pml, source, plasma_cells, species,
@@ -281,15 +291,17 @@ The state of a run, at `t = 0`, ready for [`step!`](@ref).
     first node at `x_min`, and its operator, [`Yee1D`](@ref
     Vasilek.FDTD1D.Yee1D); the source is injected one-way at node `pml.N + 2`,
     and launches a wave of **minus** its value.
-  * `plasma_cells`: the Yee cells `f` lives on, inside both absorbing layers.
-    What crosses their outer faces is removed and counted.
+  * `plasma_cells`: the Yee cells `f` lives on, every face of them an interior
+    node `pml.N + 2 : N − pml.N`, clear of both absorbing layers. What crosses
+    their outer faces is removed and counted.
   * `species`: [`Species`](@ref) over those cells.
   * `cut`: values of `f` below `cut` times the species' initial maximum are
     set to zero after each momentum sweep, and counted, so that the cells a
     run works on are those the plasma has reached rather than those its
     exponentially small tails have.
-  * `probes`: the two nodes the energy flux is integrated at, for
-    [`energy_account`](@ref).
+  * `probes`: the two nodes `(kL, kR)` the energy flux is integrated at, for
+    [`energy_account`](@ref): `pml.N + 4 ≤ kL`, past the source's cell, and
+    ahead of the plasma's first face; behind its last face, `kR ≤ N − pml.N`.
 
 `E_y`, `B_z`, `a` and `Eₓ` start at zero, `Eₓ` then integrated from the
 plasma's charge, so a non-neutral start has its field.
@@ -311,6 +323,8 @@ mutable struct VlasovMaxwell{T<:AbstractFloat, OP<:Yee1D, S}
     const hprev::Vector{T}
     const chunks::Int
     const bufs::Vector{ChunkBuffers{T}}
+    const xflux::Matrix{T}   # SplineScheme: [face, block] the charge through it, per block of rows
+    const xlost::Matrix{T}   # and [the two ends' particles and energy, block]
     const kL::Int
     const kR::Int
     n::Int
@@ -327,10 +341,21 @@ function VlasovMaxwell(; Δx, Δt, N, x_min, pml::PML, source, plasma_cells::Abs
     op = Yee1D(; Δx = T(Δx), Δt = T(Δt), source, x_min = T(x_min), pml)
     mesh = YeeMesh1D{T}(N)
     k0, Nc = first(plasma_cells), length(plasma_cells)
-    k0 ≥ pml.N + 2 && k0 + Nc ≤ N - pml.N + 1 || throw(ArgumentError(
+    # every face of the plasma an interior node, `pml.N + 2 : N - pml.N`, where
+    # Yee's update has no absorption
+    k0 ≥ pml.N + 2 && k0 + Nc ≤ N - pml.N || throw(ArgumentError(
         "plasma cells $plasma_cells reach into an absorbing layer of $(pml.N) cells " *
-        "on a grid of $N"))
+        "on a grid of $N: their faces must be among the interior nodes " *
+        "$(pml.N + 2):$(N - pml.N)"))
     chunks ≥ 1 || throw(ArgumentError("chunks = $chunks"))
+    # The probes: the left one past the source's cell `pml.N + 2`, which its
+    # `B_z` reads, and ahead of the plasma, so that it sees the incident and the
+    # reflected waves apart; the right one behind the plasma and inside the
+    # interior. Between them lies all the plasma, which the budget counts.
+    kL, kR = probes
+    pml.N + 4 ≤ kL < k0 && k0 + Nc < kR ≤ N - pml.N || throw(ArgumentError(
+        "probes $probes: need $(pml.N + 4) ≤ kL < $k0, the plasma's first face, and " *
+        "$(k0 + Nc), its last face, < kR ≤ $(N - pml.N)"))
     sp = SpeciesState{T}[]
     for s in species
         size(s.f, 2) == Nc || throw(DimensionMismatch(
@@ -339,10 +364,11 @@ function VlasovMaxwell(; Δx, Δt, N, x_min, pml::PML, source, plasma_cells::Abs
     end
     np = maximum(length(s.pc) for s in sp; init = 3)
     bufs = [ChunkBuffers{T}(np, Nc + 1) for _ in 1:chunks]
-    kL, kR = probes
+    nblk = scheme isa SplineScheme ? cld(np, XBLOCK) : 0
     vm = VlasovMaxwell{T, typeof(op), typeof(scheme)}(mesh, op, scheme, T(Δx), T(Δt), T(x_min),
             k0, Nc, sp, zeros(T, Nc + 1), zeros(T, Nc + 1), zeros(T, N + 1), zeros(T, N + 1),
-            zeros(T, N), chunks, bufs, kL, kR, 0, zero(T), zero(T), zero(T), zero(T))
+            zeros(T, N), chunks, bufs, zeros(T, Nc + 1, nblk), zeros(T, 4, nblk), kL, kR, 0,
+            zero(T), zero(T), zero(T), zero(T))
     _gauss!(vm)
     return vm
 end
@@ -380,7 +406,8 @@ function _species_state(::Type{T}, s::Species, Nc, cut) where {T}
     k0 === nothing && throw(ArgumentError("species $(s.name): the momentum grid needs an edge at 0"))
     return SpeciesState{T}(s.name, q, m, q/m, pe, pc, Δp, 1 ./ Δp, pe.^2, pc.^2, ξ, r3, r2p, r2m, k0,
         fmax, T(cut)*fmax, f, zeros(T, np, Nc + 4), jlo, jhi, fill(np + 1, Nc + 4),
-        zeros(Int, Nc + 4), zeros(T, Nc + 1), zeros(T, 2, Nc), lo, hi, 1, 0, 1, 0,
+        zeros(Int, Nc + 4), zeros(T, Nc + 1), zeros(T, 2, Nc), zeros(T, 3, Nc), lo, hi,
+        1, 0, 1, 0,
         zero(T), zero(T), zero(T), zero(T), zero(T))
 end
 
@@ -416,11 +443,12 @@ end
     return start:(start + q - 1 + (k ≤ rem ? 1 : 0))
 end
 
-# `body(k, range)` over the chunks of `r`, on the threads when there is more
-# than one chunk and enough work for them; serially, and without allocating,
-# otherwise. The chunks are the same whichever way they run, so the answer is.
+# `body(k, range)` over the chunks of `r`, on the threads when there are more
+# than one of each and enough work for them; serially, and without allocating,
+# otherwise -- one thread included, whatever the number of chunks, since
+# spawning the tasks allocates. The chunks are the same whichever way they run.
 @inline function _chunked(body::F, r::UnitRange{Int}, n::Int) where {F}
-    if n == 1 || length(r) < 4n
+    if n == 1 || Threads.nthreads() == 1 || length(r) < 4n
         for k in 1:min(n, max(length(r), 1))
             body(k, _chunk(r, k, min(n, max(length(r), 1))))
         end
@@ -482,22 +510,16 @@ end
 # --------------------------------------------------- the PFC reconstruction
 
 # The limited slopes of the PFC reconstruction towards the right neighbour `g`
-# (`ϵ⁺`) and from the left one (`ϵ⁻`). As `_nu_ϵ⁺`/`_nu_ϵ⁻` in the advection
-# module, the lower bound 0, but with the room to the upper bound taken as zero
-# where a cell is already past it: a split sweep of a compressible flow can
-# lift a cell average over the initial maximum, and the unguarded limiter then
-# turned the slope round.
-@inline function _ϵr(f, g, ξ, hi)
-    f < g ? min(g - f, ξ*max(f, zero(f))) : max(g - f, -ξ*max(hi - f, zero(f)))
-end
-@inline function _ϵl(f, g, ξ, hi)
-    f < g ? max(f - g, -ξ*max(f, zero(f))) : min(f - g, ξ*max(hi - f, zero(f)))
-end
+# (`ϵ⁺`) and from the left one (`ϵ⁻`), between 0 and `hi`: those of
+# `PFCNonUniform`, which give a cell past `hi` no room above it, as a split
+# sweep of a compressible flow can lift an average over the initial maximum.
+@inline _ϵr(f, g, ξ, hi) = _nu_ϵ⁺(f, g, ξ, zero(f), hi)
+@inline _ϵl(f, g, ξ, hi) = _nu_ϵ⁻(f, g, ξ, zero(f), hi)
 
 # The mass in the rightmost `α` of a cell (`0 ≤ α ≤ d₀`), on a non-uniform grid
 # of widths `d₋, d₀, d₊`: `PFCNonUniform`'s outgoing flux through a right face,
 # with the width sums' reciprocals `r3 = 1/(d₋+d₀+d₊)`, `r2p = 1/(d₀+d₊)`,
-# `r2m = 1/(d₋+d₀)` given.
+# `r2m = 1/(d₋+d₀)` given: `_nuΦ⁺` with the reciprocals taken once per grid.
 @inline _right_mass(α, f₋, f₀, f₊, d₋, d₀, d₊, ξ, hi, r3, r2p, r2m) =
     α*(f₀ + (d₀ - α)*r3*(_ϵr(f₀, f₊, ξ, hi)*r2p*(d₀ + d₋ - α) +
                          _ϵl(f₀, f₋, ξ, hi)*r2m*(d₊ + α)))
@@ -591,10 +613,13 @@ function _xsweep_pfc!(vm::VlasovMaxwell{T}, s::SpeciesState{T}, h) where {T}
     _chunked(c1:c2, vm.chunks) do k, r
         _xchunk!(vm.bufs[k], s, vm.ex, r, c2, λ, vm.Δx, Nc)
     end
+    # each end is one chunk's, the others' zero: the sums are exact
+    nl = εl = nr = εr = zero(T)
     for b in vm.bufs
-        s.lost_x += b.acc[1]
-        s.lost_x_energy += b.acc[2]
+        nl += b.acc[1]; εl += b.acc[2]; nr += b.acc[3]; εr += b.acc[4]
     end
+    s.lost_x += nl + nr
+    s.lost_x_energy += εl + εr
     _swap!(s, c1, c2)
     return nothing
 end
@@ -685,8 +710,9 @@ end
         @inbounds for j in lo:hi
             ε += abs(Φ[j])*Δp[j]*_γm1(s.pc2[j] + A2)
         end
-        acc[1] += abs(n)*Δx
-        acc[2] += s.m*ε*Δx
+        i = e == 1 ? 1 : 3
+        acc[i] += abs(n)*Δx
+        acc[i+1] += s.m*ε*Δx
     end
     return nothing
 end
@@ -711,9 +737,6 @@ are taken before and after.
 function psweep!(vm::VlasovMaxwell{T}, s::SpeciesState{T}, Δt) where {T}
     s.wlo, s.whi = s.lo, s.hi
     s.lo > s.hi && return nothing
-    for b in vm.bufs
-        fill!(b.acc, zero(T))
-    end
     iΔx = 1/vm.Δx
     _chunked(s.lo:s.hi, vm.chunks) do k, r
         buf = vm.bufs[k]
@@ -721,11 +744,13 @@ function psweep!(vm::VlasovMaxwell{T}, s::SpeciesState{T}, Δt) where {T}
             _pcolumn!(vm.scheme, buf, s, vm.ex, c, T(Δt), iΔx, vm.Δx)
         end
     end
-    for b in vm.bufs
-        s.lost_p += b.acc[3]
-        s.lost_p_energy += b.acc[4]
-        s.flushed += b.acc[5]
+    n = ε = fl = zero(T)
+    @inbounds for c in s.lo:s.hi
+        n += s.pacc[1, c]; ε += s.pacc[2, c]; fl += s.pacc[3, c]
     end
+    s.lost_p += n
+    s.lost_p_energy += ε
+    s.flushed += fl
     _swap!(s, s.lo, s.hi)
     return nothing
 end
@@ -782,7 +807,10 @@ end
     return wl, wr
 end
 
-function _pcolumn!(::PFCScheme, buf, s::SpeciesState{T}, ex, c, Δt, iΔx, Δx) where {T}
+# The momentum sweep of column `c`, either scheme: the mass below each foot
+# that falls inside the support is the scheme's (`_mass_below`), below it 0
+# and above it the column's total, the column being zero outside its support.
+function _pcolumn!(scheme, buf, s::SpeciesState{T}, ex, c, Δt, iΔx, Δx) where {T}
     f, g = s.f, s.g
     col = c + 2
     jlo, jhi = s.jlo[col], s.jhi[col]
@@ -790,13 +818,13 @@ function _pcolumn!(::PFCScheme, buf, s::SpeciesState{T}, ex, c, Δt, iΔx, Δx) 
     A2l, A2r = s.A2[c], s.A2[c+1]
     if jlo > jhi
         s.w[1, c] = s.w[2, c] = zero(T)
+        s.pacc[1, c] = s.pacc[2, c] = s.pacc[3, c] = zero(T)
         _clear_outside!(g, col, s.gjlo[col], s.gjhi[col], 1, 0)
         s.gjlo[col], s.gjhi[col] = np + 1, 0
         return nothing
     end
-    pe, Δp, ξ = s.pe, s.Δp, s.ξ
+    pe, Δp = s.pe, s.Δp
     C, M = buf.C, buf.M
-    hi = s.fmax
     E = s.κ*(ex[c] + ex[c+1])/2
     # C[e] the mass below edge e, for the edges of the support
     C[jlo] = zero(T)
@@ -804,6 +832,7 @@ function _pcolumn!(::PFCScheme, buf, s::SpeciesState{T}, ex, c, Δt, iΔx, Δx) 
         C[j+1] = C[j] + f[j, col]*Δp[j]
     end
     total = C[jhi+1]
+    _prepare!(scheme, buf, s, jlo, jhi, total)
     ea, eb = _bracket(s, E, A2l, A2r, Δt, iΔx, jlo, jhi)
     pl, ph = pe[jlo], pe[jhi+1]
     kk = jlo
@@ -820,24 +849,40 @@ function _pcolumn!(::PFCScheme, buf, s::SpeciesState{T}, ex, c, Δt, iΔx, Δx) 
             while pe[kk] > foot
                 kk -= 1
             end
-            f₀ = f[kk, col]
-            f₋ = kk > 1 ? f[kk-1, col] : zero(T)
-            f₊ = kk < np ? f[kk+1, col] : zero(T)
-            d₀ = Δp[kk]
-            d₋ = kk > 1 ? Δp[kk-1] : d₀
-            d₊ = kk < np ? Δp[kk+1] : d₀
-            M[e] = C[kk+1] - _right_mass(pe[kk+1] - foot, f₋, f₀, f₊, d₋, d₀, d₊, ξ[kk], hi,
-                                         s.r3[kk], s.r2p[kk], s.r2m[kk])
+            M[e] = _mass_below(scheme, buf, s, col, foot, kk)
         end
     end
-    _pwrite!(buf, s, M, total, c, ea, eb, jlo, jhi, A2l, A2r, Δx, true)
+    _pwrite!(s, M, total, c, ea, eb, jlo, jhi, A2l, A2r, Δx, _positive(scheme))
     return nothing
+end
+
+_positive(::PFCScheme) = true
+_positive(::SplineScheme) = false
+
+_prepare!(::PFCScheme, buf, s, jlo, jhi, total) = nothing
+
+# The mass below `foot`, in cell `kk` of the support: the cumulative mass to
+# the cell's top less the reconstruction's mass above the foot in it.
+@inline function _mass_below(::PFCScheme, buf, s::SpeciesState{T}, col, foot, kk) where {T}
+    f, Δp, np = s.f, s.Δp, length(s.pc)
+    @inbounds begin
+        f₀ = f[kk, col]
+        f₋ = kk > 1 ? f[kk-1, col] : zero(T)
+        f₊ = kk < np ? f[kk+1, col] : zero(T)
+        d₀ = Δp[kk]
+        d₋ = kk > 1 ? Δp[kk-1] : d₀
+        d₊ = kk < np ? Δp[kk+1] : d₀
+        return buf.C[kk+1] - _right_mass(s.pe[kk+1] - foot, f₋, f₀, f₊, d₋, d₀, d₊, s.ξ[kk],
+                                         s.fmax, s.r3[kk], s.r2p[kk], s.r2m[kk])
+    end
 end
 
 # The new column, rows `ea:eb-1`, from the masses `M` below the feet: flushed
 # below `cut` (`positive`: everything below it, else only `|f| < cut`), the
-# current's sums completed, and what left through the momentum ends counted.
-@inline function _pwrite!(buf, s::SpeciesState{T}, M, total, c, ea, eb, jlo, jhi, A2l, A2r,
+# current's sums completed, and the column's tallies of what was flushed and
+# what left through the momentum ends, `M[ea]` below `pe[1]` and
+# `total − M[eb]` above `pe[end]`.
+@inline function _pwrite!(s::SpeciesState{T}, M, total, c, ea, eb, jlo, jhi, A2l, A2r,
                           Δx, positive) where {T}
     g, iΔp = s.g, s.iΔp
     col = c + 2
@@ -857,10 +902,13 @@ end
     s.gjlo[col], s.gjhi[col] = lo, hi
     s.w[1, c], s.w[2, c] = _wsums(s, col, jlo, jhi, lo, hi, A2l, A2r)
     below, above = M[ea], total - M[eb]
-    buf.acc[3] += (below + above)*Δx
-    # their energy, at the grid's end cells, where f is a tail if anything
-    buf.acc[4] += s.m*(below*_γm1(s.pc2[1] + A2l) + above*_γm1(s.pc2[end] + A2l))*Δx
-    buf.acc[5] += flushed*Δx
+    # their energy at the grid's end cells, where f is a tail if anything, with
+    # γ the mean of the two faces' as everywhere else
+    γlo = (_γm1(s.pc2[1] + A2l) + _γm1(s.pc2[1] + A2r))/2
+    γhi = (_γm1(s.pc2[end] + A2l) + _γm1(s.pc2[end] + A2r))/2
+    s.pacc[1, c] = (below + above)*Δx
+    s.pacc[2, c] = s.m*(below*γlo + above*γhi)*Δx
+    s.pacc[3, c] = flushed*Δx
     return nothing
 end
 
@@ -941,63 +989,46 @@ end
 end
 
 # The spline sweep in momentum: the primitive over the support and eight cells
-# either side, where it is flat, splined and differenced between the feet.
-function _pcolumn!(::SplineScheme, buf, s::SpeciesState{T}, ex, c, Δt, iΔx, Δx) where {T}
-    f, g = s.f, s.g
-    col = c + 2
-    jlo, jhi = s.jlo[col], s.jhi[col]
+# either side, where it is flat, splined; the mass below a foot inside the
+# support is the spline there. Outside it the column is zero, and the feet
+# there take 0 and the total rather than the spline's ringing, which would
+# otherwise be dropped from the column and counted as lost.
+function _prepare!(::SplineScheme, buf, s::SpeciesState{T}, jlo, jhi, total) where {T}
     np = length(s.pc)
-    A2l, A2r = s.A2[c], s.A2[c+1]
-    if jlo > jhi
-        s.w[1, c] = s.w[2, c] = zero(T)
-        _clear_outside!(g, col, s.gjlo[col], s.gjhi[col], 1, 0)
-        s.gjlo[col], s.gjhi[col] = np + 1, 0
-        return nothing
-    end
-    pe, Δp = s.pe, s.Δp
-    C, M, y2, d = buf.C, buf.M, buf.y2, buf.tmp
-    E = s.κ*(ex[c] + ex[c+1])/2
+    C = buf.C
     k1, k2 = max(1, jlo - 8), min(np + 1, jhi + 9)
-    @inbounds for k in k1:jlo
+    @inbounds for k in k1:jlo-1
         C[k] = zero(T)
     end
-    @inbounds for j in jlo:jhi
-        C[j+1] = C[j] + f[j, col]*Δp[j]
-    end
-    total = C[jhi+1]
     @inbounds for k in jhi+2:k2
         C[k] = total
     end
-    _spline_moments!(y2, d, C, Δp, k1, k2)
-    ea, eb = _bracket(s, E, A2l, A2r, Δt, iΔx, jlo, jhi)
-    kk = k1
-    pl, ph = pe[k1], pe[k2]
-    @inbounds for e in ea:eb
-        foot = _foot(s, e, E, A2l, A2r, Δt, iΔx)
-        if foot ≤ pl
-            M[e] = zero(T)
-        elseif foot ≥ ph
-            M[e] = total
-        else
-            while pe[kk+1] ≤ foot
-                kk += 1
-            end
-            while pe[kk] > foot
-                kk -= 1
-            end
-            M[e] = _spline_at(foot, pe[kk], Δp[kk], C[kk], C[kk+1], y2[kk], y2[kk+1])
-        end
-    end
-    _pwrite!(buf, s, M, total, c, ea, eb, jlo, jhi, A2l, A2r, Δx, false)
+    _spline_moments!(buf.y2, buf.tmp, C, s.Δp, k1, k2)
     return nothing
 end
+
+@inline _mass_below(::SplineScheme, buf, s, col, foot, kk) =
+    @inbounds _spline_at(foot, s.pe[kk], s.Δp[kk], buf.C[kk], buf.C[kk+1], buf.y2[kk],
+                         buf.y2[kk+1])
 
 xsweep!(vm::VlasovMaxwell{T, OP, SplineScheme}, s::SpeciesState, h) where {T, OP} =
     _xsweep_spline!(vm, s, h)
 
 # The spline sweep in `x`, row by row: each momentum row of the cells the
 # species may reach, with two empty cells either side, is gathered, its
-# primitive splined, and differenced between the feet of the faces.
+# primitive splined, and differenced between the feet of the faces. The rows go
+# in blocks of `XBLOCK`, and the charge each block moves through each face is
+# added to `Eₓ` in the blocks' order, so the answer does not depend on the
+# number of chunks.
+# The union of the supports of cells `c1:c2`.
+function _rows(s::SpeciesState, c1, c2)
+    lo, hi = length(s.pc) + 1, 0
+    @inbounds for c in c1:c2
+        lo, hi = _union(lo, hi, s.jlo[c+2], s.jhi[c+2])
+    end
+    return lo, hi
+end
+
 function _xsweep_spline!(vm::VlasovMaxwell{T}, s::SpeciesState{T}, h) where {T}
     s.lo > s.hi && return nothing
     Nc = vm.Nc
@@ -1008,58 +1039,69 @@ function _xsweep_spline!(vm::VlasovMaxwell{T}, s::SpeciesState{T}, h) where {T}
     nknot = ncell + 1
     f, g, Δp = s.f, s.g, s.Δp
     Δx = vm.Δx
-    # the rows any of them holds
-    rlo, rhi = np + 1, 0
-    for c in c1-1:c2+1
-        rlo, rhi = _union(rlo, rhi, s.jlo[c+2], s.jhi[c+2])
-    end
+    rlo, rhi = _rows(s, c1 - 1, c2 + 1)   # the rows any of them holds
     for c in c1:c2
         col = c + 2
         _clear_outside!(g, col, s.gjlo[col], s.gjhi[col], rlo, rhi)
     end
     for b in vm.bufs
-        fill!(b.acc, zero(T))
-        fill!(view(b.jx, 1:Nc+1), zero(T))
         fill!(view(b.xpiv, 1:nknot), Δx)
     end
-    _chunked(rlo:rhi, vm.chunks) do k, r
+    J, L = vm.xflux, vm.xlost
+    nb = rlo > rhi ? 0 : cld(rhi - rlo + 1, XBLOCK)
+    _chunked(1:nb, vm.chunks) do k, r
         buf = vm.bufs[k]
         C, M, y2, d, hx = buf.C, buf.M, buf.y2, buf.tmp, buf.xpiv
-        @inbounds for j in r
-            C[1] = zero(T)
-            for i in 1:ncell
-                C[i+1] = C[i] + f[j, g1 + i + 1]*Δx      # the column of cell g1+i-1
-            end
-            _spline_moments!(y2, d, C, hx, 1, nknot)
+        @inbounds for bk in r
             for e in c1:c2+1
-                A2 = s.A2[e]
-                v = (_γm1(s.pe2[j+1] + A2) - _γm1(s.pe2[j] + A2))*s.iΔp[j]
-                xk = (e - g1)*Δx                 # face e relative to knot 1
-                foot = xk - v*h
-                kk = clamp(floor(Int, foot/Δx) + 1, 1, nknot - 1)
-                Mf = _spline_at(foot, (kk - 1)*Δx, Δx, C[kk], C[kk+1], y2[kk], y2[kk+1])
-                M[e - c1 + 1] = C[e - g1 + 1] - Mf      # mass through face e, rightwards
+                J[e, bk] = zero(T)
             end
-            for c in c1:c2
-                g[j, c + 2] = f[j, c + 2] + (M[c - c1 + 1] - M[c - c1 + 2])/Δx
+            for i in 1:4
+                L[i, bk] = zero(T)
             end
-            for e in c1:c2+1
-                Φ = M[e - c1 + 1]
-                buf.jx[e] += Φ*Δp[j]
-                if e == 1 || e == Nc + 1
-                    buf.acc[1] += abs(Φ)*Δp[j]
-                    buf.acc[2] += s.m*abs(Φ)*Δp[j]*_γm1(s.pc2[j] + s.A2[e])
+            for j in rlo+(bk-1)*XBLOCK:min(rlo + bk*XBLOCK - 1, rhi)
+                C[1] = zero(T)
+                for i in 1:ncell
+                    C[i+1] = C[i] + f[j, g1 + i + 1]*Δx      # the column of cell g1+i-1
+                end
+                _spline_moments!(y2, d, C, hx, 1, nknot)
+                for e in c1:c2+1
+                    A2 = s.A2[e]
+                    v = (_γm1(s.pe2[j+1] + A2) - _γm1(s.pe2[j] + A2))*s.iΔp[j]
+                    xk = (e - g1)*Δx                 # face e relative to knot 1
+                    foot = xk - v*h
+                    kk = clamp(floor(Int, foot/Δx) + 1, 1, nknot - 1)
+                    Mf = _spline_at(foot, (kk - 1)*Δx, Δx, C[kk], C[kk+1], y2[kk], y2[kk+1])
+                    M[e - c1 + 1] = C[e - g1 + 1] - Mf      # mass through face e, rightwards
+                end
+                for c in c1:c2
+                    g[j, c + 2] = f[j, c + 2] + (M[c - c1 + 1] - M[c - c1 + 2])/Δx
+                end
+                for e in c1:c2+1
+                    Φ = M[e - c1 + 1]
+                    J[e, bk] += Φ*Δp[j]
+                    if e == 1 || e == Nc + 1
+                        i = e == 1 ? 1 : 3
+                        L[i, bk] += abs(Φ)*Δp[j]
+                        L[i+1, bk] += s.m*abs(Φ)*Δp[j]*_γm1(s.pc2[j] + s.A2[e])
+                    end
                 end
             end
         end
     end
-    for b in vm.bufs
-        @inbounds for e in c1:c2+1
-            vm.ex[e] -= s.q*b.jx[e]
+    @inbounds for e in c1:c2+1
+        n = zero(T)
+        for bk in 1:nb
+            n += J[e, bk]
         end
-        s.lost_x += b.acc[1]
-        s.lost_x_energy += b.acc[2]
+        vm.ex[e] -= s.q*n
     end
+    nl = εl = nr = εr = zero(T)
+    @inbounds for bk in 1:nb
+        nl += L[1, bk]; εl += L[2, bk]; nr += L[3, bk]; εr += L[4, bk]
+    end
+    s.lost_x += nl + nr
+    s.lost_x_energy += εl + εr
     for c in c1:c2
         col = c + 2
         s.gjlo[col], s.gjhi[col] = _trim(g, col, rlo, rhi)

@@ -58,6 +58,8 @@ guide `docs/src/migration-0.2.md`, or a test.
 - **`VlasovMaxwell`, relativistic 1D1P Vlasov–Maxwell** for any number of species with the
   transverse canonical momentum conserved, the laser through `Yee1D`, `Eₓ` by Ampère from
   the face fluxes (Gauss exact). Verification page, "The relativistic laser and foil".
+  A step allocates nothing on one thread at the default `chunks` and gives the same bits
+  at any number of chunks, either scheme. `test/test_allocations.jl`, `test/test_vlasov_maxwell.jl`.
 - **`CLAUDE.md` and a SessionStart hook for Claude Code cloud sessions**: the
   commands and the rules for changes; `.claude/hooks/session-start.sh` installs
   the latest Julia through `juliaup` and instantiates every environment.
@@ -357,6 +359,9 @@ guide `docs/src/migration-0.2.md`, or a test.
 
 ### Fixed
 
+- **`PFCNonUniform`'s limiter keeps a slope's sign in a cell past `fmin` or `fmax`**, where
+  it turned the slope towards the neighbour the cell should fall to; unchecked, a peak over
+  `fmax` now steps as with `fmax` at the peak. `test/test_contracts.jl`.
 - **`OnGrid` takes a grid uniform to rounding, as `make_poisson` does**, with `scale`
   for widths taken from coordinates; positional `PFC` constructors round bounds outward.
   `test/test_driver.jl`; migration guide, "Advection" and "Note on the fourth argument".

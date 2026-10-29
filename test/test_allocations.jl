@@ -1,6 +1,7 @@
 using Vasilek
 using Vasilek.Collisions: Landau1P, collide!
 using Vasilek: PoissonFourier1D, FDTD1D
+using Vasilek.VlasovMaxwell1D1P: step!, PFCScheme, SplineScheme
 
 """
 Allocation gate.
@@ -174,6 +175,36 @@ end
             println("  ", rpad("vlasov_poisson step, $name", 32), "64 × 81: ", c81, "   64 × 161: ", c161)
             @test abs(c161 - c81) ≤ 64
             @test c81 ≤ 192 + 64*64
+        end
+    end
+
+    # The Vlasov–Maxwell step, at its default number of chunks, which is four a
+    # thread: on one thread they run one after another and the step allocates
+    # nothing; on more, spawning the tasks allocates, and the serial path,
+    # `chunks = 1`, is held instead. Both schemes, both in Float64 and Float32,
+    # with the laser through the plasma so that every branch has run.
+    @testset "VlasovMaxwell step allocates nothing" begin
+        function vm_bytes(::Type{T}, scheme, chunks) where {T}
+            Δx = T(2π/200); Δt = T(0.9)*Δx
+            pml = FDTD1D.PML(; N = 30, σ_max = T(20), Δx, Δt)
+            src = (y = (t, x) -> -T(0.5)*exp(-((t - 4)/2)^2)*sin(t - 4), z = (t, x) -> zero(T))
+            e = momentum_edges(; pmin = -2.0, pmax = 2.0, Δp = 0.02, core = 0.3, ratio = 1.05,
+                               Δpmax = 0.1)
+            fe = maxwellian(e, 0.002; n = 5.0)
+            prof = [abs(c - 25) < 8 ? 1.0 : 0.0 for c in 1:50]
+            sp = [Species(:e; charge = -1, mass = 1, edges = T.(e), f = T.(fe*prof'))]
+            vm = VlasovMaxwell(; Δx, Δt, N = 300, x_min = zero(T), pml, source = src,
+                               plasma_cells = 125:174, species = sp, scheme, chunks)
+            for _ in 1:150
+                step!(vm)
+            end
+            return @allocated step!(vm)
+        end
+        chunks = Threads.nthreads() == 1 ? 4 : 1
+        for T in (Float64, Float32), scheme in (PFCScheme(), SplineScheme())
+            bytes = vm_bytes(T, scheme, chunks)
+            println("  ", rpad("VlasovMaxwell $scheme $T", 32), "chunks = $chunks: ", bytes)
+            @test bytes == 0
         end
     end
 end

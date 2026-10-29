@@ -34,12 +34,11 @@ charge_density(vm) = sum(s.q .* density(vm, i) for (i, s) in enumerate(vm.specie
         @test sum(f .* pc.^2 .* Δ)/3 ≈ θ rtol = 0.03
     end
 
-    @testset "a field-free foil: charge, Gauss's law, allocations" begin
-        vm, meta = small_foil(; a0 = 0.0, chunks = 1)
+    # `step!` allocating nothing is held in `test_allocations.jl`.
+    @testset "a field-free foil: charge, Gauss's law" begin
+        vm, meta = small_foil(; a0 = 0.0)
         N0 = [sum(density(vm, i))*vm.Δx for i in eachindex(vm.species)]
-        step!(vm)
-        @test (@allocated step!(vm)) == 0
-        for _ in 1:400
+        for _ in 1:402
             step!(vm)
         end
         for (i, s) in enumerate(vm.species)
@@ -55,15 +54,62 @@ charge_density(vm) = sum(s.q .* density(vm, i) for (i, s) in enumerate(vm.specie
         @test minimum(distribution(vm, 1)) ≥ 0
     end
 
-    @testset "chunks do not change the answer" begin
-        a = small_foil(; a0 = 2.0, ξ = 0.3, chunks = 1)[1]
-        b = small_foil(; a0 = 2.0, ξ = 0.3, chunks = 4)[1]
+    # Bit for bit, the tallies of what left the grid included: the default
+    # number of chunks follows the threads, and so would any difference.
+    @testset "chunks do not change the answer, $scheme" for scheme in (PFCScheme(), SplineScheme())
+        tallies(vm) = [(s.lost_x, s.lost_x_energy, s.lost_p, s.lost_p_energy, s.flushed)
+                       for s in vm.species]
+        a = small_foil(; a0 = 2.0, ξ = 0.3, scheme, chunks = 1)[1]
+        b = small_foil(; a0 = 2.0, ξ = 0.3, scheme, chunks = 7)[1]
         for _ in 1:300
             step!(a); step!(b)
         end
         @test distribution(a, 1) == distribution(b, 1)
         @test a.ex == b.ex
         @test a.mesh.ey == b.mesh.ey
+        @test tallies(a) == tallies(b)
+        @test any(t -> t[3] != 0 && t[5] != 0, tallies(a))    # there was something to add
+    end
+
+    @testset "the spline's momentum sweep loses nothing it holds" begin
+        # A field-free foil far from the momentum grid's ends: only the initial
+        # Maxwellian's tails, below `cut` and flushed at the first sweep, cross
+        # them (2e-21 of the electrons, 3e-18 of the ions). The spline's ringing
+        # outside a column's support was dropped and counted as lost as well:
+        # −1.9e-13 of the electrons and −8.6e-16 of the ions by 400 steps.
+        vm = small_foil(; a0 = 0.0, scheme = SplineScheme())[1]
+        N0 = [sum(density(vm, i))*vm.Δx for i in eachindex(vm.species)]
+        for _ in 1:400
+            step!(vm)
+        end
+        for (i, s) in enumerate(vm.species)
+            @test 0 ≤ s.lost_p < 1e-16*N0[i]
+            @test s.lost_p_energy ≥ 0
+        end
+    end
+
+    @testset "the plasma and the probes are placed where the budget holds" begin
+        vm, meta = small_foil(; a0 = 0.0)
+        N, npml = meta.N, meta.npml
+        build(; kw...) = VlasovMaxwell(; Δx = vm.Δx, Δt = vm.Δt, N, x_min = vm.x_min,
+                                       pml = FDTD1D.PML(; N = npml, σ_max = 1.0, Δx = vm.Δx, Δt = vm.Δt),
+                                       source = (y = (t, x) -> 0.0, z = (t, x) -> 0.0),
+                                       species = Species[], kw...)
+        # every face of the plasma an interior node, `npml + 2 : N − npml`: the
+        # last one at `N − npml + 1`, the layer's first node, is refused, and
+        # for the reason of the layer, not of the probes
+        @test_throws "absorbing layer" build(; plasma_cells = (N - npml - 20):(N - npml))
+        @test_throws "probes" build(; plasma_cells = (N - npml - 20):(N - npml - 1))
+        @test_throws "absorbing layer" build(; plasma_cells = (npml + 1):(npml + 20))
+        # the default left probe, `npml + 4`, inside a plasma that starts at the source
+        @test_throws "probes" build(; plasma_cells = (npml + 2):(npml + 20))
+        # probes past the source's cell, ahead of the plasma and behind it
+        cells = (npml + 30):(N - npml - 30)
+        @test build(; plasma_cells = cells) isa VlasovMaxwell
+        @test_throws ArgumentError build(; plasma_cells = cells, probes = (npml + 3, N - npml - 2))
+        @test_throws ArgumentError build(; plasma_cells = cells, probes = (npml + 40, N - npml - 2))
+        @test_throws ArgumentError build(; plasma_cells = cells, probes = (npml + 4, N - npml - 40))
+        @test_throws ArgumentError build(; plasma_cells = cells, probes = (npml + 4, N - npml + 1))
     end
 
     @testset "the step works in the data's type" begin
@@ -91,7 +137,6 @@ charge_density(vm) = sum(s.q .* density(vm, i) for (i, s) in enumerate(vm.specie
             @test eltype(s.f) === T && eltype(vm.mesh.ey) === T && eltype(vm.ex) === T
             @test abs(drift) < 50eps(T)*length(s.pc)          # 2e-6 in Float32, 2e-15 in Float64
             @test peak > 0.3                                  # the pulse came through
-            @test (@allocated step!(vm)) == 0
         end
     end
 

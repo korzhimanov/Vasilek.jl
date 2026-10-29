@@ -701,7 +701,7 @@ transmittance and reflectance are the energies of `F = (E_y + B_z)/2` over
 [1, 15] µm and of `G = (E_y − B_z)/2` over [−20, −1] µm at t = 110.4 fs, over
 the incident energy of a vacuum run at 60 fs. The rows are asserted in
 `test/test_vlasov_maxwell.jl`, the vacuum, Fresnel and budget ones in its
-extended block.
+extended block, and the allocations in `test/test_allocations.jl`.
 
 | claim | asserted | measured |
 |---|---|---|
@@ -713,7 +713,8 @@ extended block.
 | the nonlinear budget closes | at a₀ = 20, ξ = 0.972 and 4 nm the field, kinetic, lost and outgoing energy are what came in to 0.5% | balance 0.99693, residual −3.1e-3 |
 | charge | particles conserved to 1e-12 of themselves, counting what left; Gauss's law to round-off | 1.1e-14; 3e-12 of max Eₓ |
 | a Coulomb explosion | energy within 1e-3 while the field falls to 0.41 of the start | −1.4e-4 |
-| the step | allocates nothing; Float32 data run in Float32; chunks leave the answer to the bit | 0 bytes; 2e-6 mass drift in Float32 |
+| the step | allocates nothing at the default chunks on one thread; Float32 data run in Float32; chunks leave the answer and the tallies of what left to the bit, PFC and spline | 0 bytes; 2e-6 mass drift in Float32 |
+| what leaves through the momentum ends | the spline's ringing outside a column's support is not counted as lost | 2e-21 of the electrons and 3e-18 of the ions, the initial tails, against −1.9e-13 and −8.6e-16 before |
 
 **The pulse in vacuum.** `Yee1D`'s one-way source launches minus the function it
 is given, 1.2 cells ahead of it and 1.1e-4 low in amplitude, at 400 cells per
