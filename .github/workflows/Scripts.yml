@@ -18,6 +18,7 @@ on:
       - 'verification/**'
       - 'benchmark/**'
       - 'test/verification_harness.jl'
+      - 'test/vm_harness.jl'
       - 'test/dispersion.jl'
       - 'test/echo.jl'
       - 'test/scheme_cases.jl'

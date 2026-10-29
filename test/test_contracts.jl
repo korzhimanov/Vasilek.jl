@@ -237,6 +237,22 @@ end
 # of its peak away from itself by t = 50 without an error. The same tests as
 # `PFC`'s above, on the same data and at the same Courant number -- the fourth
 # argument here is a displacement, and 0.02 over cells of 0.05 is 0.4.
+# The limited slopes keep the sign of the difference they limit, or vanish,
+# whatever the cell's average: a split sweep of a compressing flow lifts
+# averages over `fmax` (VlasovMaxwell1D1P runs unchecked against its initial
+# maximum), and `-ξ*(fmax - f)` then turned the slope round, towards the
+# neighbour it should have fallen to.
+@testset "PFCNonUniform slopes keep their sign out of bounds" begin
+    ϵ⁺, ϵ⁻ = Vasilek.Advection._nu_ϵ⁺, Vasilek.Advection._nu_ϵ⁻
+    vals = (-0.5, 0.0, 0.3, 1.0, 1.7, 2.0, 3.5)
+    for f in vals, g in vals, ξ in (0.5, 2.0)
+        @test ϵ⁺(f, g, ξ, 0.0, 2.0)*(g - f) ≥ 0
+        @test ϵ⁻(f, g, ξ, 0.0, 2.0)*(f - g) ≥ 0
+    end
+    # a cell over `fmax` beside lower neighbours sends out its upwind flux
+    @test Vasilek.Advection._nuΦ⁺(0.3, 1.4, 5.0, 1.4, 1.0, 1.0, 1.0, 2.0, 0.0, 2.0) == 0.3*5.0
+end
+
 @testset "PFCNonUniform bounds check" begin
     N = 64
     f = [1.0 + 0.5*sin(2π*(i-1)/N) for i = 1:N]      # ranges over [0.5, 1.5]
@@ -273,16 +289,17 @@ end
             @test march!(f, scheme(checked = true), α, 4) == march!(f, scheme(checked = false), α, 4)
         end
 
-        # On data outside the bounds it does not throw, and the answer it gives
-        # instead does not look wrong: one step from a peak of 5 against
-        # `fmax = 2` lands 0.048 from the same step bounded at 5 -- 0.37 after
-        # four -- and conserves mass to round-off, so a mass check downstream
-        # would pass it.
+        # On data outside the bounds it does not throw. The limiter gives a cell
+        # past `fmax` no room above it, as `fmax` at the cell's own value does,
+        # so one step from a peak of 5 against `fmax = 2` lands where the same
+        # step bounded at 5 does. Before that guard the slope turned round and
+        # it landed 0.048 away (0.37 after four steps), conserving mass all the
+        # same.
         over = copy(f); over[10] = 5.0
-        wrong = march!(over, scheme(checked = false), 0.02, 1)
-        right = march!(over, PFCNonUniform(Δx; fmin = 0.0, fmax = 5.0), 0.02, 1)
-        @test maximum(abs, wrong .- right) > 0.01
-        @test sum(wrong) ≈ sum(over) rtol = 1e-13
+        unchecked = march!(over, scheme(checked = false), 0.02, 1)
+        bounded = march!(over, PFCNonUniform(Δx; fmin = 0.0, fmax = 5.0), 0.02, 1)
+        @test unchecked == bounded
+        @test sum(unchecked) ≈ sum(over) rtol = 1e-13
     end
 
     @testset "the flag is a type parameter, and construction still infers" begin

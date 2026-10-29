@@ -13,6 +13,8 @@ As for now, the following functionality has been implemented:
   electrostatic driver (optionally with a collision operator)
 * 1D Poisson Fourier solver
 * 1D FDTD Maxwell solver with PML
+* `VlasovMaxwell`, relativistic 1D1P Vlasov–Maxwell for any number of species,
+  driven by a laser through the FDTD solver
 * BGK collision operator
 
 ## In this manual

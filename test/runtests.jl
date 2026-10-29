@@ -11,7 +11,8 @@ using LinearAlgebra
 const TEST_FILES = ["aqua", "readme", "docs", "dispersion", "golden", "amplification",
                     "convergence", "comparison", "invariants", "symmetry", "contracts",
                     "threading", "allocations", "driver", "harness", "verification",
-                    "maxwell_solvers", "em_plasma", "vlasov_solvers", "boltzmann_solvers"]
+                    "maxwell_solvers", "em_plasma", "vlasov_solvers", "boltzmann_solvers",
+                    "vlasov_maxwell"]
 
 const SELECTED_TESTS = Set(ARGS)
 let unknown = setdiff(SELECTED_TESTS, TEST_FILES)

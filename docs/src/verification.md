@@ -24,6 +24,7 @@ julia --project=verification verification/plasma-echo.jl
 julia --project=verification verification/bgk-equilibrium.jl
 julia --project=verification verification/collisional-damping.jl
 julia --project=verification verification/wakefield.jl
+julia --project=verification verification/laser-foil.jl
 julia --project=verification verification/scheme-comparison.jl
 ```
 
@@ -41,6 +42,8 @@ julia --project=verification verification/scheme-comparison.jl
 * `collisional-damping.jl`: `BGK` in the loop, against its own dispersion
   relation.
 * `wakefield.jl`: a laser driving a plasma wave, against linear theory.
+* `laser-foil.jl`: the relativistic Vlasov–Maxwell solver on a laser and a thin
+  foil: the pulse in vacuum, Fresnel in the linear regime, the energy budget.
 * `scheme-comparison.jl`: the advection schemes ranked on the Landau rate and on
   positivity. It is advisory and exits 0.
 
@@ -110,8 +113,8 @@ the collisional relation, in `test/test_dispersion.jl`, which run in a default
 | and what moves it is the scheme | L² falls and entropy rises; f and field converge at third order, 5× and 4× per halving | 7.6×, 6.1× |
 | with a kink in F on the separatrix, the error sits on it | the worst cell within one of the separatrix at two resolutions, converging at first order | on it both times, 1.75× |
 | and the equilibrium is this one | ions built on the Poisson sign the docs used to give hold the reversed field; a potential 10% off the ions' drifts 10× more | E/E₀ = −1.000, 16%; 24×, 27× |
-| a trapped population above f = 1 holds too | within 3% of its peak, now that PFC's bound comes from f₀ | 0.99%, against 43.6% at the old bound |
-| and the old bound is refused rather than run | at fmax = 1 a checked `PFCNonUniform` is refused before the first step; unchecked, it takes f over 30% of its peak away | before the first step; 43.6% |
+| a trapped population above f = 1 holds too | within 3% of its peak, now that PFC's bound comes from f₀ | 0.99%, against 20.8% at the old bound (43.6% before the limiter's guard) |
+| and the old bound is refused rather than run | at fmax = 1 a checked `PFCNonUniform` is refused before the first step; unchecked, it takes f over 15% of its peak away | before the first step; 20.8% |
 | plasma oscillation frequency | ω within 0.2% of Bohm–Gross √(1+3k²), and the cold ωₚ excluded | 0.018%, against 0.57% for cold |
 | nor does that frequency depend on its window | two windows agree within 0.2% | 0.006% |
 | two-stream growth rate, kv₀ = 0.4, 0.6, 0.8 | γ within 3% of the warm kinetic root, and the peak in the right place | 0.63%, 1.95%, 0.09% |
@@ -305,7 +308,10 @@ harness once bounded PFC by. Bounded by `f₀`, as every run now is, it holds to
 turned inside out and took `f` 43.6% of its peak away, without an error.
 `PFCNonUniform` now checks its data as PFC does, and `vlasov_poisson` refuses a
 checked one whose bounds do not hold `f₀` before the first step; built
-unchecked, it reproduces the 43.6%, and the extended suite asserts both. Over
+unchecked, it ran to the same 43.6% until the limiter stopped turning a slope
+round in a cell past `fmax`; it now takes `f` 20.8% away, the bound still
+clipping every slope that would rise towards the peak, and the extended suite
+asserts both. Over
 the two-stream runs carried into saturation and the three equilibria, 3.8
 million calls of the checked schemes stay inside their bounds, sub-steps
 included.
@@ -686,6 +692,99 @@ order `p⊥²`, 3.2% at `a₀ = 0.3`. `test/test_em_plasma.jl` holds the transve
 half alone to the plasma's discrete dispersion relation, to 3.2e-4 over two
 densities, three Courant numbers and four wavenumbers, with its cutoff and the
 sign of its current. See the docstring on `wakefield`.
+
+### The relativistic laser and foil
+
+`VlasovMaxwell1D1P` is held to what can be known about it without itself, on
+the problem it was written for: a plane pulse of `a₀ = 20`, 11 fs FWHM at
+0.8 µm, entering at x = −20 µm, on a foil of 40 n_c and 1 keV with C⁶⁺ ions,
+`f` kept on [−5, 10] µm, the field on [−20, 15] µm between absorbing layers
+(`laser_foil` in `test/vm_harness.jl`; study `verification/laser-foil.jl`). The
+transmittance and reflectance are the energies of `F = (E_y + B_z)/2` over
+[1, 15] µm and of `G = (E_y − B_z)/2` over [−20, −1] µm at t = 110.4 fs, over
+the incident energy of a vacuum run at 60 fs. The rows are asserted in
+`test/test_vlasov_maxwell.jl`, the vacuum, Fresnel and budget ones in its
+extended block, and the allocations in `test/test_allocations.jl`.
+
+| claim | asserted | measured |
+|---|---|---|
+| the pulse arrives as the formula sends it | energy within 5e-4 of `∫F²dt`, FWHM within 0.01 fs of 11 fs, peak at x = 0 within 0.02 fs of 85.4 fs | −1.3e-4; 10.9991 fs; −0.007 fs |
+| and travels without loss | ∫F² over [1, 15] µm at 110.4 fs within 1e-4 of the incident energy (step 10 asks 5e-3) | −2.1e-6 |
+| the one-way source and the layers | ∫G² at 110.4 fs under 1e-8 of it; the right layer returns under 1e-10 | 8.5e-10; 2.3e-13 |
+| a linear foil reflects and transmits as its own profile does | R within 0.4% and T within 2% of Fresnel's layer stack of the electrons' profile, averaged over the pulse, for 10, 30, 90 nm | R +0.16%, +0.24%, +0.25%; T +0.36%, +0.49%, +1.0% |
+| and a surface coming at the pulse returns more than it got | 0 ≤ R + T − 1 ≤ 2v of the n_c front | 2.0e-3, 2.4e-3, 2.5e-3 against 4.2e-3, 4.3e-3, 4.4e-3 |
+| the nonlinear budget closes | at a₀ = 20, ξ = 0.972 and 4 nm the field, kinetic, lost and outgoing energy are what came in to 0.5% | balance 0.99693, residual −3.1e-3 |
+| charge | particles conserved to 1e-12 of themselves, counting what left; Gauss's law to round-off | 1.1e-14; 3e-12 of max Eₓ |
+| a Coulomb explosion | energy within 1e-3 while the field falls to 0.41 of the start | −1.4e-4 |
+| the step | allocates nothing at the default chunks on one thread; Float32 data run in Float32; chunks leave the answer and the tallies of what left to the bit, PFC and spline | 0 bytes; 2e-6 mass drift in Float32 |
+| what leaves through the momentum ends | the spline's ringing outside a column's support is not counted as lost | 2e-21 of the electrons and 3e-18 of the ions, the initial tails, against −1.9e-13 and −8.6e-16 before |
+
+**The pulse in vacuum.** `Yee1D`'s one-way source launches minus the function it
+is given, 1.2 cells ahead of it and 1.1e-4 low in amplitude, at 400 cells per
+wavelength and a Courant number of 0.937 (`Δt = 6.25` as, 16 steps per 0.1 fs,
+so that every output time of the study is a step). The phase the pulse
+accumulates over 20 µm against the formula delayed by the flight is 0.0185 rad,
+the source's 1.2 cells; Yee's dispersion relation, `sin(kΔx/2)/Δx =
+sin(ωΔt/2)/Δt`, predicts −2.0e-4 rad of it at this resolution.
+
+**Fresnel.** At `a₀ = 10⁻³` the foil is a cold dielectric with `ε = 1 − n/n_c`,
+but it does not stay the layer it was set up as. With the ions free, it expands
+for the 85 fs before the pulse's peak: the 10 nm foil to several times its
+thickness, so that it reflects 0.823 where the layer would 0.728. Fresnel's
+layer stack of the electrons' own profile, every 2 fs across the pulse and
+weighted by its intensity, accounts for that: the run is within 0.25% of it in R
+and 1% in T at all three thicknesses, and R + T exceeds 1 by 2.0e-3 to 2.5e-3,
+which a front at n_c coming at the pulse at 2.1e-3 c, measured, Doppler-shifts
+back to it. With the ions fixed and the electrons at 10 eV the profile should
+hold, and does not at 2 nm: the electrons at the foil's surfaces heat (below),
+and the 10 nm foil reflects 0.773. At 1 nm it reflects 0.741, T of the 30 and
+90 nm foils is 3.8% and 1.8% under the layer's, and the profile stack is met to
+0.13% in R and 0.4% in T. At 0.5 nm the foil stays the layer: R is 0.7305,
+0.97774 and 0.99995 against the layer's 0.7277, 0.97756 and 0.99994, T is 1.0%,
+0.8% and 0.3% under its 0.2723, 0.02244 and 5.73e-5, and R + T is 1 to 2e-5.
+Those runs are the transparency study's, not the test suite's; the test runs
+the free-ion set at 2 nm.
+
+**The unresolved sheath heats.** A foil at rest on fixed ions keeps its bulk
+temperature on any grid tried, but its surfaces heat where the grid does not
+resolve the Debye length, as a particle code's do: at 10 eV and 40 n_c
+(`λ_D = 0.09` nm) the first 50 nm reach 180 eV in 20 fs at 2 nm and 17 eV at
+0.5 nm; at 1 keV (`λ_D = 0.9` nm) and 2 nm they reach 1.11 keV and stay there.
+The flux-form `x` sweep carries the charge across a face at the upwind cell's
+rate while the momentum sweep pushes each cell with the mean of its two faces'
+fields, so the work the field does and the energy it loses differ by the
+sheath's unresolved structure; a resolved sheath closes the gap. The 10 eV
+foil of 10 nm, all surface, heats to 7 keV by 60 fs at 2 nm.
+
+**The budget.** Between the two probes, two cells inside the absorbing layers,
+the transverse field, `Eₓ`, the particles' kinetic energy, what they carried out
+of the grid of `f` and what the field carried out of the box add up to what came
+in through the left probe to 0.13% at 2 nm (0.06% at 1 nm, 0.31% at 4 nm), and
+what came in is the vacuum run's incident energy to 5e-6. Across the 24 runs of
+the step-10 series at 2 nm with PFC the balance is 0.9983 to 1.0002; the
+cubic-spline variant closes it to 0.47%. The splitting of a relativistic Vlasov–Maxwell
+system was found unstable by Huot et al. (J. Comput. Phys. 185, 512, 2003); the
+conservative form here, whose two sub-flows' compressions cancel on the grid,
+shows no sign of it in these runs.
+
+**Against the C++ code it ports.** `korzhimanov/vlasov-solver`, built from its
+repository, on a case its uniform momentum grid can afford: `a₀ = 2`, 4 n_c,
+100 nm, 6.25 nm cells, fixed ions. It gives T = 0.657, R = 0.326 where this
+module gives 0.644 and 0.335, with first-order splitting, a Courant number of 1
+and the electron density profiles at 67 fs on top of each other over four
+decades.
+
+**Convergence.** At `a₀ = 20` and ξ = 0.972 the transmittance is 0.749, 0.693
+and 0.700 at 4, 2 and 1 nm; 0.719, 0.693 and 0.689 with the momentum cells
+doubled, as set and halved (order 2.5, so 0.006 of Richardson error in the
+reference); 0.695 at half the time step; and 0.705 with the cubic-spline scheme
+for PFC. The 4 nm run is off because its foil arrives at the pulse twice as hot
+and 8 nm wider, the unresolved sheath's heating above; 2 and 1 nm, whose foils
+arrive within 10% of each other, differ by 0.007. The sequence in Δx is not
+monotonic, so it is not extrapolated: the transparency study quotes the 1 nm
+value with the four differences in quadrature, T = 0.700 ± 0.015. These runs
+take hours and are the study's (`D:mptonollowupstep10vasilek`), not the
+test suite's, which pins the budget at 4 nm.
 
 ### The scheme comparison
 
