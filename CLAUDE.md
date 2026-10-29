@@ -39,6 +39,12 @@
   `test/generate_golden.jl`.
 - Units and normalization — `docs/src/normalization.md`.
 
+## Delegation
+
+- Building interactive reports is delegated to subagents: spawn a `sonnet`
+  subagent at `medium` effort for it, rather than writing the report in the main
+  thread.
+
 ## Conventions
 
 - Every PR adds an entry to `CHANGELOG.md` (Keep a Changelog, the current
