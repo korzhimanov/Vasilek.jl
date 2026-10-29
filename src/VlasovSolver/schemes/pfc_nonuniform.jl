@@ -1,16 +1,20 @@
+# The limited slopes of the PFC reconstruction towards the right neighbour `g`
+# (`ϵ⁺`) and from the left one (`ϵ⁻`), bounded by the room to `lo` and `hi`. A
+# cell already past a bound has no room towards it: a compressing flow can lift
+# an average over `hi`, and `-ξ*(hi - f)` would then turn the slope round.
 @inline function _nu_ϵ⁺(f, g, ξ, lo, hi)
     if f < g
-        return min(g - f, ξ*(f - lo))
+        return min(g - f, ξ*max(f - lo, zero(f)))
     else
-        return max(g - f, -ξ*(hi - f))
+        return max(g - f, -ξ*max(hi - f, zero(f)))
     end
 end
 
 @inline function _nu_ϵ⁻(f, g, ξ, lo, hi)
     if f < g
-        return max(f - g, -ξ*(f - lo))
+        return max(f - g, -ξ*max(f - lo, zero(f)))
     else
-        return min(f - g, ξ*(hi - f))
+        return min(f - g, ξ*max(hi - f, zero(f)))
     end
 end
 
