@@ -113,8 +113,8 @@ the collisional relation, in `test/test_dispersion.jl`, which run in a default
 | and what moves it is the scheme | L² falls and entropy rises; f and field converge at third order, 5× and 4× per halving | 7.6×, 6.1× |
 | with a kink in F on the separatrix, the error sits on it | the worst cell within one of the separatrix at two resolutions, converging at first order | on it both times, 1.75× |
 | and the equilibrium is this one | ions built on the Poisson sign the docs used to give hold the reversed field; a potential 10% off the ions' drifts 10× more | E/E₀ = −1.000, 16%; 24×, 27× |
-| a trapped population above f = 1 holds too | within 3% of its peak, now that PFC's bound comes from f₀ | 0.99%, against 43.6% at the old bound |
-| and the old bound is refused rather than run | at fmax = 1 a checked `PFCNonUniform` is refused before the first step; unchecked, it takes f over 30% of its peak away | before the first step; 43.6% |
+| a trapped population above f = 1 holds too | within 3% of its peak, now that PFC's bound comes from f₀ | 0.99%, against 20.8% at the old bound (43.6% before the limiter's guard) |
+| and the old bound is refused rather than run | at fmax = 1 a checked `PFCNonUniform` is refused before the first step; unchecked, it takes f over 15% of its peak away | before the first step; 20.8% |
 | plasma oscillation frequency | ω within 0.2% of Bohm–Gross √(1+3k²), and the cold ωₚ excluded | 0.018%, against 0.57% for cold |
 | nor does that frequency depend on its window | two windows agree within 0.2% | 0.006% |
 | two-stream growth rate, kv₀ = 0.4, 0.6, 0.8 | γ within 3% of the warm kinetic root, and the peak in the right place | 0.63%, 1.95%, 0.09% |
@@ -308,7 +308,10 @@ harness once bounded PFC by. Bounded by `f₀`, as every run now is, it holds to
 turned inside out and took `f` 43.6% of its peak away, without an error.
 `PFCNonUniform` now checks its data as PFC does, and `vlasov_poisson` refuses a
 checked one whose bounds do not hold `f₀` before the first step; built
-unchecked, it reproduces the 43.6%, and the extended suite asserts both. Over
+unchecked, it ran to the same 43.6% until the limiter stopped turning a slope
+round in a cell past `fmax`; it now takes `f` 20.8% away, the bound still
+clipping every slope that would rise towards the peak, and the extended suite
+asserts both. Over
 the two-stream runs carried into saturation and the three equilibria, 3.8
 million calls of the checked schemes stay inside their bounds, sub-steps
 included.
