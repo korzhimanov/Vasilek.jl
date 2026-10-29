@@ -356,7 +356,7 @@ function fresnel_check(l_nm; a0 = 1e-3, dx_nm = 2.0, t2 = 110.4, plasma_um = (-0
     profiles = Dict{Float64, Vector{Float64}}()
     for n in 1:steps_to(meta, t2)
         step!(vm)
-        haskey(marks, n) && (profiles[marks[n]] = density(vm, 1))
+        haskey(marks, n) && (profiles[marks[n]] = VlasovMaxwell1D1P.density(vm, 1))
     end
     F, G = waves(vm)
     T = window_integral(F.^2, meta, 1.0, 15.0)/W_inc
